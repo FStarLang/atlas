@@ -14,7 +14,20 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | --- | --- |
 | H1 crypto spec `TLS13.Crypto.Hybrid.Spec` | **landed** (`75000f8`) |
 | H2 Pulse bindings `TLS13.Crypto.Hybrid` + KAT in `test_crypto` | **landed** (`75000f8`) |
-| H3 … H10 | not started |
+| H3 `kex_group` gains `KexX25519MLKEM768`; `dh_group`; `TLS13.Crypto.Kex.Spec` (D2, `lemma_kex_agreement`) | **landed** (`5494f59`) |
+| H4 `x25519mlkem768(0x11EC)` on the wire; ClientHello finder (1216) | **landed** (`f8bdbe4`) |
+| H5a D4 as a type change: `ks_shared_secret : kex_shared_secret_any`, `optional_shared_secret_exactly` slot | **landed** (`bd04d41`) |
+| H5b D1 fields, hybrid consistency clauses (D3), one key family per selection, `kex_group_of_named_group_full` | **landed** (this commit) |
+| H6 … H10 | not started |
+
+Re-staging made in H5b: the `LocalDeriveSharedSecret` arms stay (EC)DH-only.
+Opening the server arm to the KEM also changes
+`server_x25519_pre_server_hello_projection` and the
+`Some? server_key_share_private` facts that the impl ServerHello writer
+consumes, so each KEM arm moves, with its H6 proof obligations, to the stage
+that makes it reachable: H8 for the client arm (with `server_hello_kex`
+accepting a 1120-byte share) and H9 for the server arm.  Until then a hybrid selection is *unsatisfiable* in the
+server arm (it holds no DH private), so the model never reads it as X25519.
 
 ## 0. RFC 10024 facts the design depends on
 

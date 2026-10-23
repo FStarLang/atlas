@@ -306,6 +306,13 @@ let kex_group_of_named_group (g: GNG.namedGroup) : C.dh_group =
   | GNG.Secp256r1 -> C.KexP256
   | _ -> C.KexX25519
 
+/// The group a `NamedGroup` denotes, including the X25519MLKEM768 hybrid
+/// (RFC 10024).  Agrees with `kex_group_of_named_group` on every other tag.
+let kex_group_of_named_group_full (g: GNG.namedGroup) : C.kex_group =
+  match g with
+  | GNG.X25519mlkem768 -> C.KexX25519MLKEM768
+  | _ -> kex_group_of_named_group g
+
 /// The first `key_share` entry of a ServerHello extension list, accepted only
 /// at a group ATLAS offers and only at that group's exact share length.
 /// First-wins: a leading `key_share` at any other group rejects outright, it

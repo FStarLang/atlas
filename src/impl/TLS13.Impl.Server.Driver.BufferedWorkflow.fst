@@ -130,6 +130,8 @@ fn selection_ready
            CS.server_p256_private = Some (Ghost.reveal server_private_key);
            CS.server_p256_public =
              CryptoSpec.p256_public_from_private (Ghost.reveal server_private_key);
+           CS.server_hybrid_private = None;
+           CS.server_hybrid_share = CS.server_hybrid_absent;
            CS.server_selected_credential =
              cfg.CS.server_credential_identity;
          }

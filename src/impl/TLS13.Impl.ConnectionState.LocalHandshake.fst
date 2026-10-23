@@ -172,6 +172,8 @@ fn try_start_handshake
       CS.start_client_key_share_public = public_key_bytes;
       CS.start_client_p256_private = Some p256_private_key_bytes;
       CS.start_client_p256_public = p256_public_key_bytes;
+      CS.start_client_hybrid_private = None;
+      CS.start_client_hybrid_public = CS.start_hybrid_absent;
       CS.start_cipher_suites =
         st0.CS.cs_model.CS.model_config.CS.config_cipher_suites;
       CS.start_signature_schemes =
