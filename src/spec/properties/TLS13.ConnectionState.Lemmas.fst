@@ -1614,7 +1614,7 @@ let lemma_connection_delta_client_x25519_reachable_shape
                 Some start.start_client_key_share_public);
               assert (client_hello_p256_key_share ch ==
                 Some start.start_client_p256_public);
-              introduce forall (g:C.kex_group).
+              introduce forall (g:C.dh_group).
                 client_hello_kex ch g == Some (start_kex_public start g) /\
                 (match start_kex_private start g with
                  | Some sk -> C.kex_public_from_private g sk == start_kex_public start g

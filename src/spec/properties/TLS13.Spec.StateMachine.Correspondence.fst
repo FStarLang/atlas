@@ -282,7 +282,7 @@ let client_x25519_pre_shared_secret_projection
   let hs = client.cs_model.model_handshake in
   match hs.hs_start, hs.hs_client_hello with
   | Some start, Some ch ->
-    (forall (g:C.kex_group).
+    (forall (g:C.dh_group).
       client_hello_kex ch g == Some (start_kex_public start g) /\
       (match start_kex_private start g with
        | Some client_sk ->

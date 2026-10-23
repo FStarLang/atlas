@@ -3637,7 +3637,7 @@ fn try_copy_kex_share
   (#cm: Ghost.erased GKSE.keyShareEntry_mid)
   requires V.pts_to key_vec 'kv ** GKSE.keyShareEntry_vmatch v0 cm **
            pure (V.is_full_vec key_vec /\ V.length key_vec == 65)
-  returns res: (bool & CryptoSpec.kex_group)
+  returns res: (bool & CryptoSpec.dh_group)
   ensures GKSE.keyShareEntry_vmatch v0 cm **
           (exists* kbytes. V.pts_to key_vec kbytes **
             pure (V.is_full_vec key_vec /\ V.length key_vec == 65 /\
@@ -3781,7 +3781,7 @@ fn scan_sh_key_share
   requires PPVCL.vmatch_vclist
              (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
              ext_lo cext
-  returns res: (V.vec U8.t & bool & CryptoSpec.kex_group)
+  returns res: (V.vec U8.t & bool & CryptoSpec.dh_group)
   ensures PPVCL.vmatch_vclist
             (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
             ext_lo cext **
@@ -3827,7 +3827,7 @@ fn scan_sh_key_share
       let mut failed = false;
       let mut saw_sv = false;
       let mut have_key = false;
-      let mut kgroup = CryptoSpec.KexX25519;
+      let mut kgroup : CryptoSpec.dh_group = CryptoSpec.KexX25519;
       let kacc_ref = GR.alloc (None #RV.sh_kex_share);
       RV.lemma_list_drop_zero cext;
       assert (pure (RV.list_drop (SZ.v 0sz) cext == cext));

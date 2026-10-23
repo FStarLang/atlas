@@ -77,7 +77,7 @@ val lemma_serialize_handshake_finished_len (fin: GFin.finished)
    share width follows it: 32 bytes at X25519, 65 at secp256r1 (RFC 8446 4.2.8.2
    / RFC 8422 5.4.1's uncompressed point).  Both are carried explicitly rather
    than recovered from |key_share| -- the design law at
-   TLS13.Crypto.Spec.kex_group.  Since G2 stage S6.8d callers pass the group
+   TLS13.Crypto.Spec.dh_group.  Since G2 stage S6.8d callers pass the group
    the stored ClientHello's accepted key_share offer names
    ([CM.stored_client_hello_named_group]) together with a share of that group's
    width, so both arms are reachable. *)
@@ -391,7 +391,7 @@ fn process_send_server_hello
 fn process_send_server_hello_serialized
   (s:server)
   (lsh:IM.server_hello)
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (sid_len:SZ.t)
   (#sh:erased GSH.serverHello)
   (#server_random_bytes: erased B.bytes)

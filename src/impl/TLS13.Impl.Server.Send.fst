@@ -889,6 +889,23 @@ let lemma_server_handshake_write_seal_some
       R.fragment = TLS13.Spec.StateMachine.Canonical.sent_tls_inner_plaintext_fragment msg;
     }
 
+
+(* A ServerHello is sent in cleartext, so its seal projection is vacuous.
+   Stated on its own so [process_send_server_hello] does not have to unfold
+   [sent_event_seal_projection] in its (large) context. *)
+let lemma_sent_server_hello_seal_projection
+  (model:CS.connection_model)
+  (sh:GSH.serverHello)
+  (raw:B.bytes)
+  : Lemma (TLS13.Spec.StateMachine.Canonical.sent_event_nonempty_seal_projection
+            model
+            (CS.ConnNetworkEvent {
+              CL.message_direction = CL.Sent;
+              CL.message_value = M.TlsHandshake (M.ServerHello sh);
+            })
+            raw)
+  = ()
+
 fn process_send_server_hello
   (s:server)
   (raw:array U8.t)
@@ -992,6 +1009,7 @@ fn process_send_server_hello
     (CM.sent_server_hello_state 'st0 sh (Ghost.reveal 'raw_bytes));
   CSL.lemma_connection_state_protected_raw_segmented_replay
     (CM.sent_server_hello_state 'st0 sh (Ghost.reveal 'raw_bytes));
+  lemma_sent_server_hello_seal_projection 'st0.CS.cs_model (Ghost.reveal sh) (Ghost.reveal 'raw_bytes);
   CSL.lemma_legal_connection_delta_sent_seal_replay_consistent
     'st0
     (Ghost.reveal delta)
@@ -1081,7 +1099,7 @@ fn process_send_server_hello
 fn process_send_server_hello_serialized
   (s:server)
   (lsh:IM.server_hello)
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (sid_len:SZ.t)
   (#sh:erased GSH.serverHello)
   (#server_random_bytes: erased B.bytes)
@@ -1351,7 +1369,7 @@ fn process_send_server_hello_serialized
 
 #restart-solver
 fn build_server_hello_from_arrays
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (server_random:array U8.t)
   (server_key_share:array U8.t)
   (session_id:array U8.t)

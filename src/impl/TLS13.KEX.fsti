@@ -32,17 +32,17 @@ module U8 = FStar.UInt8
 (** Runtime equality on groups.  Written out rather than relying on structural
     equality so that extraction produces a plain comparison. *)
 inline_for_extraction
-val kex_group_eq (a b:C.kex_group) : r:bool{r <==> a == b}
+val kex_group_eq (a b:C.dh_group) : r:bool{r <==> a == b}
 
 (** The runtime public length of a group, as a machine integer. *)
 inline_for_extraction
-val kex_public_len_sz (g:C.kex_group) : n:SZ.t{SZ.v n == C.kex_public_len g}
+val kex_public_len_sz (g:C.dh_group) : n:SZ.t{SZ.v n == C.kex_public_len g}
 
 (** The abstract "the binding was called and returned [ok]" predicate, agile
     over the group.  Its only consumer is [lemma_kex_shared_call_success]. *)
 noextract
 val kex_shared_call
-  (g:C.kex_group)
+  (g:C.dh_group)
   (sk:B.bytes)
   (pk:B.bytes)
   (shared:B.bytes)
@@ -51,7 +51,7 @@ val kex_shared_call
 
 noextract
 val lemma_kex_shared_call_success
-  (g:C.kex_group)
+  (g:C.dh_group)
   (sk:B.bytes)
   (pk:B.bytes)
   (shared:B.bytes)
@@ -68,13 +68,13 @@ val lemma_kex_shared_call_success
     share is the group's [kex_public_len]-byte prefix, recovered through the
     explicit group tag. *)
 (** The share a peer offering *both* groups contributes to the ECDH at [g]. *)
-let kex_split_share (g:C.kex_group) (x25519_bytes p256_bytes:B.bytes) : B.bytes =
+let kex_split_share (g:C.dh_group) (x25519_bytes p256_bytes:B.bytes) : B.bytes =
   match g with
   | C.KexX25519 -> x25519_bytes
   | C.KexP256 -> p256_bytes
 
 fn kex_shared_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk65: array U8.t)
   (out: array U8.t)
@@ -108,7 +108,7 @@ fn kex_shared_runtime
     Both arms therefore go straight to the raw binding, which already takes
     exactly the width its group requires. *)
 fn kex_shared_split_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk32: array U8.t)
   (pk65: array U8.t)
@@ -149,7 +149,7 @@ fn kex_shared_split_runtime
     untouched, and at P-256 the share fills the buffer so padding is the
     identity. *)
 fn kex_public_from_private_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (out65: array U8.t)
   requires pts_to sk 'sk_bytes **

@@ -319,10 +319,10 @@ let server_hello_p256_key_share (sh:GSH.serverHello) : option C.p256_public =
   server echoed.  Like `negotiated_aead_alg` this is a tag the peer put on the
   wire, not something inferred from the share's length.
 **)
-let kex_group_of_named_group (g:GNG.namedGroup) : C.kex_group =
+let kex_group_of_named_group (g:GNG.namedGroup) : C.dh_group =
   Sem.kex_group_of_named_group g
 
-let negotiated_kex_group (hs:handshake_state) : C.kex_group =
+let negotiated_kex_group (hs:handshake_state) : C.dh_group =
   match hs.hs_server_hello with
   | Some sh ->
     (match Sem.serverHello_key_share_group sh with
@@ -337,7 +337,7 @@ let negotiated_kex_group (hs:handshake_state) : C.kex_group =
   runtime storage agree on; `server_hello_key_share` above is its X25519
   special case, kept for the X25519-only server role.
 **)
-let server_hello_kex (sh:GSH.serverHello) : option (g:C.kex_group & C.kex_public g) =
+let server_hello_kex (sh:GSH.serverHello) : option (g:C.dh_group & C.kex_public g) =
   match Sem.serverHello_kex_share sh with
   | Some (GNG.X25519, k) ->
     if B.length k = 32 then Some (| C.KexX25519, (k <: C.kex_public C.KexX25519) |) else None
@@ -367,18 +367,18 @@ let lemma_server_hello_kex_of_share (sh:GSH.serverHello)
 (** The client's own private/public pair for a group, as offered in its
     ClientHello.  Both pairs are always generated; the negotiated group selects
     which one the ECDH uses. **)
-let start_kex_private (start:handshake_start) (g:C.kex_group) : option C.kex_private =
+let start_kex_private (start:handshake_start) (g:C.dh_group) : option C.kex_private =
   match g with
   | C.KexX25519 -> start.start_client_key_share_private
   | C.KexP256 -> start.start_client_p256_private
 
-let start_kex_public (start:handshake_start) (g:C.kex_group) : C.kex_public g =
+let start_kex_public (start:handshake_start) (g:C.dh_group) : C.kex_public g =
   match g with
   | C.KexX25519 -> start.start_client_key_share_public
   | C.KexP256 -> start.start_client_p256_public
 
 (** The client's offered share for a group, read back off its ClientHello. **)
-let client_hello_kex (ch:GCH.clientHello) (g:C.kex_group) : option (C.kex_public g) =
+let client_hello_kex (ch:GCH.clientHello) (g:C.dh_group) : option (C.kex_public g) =
   match g with
   | C.KexX25519 -> client_hello_key_share ch
   | C.KexP256 -> client_hello_p256_key_share ch
@@ -388,7 +388,7 @@ let client_hello_kex (ch:GCH.clientHello) (g:C.kex_group) : option (C.kex_public
     [server_selected_group] selects which one the ECDH uses. **)
 let server_kex_private
   (selection:server_handshake_selection)
-  (g:C.kex_group)
+  (g:C.dh_group)
   : option C.kex_private
   = match g with
     | C.KexX25519 -> selection.server_key_share_private
@@ -396,14 +396,14 @@ let server_kex_private
 
 let server_kex_public
   (selection:server_handshake_selection)
-  (g:C.kex_group)
+  (g:C.dh_group)
   : C.kex_public g
   = match g with
     | C.KexX25519 -> selection.server_key_share_public
     | C.KexP256 -> selection.server_p256_public
 
 (** The group the server chose, as a [kex_group] rather than a wire tag. **)
-let server_selected_kex_group (selection:server_handshake_selection) : C.kex_group =
+let server_selected_kex_group (selection:server_handshake_selection) : C.dh_group =
   kex_group_of_named_group selection.server_selected_group
 
 (** The X25519 instances of the two accessors are the legacy fields, definitionally.
@@ -423,7 +423,7 @@ let lemma_server_kex_x25519_is_legacy (selection:server_handshake_selection)
     [lemma_start_kex_public_from_private]. **)
 let lemma_server_kex_public_from_private
   (selection:server_handshake_selection)
-  (g:C.kex_group)
+  (g:C.dh_group)
   : Lemma
       (requires server_selection_key_share_consistent selection /\
                 Some? (server_kex_private selection g))
@@ -1524,7 +1524,7 @@ let handshake_start_key_share_consistent (start:handshake_start) : prop =
 (** [handshake_start_key_share_consistent] states the private/public agreement
     per group; this is its group-dispatched reading, which is what the ECDH
     implementation needs once the negotiated group has selected a keypair. **)
-let lemma_start_kex_public_from_private (start:handshake_start) (g:C.kex_group)
+let lemma_start_kex_public_from_private (start:handshake_start) (g:C.dh_group)
   : Lemma
       (requires handshake_start_key_share_consistent start /\
                 Some? (start_kex_private start g))

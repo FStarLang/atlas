@@ -274,7 +274,7 @@ let offered_share = C.kex_public_any
 /// The key-exchange group a `NamedGroup` denotes.  ATLAS offers exactly two;
 /// any other group is rejected before this is consulted (`sh_find_kex_share`
 /// returns `None` for it), so the catch-all is never the negotiated answer.
-let kex_group_of_named_group (g: GNG.namedGroup) : C.kex_group =
+let kex_group_of_named_group (g: GNG.namedGroup) : C.dh_group =
   match g with
   | GNG.Secp256r1 -> C.KexP256
   | _ -> C.KexX25519

@@ -151,7 +151,7 @@ let client_hello_session_id_len_for (m:GCH.clientHello) : SZ.t =
    message with no X25519 offer necessarily carried a well-formed secp256r1
    one. *)
 noextract
-let client_hello_kex_group_for (m:GCH.clientHello) : CryptoSpec.kex_group =
+let client_hello_kex_group_for (m:GCH.clientHello) : CryptoSpec.dh_group =
   if Some? (Sem.clientHello_key_share_x25519 m)
   then CryptoSpec.KexX25519
   else CryptoSpec.KexP256
@@ -627,7 +627,7 @@ let stored_client_hello_session_id (st:CS.connection_state)
    stored ClientHello is exactly what
    [Repr.client_hello_metadata_exactly] holds in that case. *)
 noextract
-let stored_client_hello_kex_group (st:CS.connection_state) : CryptoSpec.kex_group
+let stored_client_hello_kex_group (st:CS.connection_state) : CryptoSpec.dh_group
   = match st.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
     | Some ch -> client_hello_kex_group_for ch
     | None -> CryptoSpec.KexX25519
@@ -637,12 +637,12 @@ let stored_client_hello_kex_group (st:CS.connection_state) : CryptoSpec.kex_grou
    the TLS13.Crypto.Spec design law the group is an explicit tag throughout, so
    this conversion is total in both directions and never inspects a share. *)
 noextract
-let named_group_of_kex_group (g:CryptoSpec.kex_group) : GNG.namedGroup
+let named_group_of_kex_group (g:CryptoSpec.dh_group) : GNG.namedGroup
   = match g with
     | CryptoSpec.KexX25519 -> GNG.X25519
     | CryptoSpec.KexP256 -> GNG.Secp256r1
 
-let lemma_kex_group_of_named_group_inv (g:CryptoSpec.kex_group)
+let lemma_kex_group_of_named_group_inv (g:CryptoSpec.dh_group)
   : Lemma (ensures Sem.kex_group_of_named_group (named_group_of_kex_group g) == g)
           [SMTPat (named_group_of_kex_group g)]
   = ()

@@ -113,7 +113,7 @@ type server_hello = {
      `KeyShareEntry` and says which prefix is the logical share; it is never
      recovered from the buffer's length. *)
   server_hello_key_share: V.vec U8.t;
-  server_hello_kex_group: CryptoSpec.kex_group;
+  server_hello_kex_group: CryptoSpec.dh_group;
   server_hello_cipher_suite: U16.t;
 }
 

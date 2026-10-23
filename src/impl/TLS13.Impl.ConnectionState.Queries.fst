@@ -6969,7 +6969,7 @@ fn read_client_hello_kex_group
   (c:connection_state)
   (#st0:erased CS.connection_state)
   requires connection_exactly c st0
-  returns g: CryptoSpec.kex_group
+  returns g: CryptoSpec.dh_group
   ensures connection_exactly c st0 **
           pure (g == stored_client_hello_kex_group (Ghost.reveal st0))
 {

@@ -807,18 +807,18 @@ let lemma_sh_handshake_conv_fwd (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: G
 #pop-options
 
 (* ---- runtime views of the negotiated group ----
-   The mirror stores the group as a [CryptoSpec.kex_group]
+   The mirror stores the group as a [CryptoSpec.dh_group]
    ([is_valid_server_hello] pins it against [Sem.serverHello_kex_share]), so the
    writer recovers both the wire tag and the share width from it at run time
    rather than having either threaded in as a constant. *)
 inline_for_extraction
-let sh_named_group_of_kex (g: CryptoSpec.kex_group) : GNG.namedGroup =
+let sh_named_group_of_kex (g: CryptoSpec.dh_group) : GNG.namedGroup =
   match g with
   | CryptoSpec.KexX25519 -> GNG.X25519
   | CryptoSpec.KexP256 -> GNG.Secp256r1
 
 inline_for_extraction
-let sh_share_len_sz (g: CryptoSpec.kex_group) : n:SZ.t{SZ.v n == CryptoSpec.kex_public_len g} =
+let sh_share_len_sz (g: CryptoSpec.dh_group) : n:SZ.t{SZ.v n == CryptoSpec.kex_public_len g} =
   match g with
   | CryptoSpec.KexX25519 -> 32sz
   | CryptoSpec.KexP256 -> 65sz

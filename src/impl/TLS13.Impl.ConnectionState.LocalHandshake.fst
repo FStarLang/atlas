@@ -4781,7 +4781,7 @@ fn derive_and_install_client_handshake_read_traffic_keys
 fn load_kex_private
   (x25519_slot:optional_fixed_bytes)
   (p256_slot:optional_fixed_bytes)
-  (g:CryptoSpec.kex_group)
+  (g:CryptoSpec.dh_group)
   (out:array U8.t)
   (#xspec #pspec:erased (option (B.bytes_of_len 32)))
   requires optional_fixed_bytes_exactly x25519_slot 32 xspec **

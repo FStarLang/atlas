@@ -175,6 +175,8 @@ ROOT_FILES = \
   src/impl/TLS13.Impl.Client.Driver.fst \
   src/impl/TLS13.Impl.Server.Driver.fst \
   src/spec/properties/TLS13.Spec.InternalEvent.Baseline.fst \
+  src/spec/assumptions/TLS13.Crypto.Kex.Spec.fst \
+  src/impl/TLS13.Crypto.Hybrid.fst \
   common/Common.ProtocolDriver.fst
 
 # ── TLS wire parsers/serializers: QuackyDucky → F* → KaRaMeL pipeline ──────

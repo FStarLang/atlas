@@ -175,22 +175,37 @@ val lemma_p256_shared_agreement:
 type kex_group =
   | KexX25519
   | KexP256
+  | KexX25519MLKEM768
 
-let kex_public_len (g:kex_group) : n:nat{n == 32 \/ n == 65} =
+(**
+  The (EC)DH groups: a single private key, a public key that does not depend
+  on the peer, and a symmetric `kex_shared`.  The X25519MLKEM768 hybrid (RFC
+  10024) is not of this shape -- the server's share is an encapsulation to
+  the client's -- and its direction-explicit interface, together with a
+  group-generic one, lives in [TLS13.Crypto.Kex.Spec].
+**)
+let is_dh_group (g:kex_group) : bool =
+  match g with
+  | KexX25519 | KexP256 -> true
+  | KexX25519MLKEM768 -> false
+
+type dh_group = g:kex_group{is_dh_group g}
+
+let kex_public_len (g:dh_group) : n:nat{n == 32 \/ n == 65} =
   match g with
   | KexX25519 -> 32
   | KexP256 -> 65
 
 type kex_private = bytes_of_len 32
-type kex_public (g:kex_group) = bytes_of_len (kex_public_len g)
+type kex_public (g:dh_group) = bytes_of_len (kex_public_len g)
 type kex_shared_secret = x25519_shared_secret
 
-let kex_public_from_private (g:kex_group) (sk:B.bytes) : GTot (kex_public g) =
+let kex_public_from_private (g:dh_group) (sk:B.bytes) : GTot (kex_public g) =
   match g with
   | KexX25519 -> x25519_public_from_private sk
   | KexP256 -> p256_public_from_private sk
 
-let kex_shared (g:kex_group) (sk:B.bytes) (pk:B.bytes) : GTot (option kex_shared_secret) =
+let kex_shared (g:dh_group) (sk:B.bytes) (pk:B.bytes) : GTot (option kex_shared_secret) =
   match g with
   | KexX25519 -> x25519_shared sk pk
   | KexP256 -> p256_shared sk pk
@@ -236,7 +251,7 @@ let lemma_pad_share_65_injective (k1 k2:kex_public_any)
     assert (Seq.equal k2 (Seq.slice (pad_share_65 k2) 0 (B.length k2)))
 
 let lemma_kex_shared_agreement
-  (g:kex_group)
+  (g:dh_group)
   (client_sk server_sk:kex_private)
   (client_pub server_pub:kex_public g)
   : Lemma

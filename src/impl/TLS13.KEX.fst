@@ -13,13 +13,13 @@ module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
 
-let kex_group_eq (a b:C.kex_group) : r:bool{r <==> a == b} =
+let kex_group_eq (a b:C.dh_group) : r:bool{r <==> a == b} =
   match a, b with
   | C.KexX25519, C.KexX25519 -> true
   | C.KexP256, C.KexP256 -> true
   | _, _ -> false
 
-let kex_public_len_sz (g:C.kex_group) : n:SZ.t{SZ.v n == C.kex_public_len g} =
+let kex_public_len_sz (g:C.dh_group) : n:SZ.t{SZ.v n == C.kex_public_len g} =
   match g with
   | C.KexX25519 -> 32sz
   | C.KexP256 -> 65sz
@@ -75,7 +75,7 @@ let lemma_pad_share_65_from_zeroed_prefix_copy
       (fun _ -> lemma_pad_share_65_zeroed_tail old out pub)
 
 fn kex_shared_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk65: array U8.t)
   (out: array U8.t)
@@ -123,7 +123,7 @@ fn kex_shared_runtime
 }
 
 fn kex_shared_split_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk32: array U8.t)
   (pk65: array U8.t)
@@ -167,7 +167,7 @@ fn kex_shared_split_runtime
 }
 
 fn kex_public_from_private_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (out65: array U8.t)
   requires pts_to sk 'sk_bytes **

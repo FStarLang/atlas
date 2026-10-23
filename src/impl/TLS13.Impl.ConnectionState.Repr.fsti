@@ -79,7 +79,7 @@ noeq
 type kex_share_storage = {
   present: box bool;
   bytes: V.vec U8.t;
-  group: box CryptoSpec.kex_group;
+  group: box CryptoSpec.dh_group;
 }
 
 noeq
@@ -181,7 +181,7 @@ type handshake_message_storage = {
      and its scalars cannot be rewritten.  Unlike the other metadata this one is
      not recoverable from the stored bytes at all -- an all-zero 32-byte X25519
      slot is a legal share -- so the parse path writes it. *)
-  client_hello_kex_group: box CryptoSpec.kex_group;
+  client_hello_kex_group: box CryptoSpec.dh_group;
   server_hello: box (option IM.server_hello);
   encrypted_extensions: box (option IM.encrypted_extensions);
   certificate: box (option IM.certificate_msg);
@@ -993,7 +993,7 @@ let client_hello_metadata_exactly
   (cipher_suites_len_box:box SZ.t)
   (signature_schemes_len_box:box SZ.t)
   (session_id_len_box:box SZ.t)
-  (kex_group_box:box CryptoSpec.kex_group)
+  (kex_group_box:box CryptoSpec.dh_group)
   (spec:option GCH.clientHello)
   : slprop =
   exists* has_server_name server_name_len cipher_suites_len signature_schemes_len
@@ -1113,7 +1113,7 @@ let handshake_messages_exactly
 // (GSH.serverHello, ...) into the C bundle as undefined struct members.
 noextract
 let server_kex (hs:CS.handshake_state)
-  : option (g:CryptoSpec.kex_group & CryptoSpec.kex_public g) =
+  : option (g:CryptoSpec.dh_group & CryptoSpec.kex_public g) =
   match hs.CS.hs_server_hello with
   | Some sh -> CS.server_hello_kex sh
   | None -> None

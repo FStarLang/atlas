@@ -339,7 +339,7 @@ fn free_client_hello_metadata
   (cipher_suites_len_box:box SZ.t)
   (signature_schemes_len_box:box SZ.t)
   (session_id_len_box:box SZ.t)
-  (kex_group_box:box CryptoSpec.kex_group)
+  (kex_group_box:box CryptoSpec.dh_group)
   requires exists* spec.
     client_hello_metadata_exactly
       has_server_name_box
@@ -673,7 +673,7 @@ fn alloc_empty_kex_share ()
 {
   let present = Box.alloc false;
   let bytes = V.alloc 0uy 65sz;
-  let group = Box.alloc CryptoSpec.KexX25519;
+  let group = Box.alloc (CryptoSpec.KexX25519 <: CryptoSpec.dh_group);
   let slot = { present; bytes; group };
   rewrite (Box.pts_to present false) as (Box.pts_to slot.present false);
   rewrite (Box.pts_to group CryptoSpec.KexX25519) as
@@ -1626,8 +1626,8 @@ fn alloc_handshake_messages_empty ()
   let client_hello_cipher_suites_len : box SZ.t = Box.alloc 0sz;
   let client_hello_signature_schemes_len : box SZ.t = Box.alloc 0sz;
   let client_hello_session_id_len : box SZ.t = Box.alloc 0sz;
-  let client_hello_kex_group : box CryptoSpec.kex_group =
-    Box.alloc CryptoSpec.KexX25519;
+  let client_hello_kex_group : box CryptoSpec.dh_group =
+    Box.alloc (CryptoSpec.KexX25519 <: CryptoSpec.dh_group);
   rewrite (client_hello_slot_exactly client_hello_slot.ch_present client_hello_slot.ch_value None) as
     (client_hello_slot_exactly client_hello_present client_hello None);
   let server_hello : box (option IM.server_hello) = Box.alloc (None #IM.server_hello);
