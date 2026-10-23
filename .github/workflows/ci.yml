@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches:
-    - agentic
+    - main
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -38,7 +39,7 @@ jobs:
   devcontainer:
     name: Build devcontainer (cached)
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,9 +74,7 @@ jobs:
             'cd /workspaces/agentic-tls && find . -mindepth 1 -maxdepth 1 \
                ! -name tools ! -name third_party -exec rm -rf {} +'
           docker exec -u root prep rm -rf /workspaces/agentic-tls/tools/everparse/.git
-          # hacl-pulse is consumed only through its dist/ and c/ directories.
-          docker exec -u root prep rm -rf /workspaces/agentic-tls/tools/hacl-pulse/.git \
-            /workspaces/agentic-tls/tools/hacl-pulse/obj
+          docker exec -u root prep rm -rf /workspaces/agentic-tls/tools/hacl-pulse/.git
           docker commit -c 'WORKDIR /workspaces/agentic-tls' prep agentic-tls-ci
           docker rm -f prep
           docker save agentic-tls-ci | gzip > devcontainer.tgz
