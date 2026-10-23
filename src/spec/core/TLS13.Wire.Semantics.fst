@@ -155,6 +155,28 @@ let rec ch_find_key_share_secp256r1 (l: list GECH.extensionClientHello)
 let clientHello_key_share_secp256r1 (ch: GCH.clientHello) : option (Seq.seq U8.t) =
   ch_find_key_share_secp256r1 (ch.GCH.extensions <: list GECH.extensionClientHello)
 
+/// The X25519MLKEM768 (RFC 10024) entry of the ClientHello key_share
+/// extension: ML-KEM-768 encapsulation key followed by an X25519 public key.
+let rec kse_list_find_x25519mlkem768 (l: list GKE.keyShareEntry)
+  : Tot (option (Seq.seq U8.t)) (decreases l)
+  = match l with
+    | [] -> None
+    | entry :: tl ->
+      if GNG.X25519mlkem768? entry.GKE.group
+      then Some (entry.GKE.key_exchange <: Seq.seq U8.t)
+      else kse_list_find_x25519mlkem768 tl
+
+let rec ch_find_key_share_x25519mlkem768 (l: list GECH.extensionClientHello)
+  : Tot (option (Seq.seq U8.t)) (decreases l)
+  = match l with
+    | [] -> None
+    | GECH.Extension_data_key_share ks :: _ ->
+      kse_list_find_x25519mlkem768 (ks <: list GKE.keyShareEntry)
+    | _ :: tl -> ch_find_key_share_x25519mlkem768 tl
+
+let clientHello_key_share_x25519mlkem768 (ch: GCH.clientHello) : option (Seq.seq U8.t) =
+  ch_find_key_share_x25519mlkem768 (ch.GCH.extensions <: list GECH.extensionClientHello)
+
 /// Walk the ClientHello extensions for the first signature_algorithms ext.
 let rec ch_find_sig_algs (l: list GECH.extensionClientHello)
   : Tot (option (list GSS.signatureScheme)) (decreases l)
@@ -266,6 +288,11 @@ let named_group_share_len (g: GNG.namedGroup) : nat =
   | GNG.X25519 -> 32
   | GNG.Secp256r1 -> 65
   | _ -> 0
+
+/// The hybrid's shares differ by direction (RFC 10024 section 3): the client
+/// sends an encapsulation key, the server a ciphertext.
+let x25519mlkem768_client_share_len : nat = 1216
+let x25519mlkem768_server_share_len : nat = 1120
 
 /// A share ATLAS can hold in its 65-byte key-share buffers: exactly the widths
 /// of the two groups it offers, so that `C.pad_share_65` applies directly.

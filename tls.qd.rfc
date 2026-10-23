@@ -77,11 +77,13 @@ enum /*@open*/ {
 } CipherSuite;
 
 enum /*@open*/ {
-    /* [covered: x25519 and secp256r1; others round-trip as unsupported].
-       The ClientHello carries a key share for both, so a server that supports
-       only one of them can proceed without a HelloRetryRequest. */
+    /* [covered: x25519, secp256r1 and the RFC 10024 hybrid x25519mlkem768;
+       others round-trip as unsupported].  The ClientHello carries a key share
+       for each, so a server that supports only one of them can proceed
+       without a HelloRetryRequest. */
     secp256r1(0x0017),
     x25519(0x001D),
+    x25519mlkem768(0x11EC),
     (0xFFFF)
 } NamedGroup;
 
