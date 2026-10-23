@@ -38,7 +38,7 @@ let ev_recv_ch (ch:GCH.clientHello) : CS.conn_event =
 let ev_select (sel:CS.server_handshake_selection) : CS.conn_event =
   CS.ConnLocalEvent (CS.LocalSelectServerParameters sel)
 
-let ev_derive (shared:C.x25519_shared_secret) : CS.conn_event =
+let ev_derive (shared:C.kex_shared_secret_any) : CS.conn_event =
   CS.ConnLocalEvent (CS.LocalDeriveSharedSecret shared)
 
 let ev_sent_sh (sh:GSH.serverHello) : CS.conn_event =
@@ -76,12 +76,12 @@ let ev_fin (sf:GFin.finished) : CS.conn_event =
 
 (* The fixed cleartext prefix, as a pure list (matches PWSeg's definition). *)
 let prefix (ch:GCH.clientHello) (sel:CS.server_handshake_selection)
-           (shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+           (shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   : list CS.conn_event =
   PWSeg.server_cleartext_handshake_prefix_events ch sel shared sh
 
 let prefix_unfold (ch:GCH.clientHello) (sel:CS.server_handshake_selection)
-                  (shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+                  (shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   : Lemma (prefix ch sel shared sh ==
            [ ev_start; ev_recv_ch ch; ev_select sel; ev_derive shared; ev_sent_sh sh ])
   = ()
@@ -451,7 +451,7 @@ let has_read_snoc_mono (region:list CS.conn_event) (x:CS.conn_event)
 #restart-solver
 let lemma_chr_log
   (m:CS.connection_model) (log:list CS.conn_event)
-  (sel:CS.server_handshake_selection) (shared:C.x25519_shared_secret)
+  (sel:CS.server_handshake_selection) (shared:C.kex_shared_secret_any)
   : Lemma
       (requires
         log_shape m log /\
@@ -915,7 +915,7 @@ let lemma_server_canonical_appdata_exact_spine
        log_has_no_received_ccs s.CS.cs_event_log)
     (ensures
        (exists (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-          (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+          (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
           (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
           (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
           (region:list CS.conn_event) (tail:list CS.conn_event).
@@ -960,7 +960,7 @@ let lemma_server_canonical_appdata_exact_spine
         let sf = Some?.v hs.CS.hs_server_finished in
         let ch = sel.CS.server_selected_client_hello in
         introduce exists (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-          (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+          (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
           (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
           (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
           (region:list CS.conn_event) (tail:list CS.conn_event).

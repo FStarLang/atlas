@@ -200,6 +200,28 @@ type kex_private = bytes_of_len 32
 type kex_public (g:dh_group) = bytes_of_len (kex_public_len g)
 type kex_shared_secret = x25519_shared_secret
 
+(**
+  The `(EC)DHE` input to HKDF-Extract for any group: 32 bytes for X25519 and
+  P-256, 64 for the X25519MLKEM768 hybrid (RFC 10024).  The key schedule is
+  defined over arbitrary bytes, so the model carries the secret at this type
+  and the negotiated group decides its width.
+**)
+type kex_shared_secret_any = s:B.bytes{B.length s == 32 \/ B.length s == 64}
+
+(** F* has no subtyping under [option], so a group-specific result is widened
+    explicitly before it is compared with a model-level secret. *)
+let widen_secret (#n:nat{n == 32 \/ n == 64}) (o:option (bytes_of_len n))
+  : option kex_shared_secret_any =
+  match o with
+  | Some s -> Some s
+  | None -> None
+
+let lemma_widen_secret (#n:nat{n == 32 \/ n == 64}) (o:option (bytes_of_len n))
+  : Lemma (Some? (widen_secret o) == Some? o /\
+           (Some? o ==> (Some?.v (widen_secret o) <: B.bytes) == (Some?.v o <: B.bytes)))
+          [SMTPat (widen_secret o)]
+  = ()
+
 let kex_public_from_private (g:dh_group) (sk:B.bytes) : GTot (kex_public g) =
   match g with
   | KexX25519 -> x25519_public_from_private sk

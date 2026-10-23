@@ -807,12 +807,47 @@ let lemma_traffic_key_material_match_present_iff
   | false, Some m -> ()
   | false, None -> ()
 
+(* The runtime keeps the (EC)DHE shared secret in a 32-byte slot.  The model
+   carries it at [kex_shared_secret_any] (32 or 64 bytes, see
+   docs/hybrid-kem-plan.md D4); until the 64-byte X25519MLKEM768 secret is
+   reachable (H7) every derived secret is 32 bytes and this projection is the
+   identity on it. *)
+let shared_secret_32 (o:option TLS13.Crypto.Spec.kex_shared_secret_any)
+  : option TLS13.Crypto.Spec.secret =
+  match o with
+  | Some s -> if B.length s = 32 then Some s else None
+  | None -> None
+
+let lemma_shared_secret_32 (o:option TLS13.Crypto.Spec.kex_shared_secret_any)
+  : Lemma ((None? o ==> shared_secret_32 o == None) /\
+           (Some? o /\ B.length (Some?.v o) == 32 ==>
+            shared_secret_32 o == Some (Some?.v o)) /\
+           (Some? (shared_secret_32 o) ==> o == Some (Some?.v (shared_secret_32 o) <: B.bytes)))
+          [SMTPat (shared_secret_32 o)]
+  = ()
+
+(* The (EC)DHE shared-secret slot.  Same layout as [optional_secret_exactly],
+   indexed by the model's group-independent secret; the runtime width is
+   currently 32 bytes, recorded as the last conjunct. *)
+let optional_shared_secret_exactly
+  ([@@@mkey] slot:optional_secret_storage)
+  (spec:option TLS13.Crypto.Spec.kex_shared_secret_any)
+  : slprop =
+  exists* present secret.
+    Box.pts_to slot.present present **
+    V.pts_to slot.secret secret **
+    pure (V.is_full_vec slot.secret /\
+          V.length slot.secret == 32 /\
+          B.length secret == 32 /\
+          optional_fixed_bytes_match present secret 32 (shared_secret_32 spec) /\
+          (Some? spec ==> B.length (Some?.v spec) == 32))
+
 let key_schedule_exactly
   ([@@@mkey] keys:key_schedule_storage)
   (spec:CS.key_schedule_state)
   : slprop =
   optional_secret_exactly keys.early_secret spec.CS.ks_early_secret **
-  optional_secret_exactly keys.shared_secret spec.CS.ks_shared_secret **
+  optional_shared_secret_exactly keys.shared_secret spec.CS.ks_shared_secret **
   optional_secret_exactly keys.handshake_secret spec.CS.ks_handshake_secret **
   optional_secret_exactly keys.master_secret spec.CS.ks_master_secret **
   traffic_key_material_exactly keys.client_handshake_traffic spec.CS.ks_client_handshake_traffic **
@@ -829,6 +864,16 @@ fn store_optional_secret
   requires (exists* prev. optional_secret_exactly slot prev) **
            ArrPts.pts_to src src_secret
   ensures optional_secret_exactly slot (Some (Ghost.reveal src_secret)) **
+          ArrPts.pts_to src src_secret
+
+fn store_optional_shared_secret
+  (slot:optional_secret_storage)
+  (src:array U8.t)
+  (#src_secret:erased TLS13.Crypto.Spec.secret)
+  requires (exists* prev. optional_shared_secret_exactly slot prev) **
+           ArrPts.pts_to src src_secret
+  ensures optional_shared_secret_exactly slot
+            (Some (Ghost.reveal src_secret <: TLS13.Crypto.Spec.kex_shared_secret_any)) **
           ArrPts.pts_to src src_secret
 
 fn store_traffic_key_material

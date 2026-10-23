@@ -143,7 +143,7 @@ let updated_traffic_key_material
     (K.application_traffic_secret_update old.traffic_secret)
 type key_schedule_state = {
   ks_early_secret: option C.secret;
-  ks_shared_secret: option C.x25519_shared_secret;
+  ks_shared_secret: option C.kex_shared_secret_any;
   ks_handshake_secret: option C.secret;
   ks_master_secret: option C.secret;
   ks_client_handshake_traffic: option traffic_key_material;
@@ -494,7 +494,7 @@ type local_event =
   | LocalStartHandshake of handshake_start
   | LocalStartServer
   | LocalSelectServerParameters of server_handshake_selection
-  | LocalDeriveSharedSecret of C.x25519_shared_secret
+  | LocalDeriveSharedSecret of C.kex_shared_secret_any
   | LocalInstallTrafficKeys of traffic_key_install
   | LocalInstallTrafficKeysForRole of role_traffic_key_install
   | LocalValidateCertificate of X.peer_identity
@@ -724,7 +724,7 @@ let application_record_keys_installed_for_role
 let derive_shared_secret_model
   (model:connection_model)
   (hs:handshake_state)
-  (shared:C.x25519_shared_secret)
+  (shared:C.kex_shared_secret_any)
   : GTot connection_model =
   let early = K.early_secret B.empty in
   let handshake = K.handshake_secret early shared in
@@ -1720,7 +1720,7 @@ let legal_local_event (model:connection_model) (ev:local_event) : GTot prop =
           (match start_kex_private start g with
            | Some sk ->
              C.kex_public_from_private g sk == start_kex_public start g /\
-             C.kex_shared g sk server_share == Some shared
+             C.widen_secret (C.kex_shared g sk server_share) == Some shared
            | None -> False)
         | None -> False)
      | _, _ -> False)
@@ -1740,7 +1740,7 @@ let legal_local_event (model:connection_model) (ev:local_event) : GTot prop =
         match server_kex_private selection g with
         | Some sk ->
           (match client_hello_kex selection.server_selected_client_hello g with
-           | Some k -> C.kex_shared g sk k == Some shared
+           | Some k -> C.widen_secret (C.kex_shared g sk k) == Some shared
            | None -> False)
         | None -> False)
      | None -> False)

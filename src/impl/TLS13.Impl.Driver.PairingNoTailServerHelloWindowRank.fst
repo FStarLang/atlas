@@ -66,7 +66,7 @@ let lemma_server_hello_window_after_server_cleartext_prefix_fresh
   (model0:CS.connection_model)
   (ch:GCH.clientHello)
   (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret)
+  (server_shared:C.kex_shared_secret_any)
   (sh:GSH.serverHello)
   (model1:CS.connection_model)
   (model2:CS.connection_model)

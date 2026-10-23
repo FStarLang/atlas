@@ -109,8 +109,8 @@ let lemma_paired_x25519_key_shares_nonready
            assert (sh_ks == server_kex_public selection g);
            assert (C.kex_public_from_private g client_sk == start_kex_public start g);
            assert (C.kex_public_from_private g server_sk == server_kex_public selection g);
-           assert (C.kex_shared g client_sk sh_ks == Some client_shared);
-           assert (C.kex_shared g server_sk ch_ks == Some server_shared);
+           assert (C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared);
+           assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
            assert (negotiated_aead_alg client_hs == negotiated_aead_alg server_hs)
          | _, _, _ -> assert False)
       | None -> assert False))
@@ -193,8 +193,8 @@ let lemma_paired_x25519_key_shares_nonready_cf
            assert (sh_ks == server_kex_public selection g);
            assert (C.kex_public_from_private g client_sk == start_kex_public start g);
            assert (C.kex_public_from_private g server_sk == server_kex_public selection g);
-           assert (C.kex_shared g client_sk sh_ks == Some client_shared);
-           assert (C.kex_shared g server_sk ch_ks == Some server_shared);
+           assert (C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared);
+           assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
            assert (negotiated_aead_alg client_hs == negotiated_aead_alg server_hs)
          | _, _, _ -> assert False)
       | None -> assert False))

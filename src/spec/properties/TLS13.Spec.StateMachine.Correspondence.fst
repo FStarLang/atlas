@@ -239,8 +239,8 @@ let paired_x25519_key_shares
             sh_ks == server_kex_public selection g /\
             C.kex_public_from_private g client_sk == start_kex_public start g /\
             C.kex_public_from_private g server_sk == server_kex_public selection g /\
-            C.kex_shared g client_sk sh_ks == Some client_shared /\
-            C.kex_shared g server_sk ch_ks == Some server_shared /\
+            C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared /\
+            C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared /\
             // The two endpoints negotiated the same AEAD algorithm.  Both read it
             // off their own stored ServerHello; the server's is the message it
             // sent and the client's is the message it received, so this holds for
@@ -269,7 +269,7 @@ let client_x25519_key_share_projection
          | Some ch_ks ->
           ch_ks == start_kex_public start g /\
           C.kex_public_from_private g client_sk == start_kex_public start g /\
-          C.kex_shared g client_sk sh_ks == Some shared
+          C.widen_secret (C.kex_shared g client_sk sh_ks) == Some shared
          | None -> False)
        | None -> False)
      | None ->
@@ -344,7 +344,7 @@ let server_x25519_key_share_projection
         (* The selection agrees with itself on every group it carries a keypair
            for. *)
         server_selection_key_share_consistent selection /\
-        C.kex_shared g server_sk ch_ks == Some shared
+        C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared
        | _, _ -> False)
      | None ->
       False)
@@ -370,7 +370,7 @@ let server_x25519_pre_server_hello_projection
           selection.server_selected_client_hello == ch /\
           C.kex_public_from_private g server_sk == server_kex_public selection g /\
           server_selection_key_share_consistent selection /\
-          C.kex_shared g server_sk ch_ks == Some shared
+          C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared
         | None -> False)
      | None ->
        False)

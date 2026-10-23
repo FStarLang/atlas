@@ -547,7 +547,7 @@ let server_prefix_transcript (ch:GCH.clientHello) (sh:GSH.serverHello) : GTot B.
 let lemma_server_prefix_model
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -704,7 +704,7 @@ let rec lemma_region_preserves_transcript_received
 let lemma_client_prefix_model
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -832,7 +832,7 @@ let app_empty_l (a b:B.bytes)
 let lemma_server_prefix_sent_bytes
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -936,7 +936,7 @@ let lemma_server_prefix_sent_bytes
 let lemma_server_prefix_received_bytes
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1027,7 +1027,7 @@ let lemma_server_prefix_received_bytes
 let lemma_client_prefix_sent_bytes
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1116,7 +1116,7 @@ let lemma_client_prefix_sent_bytes
 let lemma_client_prefix_received_bytes
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1811,7 +1811,7 @@ let lemma_prepend_redundant_sr_install_received
 let lemma_server_prefix_model_recv
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1893,7 +1893,7 @@ let lemma_server_prefix_model_recv
 let lemma_client_prefix_model_sent
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -2353,7 +2353,7 @@ let lemma_client_side_cf (s:sysp)
   reveal_opaque (`%SFInv.client_normalized_appdata_exact_spine)
     SFInv.client_normalized_appdata_exact_spine;
   eliminate exists (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-                   (client_shared:C.x25519_shared_secret)
+                   (client_shared:C.kex_shared_secret_any)
                    (region:list CS.conn_event)
                    (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
                    (cv_validate:CS.local_event) (cv:GCV.certificateVerify)
@@ -2514,7 +2514,7 @@ let lemma_server_side_cf (s:sysp)
   assert (SCShape.log_has_no_received_ccs s.server.CS.cs_event_log);
   SCShape.lemma_server_canonical_appdata_exact_spine cfg_s s.server;
   eliminate exists (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-                   (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+                   (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
                    (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
                    (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
                    (region:list CS.conn_event) (tail:list CS.conn_event).

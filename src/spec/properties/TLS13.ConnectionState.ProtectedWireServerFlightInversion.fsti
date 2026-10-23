@@ -166,7 +166,7 @@ let client_normalized_appdata_spine_body
   (client:CS.connection_state)
   (start:CS.handshake_start)
   (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (region:list CS.conn_event)
   (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
   (cv_validate:CS.local_event)
@@ -205,7 +205,7 @@ let client_normalized_appdata_spine_body
 let client_normalized_appdata_exact_spine (client:CS.connection_state) : prop =
   exists (start:CS.handshake_start)
          (ch:GCH.clientHello) (sh:GSH.serverHello)
-         (client_shared:C.x25519_shared_secret)
+         (client_shared:C.kex_shared_secret_any)
          (region:list CS.conn_event)
          (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
          (cv_validate:CS.local_event)

@@ -60,6 +60,32 @@ fn store_optional_secret
   fold (optional_secret_exactly slot (Some (Ghost.reveal src_secret)))
 }
 
+fn store_optional_shared_secret
+  (slot:optional_secret_storage)
+  (src:array U8.t)
+  (#src_secret:erased TLS13.Crypto.Spec.secret)
+  requires (exists* prev. optional_shared_secret_exactly slot prev) **
+           ArrPts.pts_to src src_secret
+  ensures optional_shared_secret_exactly slot
+            (Some (Ghost.reveal src_secret <: TLS13.Crypto.Spec.kex_shared_secret_any)) **
+          ArrPts.pts_to src src_secret
+{
+  with prev. unfold (optional_shared_secret_exactly slot prev);
+  with old_present old_secret. _;
+  ArrPts.pts_to_len src;
+  V.pts_to_len slot.secret;
+  V.to_array_pts_to slot.secret;
+  Arr.memcpy 32sz src (V.vec_to_array slot.secret);
+  V.to_vec_pts_to slot.secret;
+  slot.present := true;
+  with stored. assert (V.pts_to slot.secret stored);
+  assert (pure (stored == Ghost.reveal src_secret));
+  let spec = Ghost.hide (Some (Ghost.reveal src_secret <: TLS13.Crypto.Spec.kex_shared_secret_any));
+  assert (pure (shared_secret_32 spec == Some (Ghost.reveal src_secret)));
+  assert (pure (optional_fixed_bytes_match true stored 32 (shared_secret_32 spec)));
+  fold (optional_shared_secret_exactly slot spec)
+}
+
 fn store_traffic_key_material
   (slot:traffic_key_material_storage)
   (traffic_secret_src:array U8.t)
@@ -214,6 +240,16 @@ fn free_optional_secret_exactly (slot:optional_secret_storage)
   V.free slot.secret;
 }
 
+fn free_optional_shared_secret_exactly (slot:optional_secret_storage)
+  requires exists* spec. optional_shared_secret_exactly slot spec
+  ensures emp
+{
+  with spec. unfold (optional_shared_secret_exactly slot spec);
+  with present secret. _;
+  Box.free slot.present;
+  V.free slot.secret;
+}
+
 fn free_traffic_key_material_exactly (slot:traffic_key_material_storage)
   requires exists* spec. traffic_key_material_exactly slot spec
   ensures emp
@@ -262,7 +298,7 @@ fn free_key_schedule_exactly (keys:key_schedule_storage)
 {
   with spec. unfold (key_schedule_exactly keys spec);
   free_optional_secret_exactly keys.early_secret;
-  free_optional_secret_exactly keys.shared_secret;
+  free_optional_shared_secret_exactly keys.shared_secret;
   free_optional_secret_exactly keys.handshake_secret;
   free_optional_secret_exactly keys.master_secret;
   free_traffic_key_material_exactly keys.client_handshake_traffic;
@@ -1466,8 +1502,12 @@ fn alloc_key_schedule_empty ()
   };
   rewrite (optional_secret_exactly early_secret None) as
     (optional_secret_exactly keys.early_secret CS.empty_key_schedule_state.CS.ks_early_secret);
-  rewrite (optional_secret_exactly shared_secret None) as
-    (optional_secret_exactly keys.shared_secret CS.empty_key_schedule_state.CS.ks_shared_secret);
+  unfold (optional_secret_exactly shared_secret None);
+  with sp ss. _;
+  assert (pure (shared_secret_32 CS.empty_key_schedule_state.CS.ks_shared_secret == None));
+  rewrite (Box.pts_to shared_secret.present sp) as (Box.pts_to keys.shared_secret.present sp);
+  rewrite (V.pts_to shared_secret.secret ss) as (V.pts_to keys.shared_secret.secret ss);
+  fold (optional_shared_secret_exactly keys.shared_secret CS.empty_key_schedule_state.CS.ks_shared_secret);
   rewrite (optional_secret_exactly handshake_secret None) as
     (optional_secret_exactly keys.handshake_secret CS.empty_key_schedule_state.CS.ks_handshake_secret);
   rewrite (optional_secret_exactly master_secret None) as

@@ -503,8 +503,8 @@ let lemma_client_server_driver_paired_x25519_key_shares_from_projection_inputs
            assert (sh_ks == CS.server_kex_public selection g);
            assert (C.kex_public_from_private g client_sk == CS.start_kex_public start g);
            assert (C.kex_public_from_private g server_sk == CS.server_kex_public selection g);
-           assert (C.kex_shared g client_sk sh_ks == Some client_shared);
-           assert (C.kex_shared g server_sk ch_ks == Some server_shared);
+           assert (C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared);
+           assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
            // Re-stated here so that the branch ends on the goal's own last
            // conjunct; it was already discharged above, outside this VC.
            assert (CS.negotiated_aead_alg client_hs == CS.negotiated_aead_alg server_hs)
@@ -580,8 +580,8 @@ let lemma_client_server_driver_paired_x25519_key_shares_from_key_share_projectio
            assert (sh_ks == CS.server_kex_public selection g);
            assert (C.kex_public_from_private g client_sk == CS.start_kex_public start g);
            assert (C.kex_public_from_private g server_sk == CS.server_kex_public selection g);
-           assert (C.kex_shared g client_sk sh_ks == Some client_shared);
-           assert (C.kex_shared g server_sk ch_ks == Some server_shared);
+           assert (C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared);
+           assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
            // Re-stated here so that the branch ends on the goal's own last
            // conjunct; it was already discharged above, outside this VC.
            assert (CS.negotiated_aead_alg client_hs == CS.negotiated_aead_alg server_hs)

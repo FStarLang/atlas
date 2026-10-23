@@ -183,8 +183,8 @@ let lemma_legal_local_event_stable_client_x25519_key_share_projection
         | Some sk ->
           (match server_hello_key_share sh with
            | Some ks ->
-             assert (C.x25519_shared sk ks == Some old_shared);
-             assert (C.x25519_shared sk ks == Some shared);
+             assert (C.widen_secret (C.x25519_shared sk ks) == Some old_shared);
+             assert (C.widen_secret (C.x25519_shared sk ks) == Some shared);
              assert (shared == old_shared)
            | None -> assert False)
         | None ->
@@ -990,7 +990,7 @@ let lemma_update_key_schedule_with_install_reachable_shape
 let lemma_derive_shared_secret_model_reachable_shape
   (model:connection_model)
   (hs:handshake_state)
-  (shared:C.x25519_shared_secret)
+  (shared:C.kex_shared_secret_any)
   : Lemma
       (requires traffic_material_slots_have_base_secret hs.hs_keys)
       (ensures
@@ -1369,7 +1369,7 @@ let lemma_legal_local_event_client_x25519_reachable_shape
          (match start_kex_private start g with
           | Some sk ->
             assert (C.kex_public_from_private g sk == start_kex_public start g);
-            assert (C.kex_shared g sk sh_ks == Some shared)
+            assert (C.widen_secret (C.kex_shared g sk sh_ks) == Some shared)
           | None -> assert False)
        | None -> assert False)
      | _, _, _ ->
@@ -1464,7 +1464,7 @@ let lemma_legal_local_event_server_x25519_reachable_shape
             server_kex_public selection g);
           (match client_hello_kex selection.server_selected_client_hello g with
            | Some ch_ks ->
-             assert (C.kex_shared g server_sk ch_ks == Some shared)
+             assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
            | None -> assert False)
         | None ->
           assert False)
@@ -1580,7 +1580,7 @@ let lemma_connection_delta_client_x25519_reachable_shape
                  (match start_kex_private start g with
                   | Some sk ->
                     assert (C.kex_public_from_private g sk == start_kex_public start g);
-                    assert (C.kex_shared g sk sh_ks == Some shared)
+                    assert (C.widen_secret (C.kex_shared g sk sh_ks) == Some shared)
                   | None -> assert False)
                | None -> assert False)
             | _, _, _ ->
@@ -1769,7 +1769,7 @@ let lemma_connection_delta_server_x25519_reachable_shape
                       server_kex_public selection g);
                     (match client_hello_kex ch g with
                      | Some ch_ks ->
-                       assert (C.kex_shared g server_sk ch_ks == Some shared)
+                       assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
                      | None -> assert False)
                   | None ->
                     assert False)
@@ -1858,7 +1858,7 @@ let lemma_connection_delta_server_x25519_reachable_shape
                    server_kex_public selection g);
                  (match client_hello_kex selection.server_selected_client_hello g with
                   | Some ch_ks ->
-                    assert (C.kex_shared g server_sk ch_ks == Some shared)
+                    assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
                   | None -> assert False)
                | None ->
                  assert False)
@@ -4062,8 +4062,8 @@ let lemma_paired_x25519_key_shares_shared_secret_agree
           | Some ch_ks ->
             assert (ch_ks == start_kex_public start g);
             assert (sh_ks == server_kex_public selection g);
-            assert (C.kex_shared g client_sk sh_ks == Some client_shared);
-            assert (C.kex_shared g server_sk ch_ks == Some server_shared);
+            assert (C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared);
+            assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
             assert (C.kex_shared g client_sk sh_ks ==
                     C.kex_shared g server_sk ch_ks);
             assert (Some client_shared == Some server_shared);

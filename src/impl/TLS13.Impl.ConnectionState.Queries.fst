@@ -340,7 +340,7 @@ fn get_key_schedule_snapshot
   unfold (key_schedule_exactly
     c.handshake.keys
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
-  unfold (optional_secret_exactly
+  unfold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   unfold (optional_secret_exactly
@@ -400,7 +400,7 @@ fn get_key_schedule_snapshot
     shared_present_w
     shared_secret_bytes
     32
-    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret));
+    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
   assert (pure (optional_fixed_bytes_match
     handshake_present_w
     handshake_secret_bytes
@@ -486,7 +486,7 @@ fn get_key_schedule_snapshot
     shared_present_w
     shared_secret_bytes
     32
-    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret;
+    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   lemma_optional_fixed_bytes_match_present_iff
     handshake_present_w
     handshake_secret_bytes
@@ -546,7 +546,7 @@ fn get_key_schedule_snapshot
   fold (optional_secret_exactly
     c.handshake.keys.handshake_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_handshake_secret);
-  fold (optional_secret_exactly
+  fold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   fold (key_schedule_exactly
@@ -2155,7 +2155,7 @@ fn select_supported_server_parameters_runtime
   unfold (key_schedule_exactly
     c.handshake.keys
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
-  unfold (optional_secret_exactly
+  unfold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   with shared_secret_present shared_secret_bytes.
@@ -2165,10 +2165,10 @@ fn select_supported_server_parameters_runtime
               shared_secret_present
               shared_secret_bytes
               32
-              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret));
+              (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
   let shared_secret_is_present = !c.handshake.keys.shared_secret.present;
   assert (pure (shared_secret_is_present == shared_secret_present));
-  fold (optional_secret_exactly
+  fold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   fold (key_schedule_exactly
@@ -2518,7 +2518,7 @@ fn can_schedule_derive_shared_secret_runtime
   unfold (key_schedule_exactly
     c.handshake.keys
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
-  unfold (optional_secret_exactly
+  unfold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   with shared_present shared_secret_bytes. _;
@@ -2559,7 +2559,7 @@ fn can_schedule_derive_shared_secret_runtime
     shared_present
     shared_secret_bytes
     32
-    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret;
+    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   assert (pure (ok ==>
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret == None));
   if ok {
@@ -2574,7 +2574,7 @@ fn can_schedule_derive_shared_secret_runtime
         st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello ==
           Some selection.CS.server_selected_client_hello
       | None -> False));
-    fold (optional_secret_exactly
+    fold (optional_shared_secret_exactly
       c.handshake.keys.shared_secret
       st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
     fold (key_schedule_exactly
@@ -2599,7 +2599,7 @@ fn can_schedule_derive_shared_secret_runtime
     fold (connection_exactly c st0);
     true
   } else {
-    fold (optional_secret_exactly
+    fold (optional_shared_secret_exactly
       c.handshake.keys.shared_secret
       st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
     fold (key_schedule_exactly
@@ -2678,7 +2678,7 @@ fn can_send_server_hello_runtime
   unfold (key_schedule_exactly
     c.handshake.keys
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
-  unfold (optional_secret_exactly
+  unfold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   with shared_present shared_secret_bytes. _;
@@ -2717,7 +2717,7 @@ fn can_send_server_hello_runtime
     shared_present
     shared_secret_bytes
     32
-    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret;
+    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   assert (pure (ok ==>
     (Some? st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
   assert (pure (server_hello == stored_server_hello));
@@ -2743,7 +2743,7 @@ fn can_send_server_hello_runtime
         CS.server_selected_kex_group selection == stored_client_hello_kex_group st0 /\
         Some? selection.CS.server_key_share_private
       | None -> False));
-    fold (optional_secret_exactly
+    fold (optional_shared_secret_exactly
       c.handshake.keys.shared_secret
       st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
     fold (key_schedule_exactly
@@ -2771,7 +2771,7 @@ fn can_send_server_hello_runtime
     fold (connection_exactly c st0);
     true
   } else {
-    fold (optional_secret_exactly
+    fold (optional_shared_secret_exactly
       c.handshake.keys.shared_secret
       st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
     fold (key_schedule_exactly

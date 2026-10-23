@@ -61,8 +61,6 @@ type kex_client_share (g:C.kex_group) = bytes_of_len (kex_client_share_len g)
 type kex_server_share_t (g:C.kex_group) = bytes_of_len (kex_server_share_len g)
 type kex_secret (g:C.kex_group) = bytes_of_len (kex_shared_len g)
 
-(** Any group's shared secret: the `(EC)DHE` input to HKDF-Extract. *)
-type kex_secret_any = s:B.bytes{B.length s == 32 \/ B.length s == 64}
 
 let kex_client_public (g:C.kex_group) (csk:B.bytes) : GTot (kex_client_share g) =
   match g with
@@ -78,17 +76,27 @@ let kex_server_share (g:C.kex_group) (ssk:B.bytes) (client_share:B.bytes)
   | C.KexX25519 | C.KexP256 -> Some (C.kex_public_from_private g ssk)
   | C.KexX25519MLKEM768 -> H.x25519mlkem768_server_share ssk client_share
 
+(** The shared secrets are returned at the group-independent
+    [C.kex_shared_secret_any], the type the model's key schedule carries;
+    [lemma_kex_shared_len] gives the group's exact width. *)
 let kex_server_shared (g:C.kex_group) (ssk:B.bytes) (client_share:B.bytes)
-  : GTot (option (kex_secret g)) =
+  : GTot (option C.kex_shared_secret_any) =
   match g with
-  | C.KexX25519 | C.KexP256 -> C.kex_shared g ssk client_share
-  | C.KexX25519MLKEM768 -> H.x25519mlkem768_server_shared ssk client_share
+  | C.KexX25519 | C.KexP256 -> C.widen_secret (C.kex_shared g ssk client_share)
+  | C.KexX25519MLKEM768 -> C.widen_secret (H.x25519mlkem768_server_shared ssk client_share)
 
 let kex_client_shared (g:C.kex_group) (csk:B.bytes) (server_share:B.bytes)
-  : GTot (option (kex_secret g)) =
+  : GTot (option C.kex_shared_secret_any) =
   match g with
-  | C.KexX25519 | C.KexP256 -> C.kex_shared g csk server_share
-  | C.KexX25519MLKEM768 -> H.x25519mlkem768_client_shared csk server_share
+  | C.KexX25519 | C.KexP256 -> C.widen_secret (C.kex_shared g csk server_share)
+  | C.KexX25519MLKEM768 -> C.widen_secret (H.x25519mlkem768_client_shared csk server_share)
+
+let lemma_kex_shared_len (g:C.kex_group) (sk:B.bytes) (share:B.bytes)
+  : Lemma ((Some? (kex_server_shared g sk share) ==>
+            B.length (Some?.v (kex_server_shared g sk share)) == kex_shared_len g) /\
+           (Some? (kex_client_shared g sk share) ==>
+            B.length (Some?.v (kex_client_shared g sk share)) == kex_shared_len g))
+  = ()
 
 let kex_agreement_ok (g:C.kex_group) (csk:B.bytes) (ssk:B.bytes) : prop =
   match g with
@@ -102,8 +110,8 @@ let lemma_kex_dh (g:C.dh_group) (sk ssk:B.bytes) (share:B.bytes)
            kex_server_share_len g == C.kex_public_len g /\
            kex_client_public g sk == C.kex_public_from_private g sk /\
            kex_server_share g ssk share == Some (C.kex_public_from_private g ssk) /\
-           kex_server_shared g ssk share == C.kex_shared g ssk share /\
-           kex_client_shared g sk share == C.kex_shared g sk share /\
+           kex_server_shared g ssk share == C.widen_secret (C.kex_shared g ssk share) /\
+           kex_client_shared g sk share == C.widen_secret (C.kex_shared g sk share) /\
            kex_agreement_ok g sk ssk)
   = ()
 

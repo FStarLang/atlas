@@ -97,7 +97,7 @@ val lemma_server_canonical_appdata_exact_spine
        log_has_no_received_ccs s.CS.cs_event_log)
     (ensures
        (exists (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-          (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+          (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
           (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
           (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
           (region:list CS.conn_event) (tail:list CS.conn_event).

@@ -267,7 +267,7 @@ let raw_flight_spine
 
 val lemma_client_raw_suffix_flight_spine
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (region raw_suffix log:list CS.conn_event)
   (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
   (cv_validate:CS.local_event)
@@ -333,7 +333,7 @@ val lemma_client_canonical_appdata_exact_spine
        no_buffering_steps s.CS.cs_event_log)
     (ensures
        (exists (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-          (client_shared:C.x25519_shared_secret)
+          (client_shared:C.kex_shared_secret_any)
           (region:list CS.conn_event)
           (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
           (cv_validate:CS.local_event)

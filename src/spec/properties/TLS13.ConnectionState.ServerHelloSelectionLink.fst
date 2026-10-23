@@ -340,7 +340,7 @@ let lemma_server_x25519_key_share_projection_of_hello_present (server:connection
                 | Some ch_ks ->
                   assert (C.kex_public_from_private g server_sk ==
                     server_kex_public selection g);
-                  assert (C.kex_shared g server_sk ch_ks == Some shared)
+                  assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
                 | None -> assert False)
              | None -> assert False)
           | None -> assert False)
