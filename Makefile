@@ -694,7 +694,8 @@ $(TLS13_ENGINE_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefil
 
 $(TLS13_CRYPTO_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefile | verify
 	$(call custard_extract_c,$(TLS13_CRYPTO_DIR),\
-	  --custard_entry_module TLS13.Crypto)
+	  --custard_entry_module TLS13.Crypto \
+	  --custard_entry_module TLS13.Crypto.Hybrid)
 
 extract-tls13-bundle extract-c: $(TLS13_BUNDLE_STAMP)
 
