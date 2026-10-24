@@ -25,6 +25,7 @@ test/test_chromium_client_socket_demo
 test/test_key_schedule_bindings
 test/test_atlas_loopback
 test/test_server_interop_matrix
+test/test_hybrid_server_peer
 test/test_extracted_connection_wrapper_openssl
 test/openssl_echo_server
 test/openssl_http_server

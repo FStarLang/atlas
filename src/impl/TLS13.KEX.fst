@@ -284,6 +284,6 @@ fn kex_hybrid_client_shared_runtime
   Hy.x25519mlkem768_client_shared sk server_share ss_out
 }
 
-let client_offers_hybrid = false
+let client_offers_hybrid = true
 
-let server_prefers_hybrid = false
+let server_prefers_hybrid = true

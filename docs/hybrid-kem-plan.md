@@ -24,8 +24,22 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | **landed** (`500d9d4`) |
 | H9a server: ClientHello hybrid share (1216 bytes) parsing and storage, `client_hello_hybrid_offered` metadata box | **landed** (`001533b`) |
 | H9b server: driver key-exchange material widened from 64 to 128 bytes | **landed** (`719415e`) |
-| H9c server: hybrid select / encaps / derive (64-byte secret) / ServerHello (1120-byte share) and driver dispatch, gated by `KEX.server_prefers_hybrid` | **landed** (this commit) |
-| H10 | not started |
+| H9c server: hybrid select / encaps / derive (64-byte secret) / ServerHello (1120-byte share) and driver dispatch, gated by `KEX.server_prefers_hybrid` | **landed** (`78d10d0`) |
+| H10 flip: `client_offers_hybrid = server_prefers_hybrid = true`; `make test-hybrid-interop` (OpenSSL 3.5, both directions); docs | **landed** (this commit) |
+
+H10 notes.  Both flags in `KEX.fst` are now `true`.  The `.fsti` keeps them
+abstract, so the flip re-verifies only `TLS13.KEX`.  D6 already reaches the
+flagships (H6), so there was no System change.
+`test/interop/hybrid.sh` (`make test-hybrid-interop`) pins an OpenSSL 3.5
+server to `-groups X25519MLKEM768` for the verified client.  For the verified
+server it uses an OpenSSL 3.5 client sending hybrid and X25519 shares and
+checks that the negotiated group is X25519MLKEM768.  It is skipped when
+`tools/openssl-3.5` is absent.  Known limit: a ClientHello whose *only*
+share is the hybrid is refused by the server.  The hybrid path requires
+the ClientHello's (EC)DH pick to be X25519, and there is no
+HelloRetryRequest.  OpenSSL 3.5, Chrome and Firefox all send an X25519 share
+alongside the hybrid by default.  The tests that use the system OpenSSL 3.0
+still exercise the classical groups.
 
 H9c notes.  The server's hybrid flight lives in
 `BufferedHandshake.select_derive_send_hybrid_server_hello_from_payload_once`:

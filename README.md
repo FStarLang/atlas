@@ -17,6 +17,16 @@ A proof of a TLS server is in progress and its design is currently in
 
 The TLS proof target is the supported client profile: TLS 1.3, X25519,
 `TLS_CHACHA20_POLY1305_SHA256`, basic 1-RTT handshakes, and application data.
+
+Key exchange: the client offers the post-quantum hybrid X25519MLKEM768
+(RFC 10024, group `0x11EC`) first, then X25519 and secp256r1, with a key share
+for each.  The server prefers the hybrid when the ClientHello offers it next
+to an X25519 share; otherwise it uses X25519 or secp256r1.  There is no
+HelloRetryRequest.  The key-agreement theorems cover all three groups.  For
+the hybrid they take one extra hypothesis, `tls_kex_agreement_ok`: ML-KEM-768
+decapsulation recovers the encapsulated secret for the coins drawn.  This
+fails with probability about 2^-164.  It is `True` for X25519 and secp256r1,
+so the classical statement is the special case (see `KEY_AGREEMENT_PROOF.md`).
 PSK, 0-RTT, resumption, client authentication, and key update are out of scope
 for the current plan.
 
@@ -75,7 +85,10 @@ The QuackyDucky pipeline can also be driven stage by stage with
 `make regen-generated`, `make verify-generated`, and `make extract-generated`.
 
 `make test-openssl-echo` runs the controlled local OpenSSL TLS 1.3 echo interop
-scenario. The main test sources live in `test/` and `test/unit/`.
+scenario.  `make test-hybrid-interop` runs both verified endpoints against an
+OpenSSL 3.5 peer using X25519MLKEM768.  The system OpenSSL 3.0 has no ML-KEM,
+so build the 3.5 command-line tool first with `scripts/build-openssl35.sh`.
+Without it the test is skipped. The main test sources live in `test/` and `test/unit/`.
 
 The verified browser path is documented in `runtime/chromium/README.md`. It
 includes the portable asynchronous adapter demo, a pinned Chromium overlay with

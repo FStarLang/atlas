@@ -167,7 +167,8 @@ lemma_inv_implies_agreement     ⇒ lemma_ready_quiescent_agrees
 
 The flagship theorem is `lemma_flagship_record_material_agreement`
 (`src/impl/TLS13.System.Temporal.fst:82`). In words: **on every run of the system from the initial
-state, it is always the case that** if the system is quiescent, has not rekeyed, and both endpoints
+state, it is always the case that** if the system is quiescent, has not rekeyed, the hybrid
+key-agreement hypothesis `tls_kex_agreement_ok` holds (see below), and both endpoints
 have completed the handshake, **then** `SMKM.peer_record_material_agrees` holds for both the
 `ClientTraffic` and `ServerTraffic` application traffic identifiers.
 
@@ -183,6 +184,32 @@ The final step is `lemma_ready_quiescent_agrees` (`src/impl/TLS13.System.fst:299
    `P.lemma_client_server_application_record_material_agrees_from_cleartext_raw_key_shares_and_protected_event_projection_witnesses`,
    whose conclusion `SMKM.supported_profile_application_record_material_agrees` is
    *definitionally* the two agreement conjuncts.
+
+### The hybrid group's hypothesis (RFC 10024)
+
+With X25519MLKEM768, both sides agree on the shared secret only if ML-KEM-768
+decapsulation recovers the encapsulated secret.  For particular coins this can
+fail, with probability about 2^-164, so the statement cannot be proved for all
+coins and is taken as a hypothesis.  The hypothesis is
+`KX.kex_agreement_ok g csk ssk` (`src/spec/assumptions/TLS13.Crypto.Kex.Spec.fsti`).
+It is `True` for X25519 and P-256 and is `mlkem768_correct_coins` for the
+hybrid.  At the system level it is `tls_kex_agreement_ok s`
+(`TLS13.System.fst`), which lifts
+`Correspondence.paired_kex_agreement_ok client server`.  That predicate reads
+only the two write-once hybrid private fields and is `True` unless both
+endpoints used the hybrid.
+
+The hypothesis is *not* a conjunct of FACT 3, because FACT 3 is inductive and
+the hypothesis is not provable.  It appears instead:
+
+* as an antecedent of FACT 4 (`protected_witnesses_ok`);
+* next to `tls_no_rekeying` in the guard of the stream invariants;
+* in the antecedent of the flagships (`System.Temporal`, `System.StreamTemporal`).
+
+`lemma_kex_agreement_backward` carries it from the post-state of any step back
+to the pre-state, which keeps the guarded invariants inductive.  On an X25519
+or P-256 run the hypothesis is `True`, so the classical theorem is the special
+case.
 
 ### Two structural points about the shape of the argument
 

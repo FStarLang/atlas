@@ -13,7 +13,8 @@
  * is src/spec/TLS13.Wire.Spec.fst, src/spec/TLS13.Messages.fst and
  * src/spec/TLS13.Types.fst.
  *
- * Scope (per README): TLS 1.3 client profile only. X25519,
+ * Scope (per README): TLS 1.3 client profile only. X25519MLKEM768, X25519,
+ * secp256r1,
  * TLS_CHACHA20_POLY1305_SHA256, 1-RTT handshake, application data.
  * PSK / 0-RTT / resumption / client auth / key update emission are out of
  * scope; KeyUpdate and NewSessionTicket are recognized on receipt only.
@@ -45,7 +46,9 @@ enum {
 } CipherSuite;
 
 enum {
-    x25519(0x001D)              /* [covered: this NamedGroup only] */
+    secp256r1(0x0017),
+    x25519(0x001D),
+    X25519MLKEM768(0x11EC)      /* RFC 10024 hybrid: ML-KEM-768 + X25519 */
 } NamedGroup;
 
 enum {
@@ -192,7 +195,8 @@ struct {
 } ServerNameList;                                 /* one entry */
 
 struct {
-    NamedGroup named_group_list<2..2> = { x25519 }; /* supported_groups(10) */
+    NamedGroup named_group_list<6..6>              /* supported_groups(10) */
+        = { X25519MLKEM768, x25519, secp256r1 };
 } NamedGroupList;
 
 struct {
@@ -201,12 +205,20 @@ struct {
 } SignatureSchemeList;
 
 struct {
-    NamedGroup group = x25519;
-    opaque     key_exchange<32..32>;              /* 32-byte X25519 public */
+    NamedGroup group;
+    opaque     key_exchange<32..1216>;  /* x25519: 32-byte public;
+                                           secp256r1: 65-byte uncompressed point;
+                                           X25519MLKEM768: client 1216 bytes
+                                           (ML-KEM-768 ek || X25519 public),
+                                           server 1120 bytes
+                                           (ML-KEM-768 ct || X25519 public) */
 } KeyShareEntry;
 
 struct {
-    KeyShareEntry client_shares<36..36> = { x25519, key[32] }; /* key_share(51) */
+    KeyShareEntry client_shares<...>              /* key_share(51) */
+        = { X25519MLKEM768, key[1216] },
+          { x25519, key[32] },
+          { secp256r1, key[65] };
 } KeyShareClientHello;
 
 struct {
@@ -231,13 +243,15 @@ struct {
 } ServerHello;
 
 /* ServerHello extensions accepted: supported_versions (must carry 0x0304)
-   and key_share (must carry x25519 + 32-byte key). Both are required. */
+   and key_share (one entry for a group the client offered). Both are
+   required. */
 struct {
     ProtocolVersion selected_version = 0x0304;    /* supported_versions(43) */
 } ServerSupportedVersion;
 
 struct {
-    KeyShareEntry server_share = { x25519, key[32] }; /* key_share(51) */
+    KeyShareEntry server_share;  /* key_share(51): x25519 key[32],
+                                    secp256r1 key[65] or X25519MLKEM768 key[1120] */
 } KeyShareServerHello;
 
 
