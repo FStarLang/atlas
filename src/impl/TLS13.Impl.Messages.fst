@@ -114,6 +114,12 @@ type server_hello = {
      recovered from the buffer's length. *)
   server_hello_key_share: V.vec U8.t;
   server_hello_kex_group: CryptoSpec.dh_group;
+  (* RFC 10024: the 1120-byte X25519MLKEM768 ciphertext share.  Exactly one of
+     the two share slots is meaningful, and [server_hello_is_hybrid] says which:
+     when it is set, [server_hello_key_share] / [server_hello_kex_group] carry
+     nothing. *)
+  server_hello_hybrid_share: V.vec U8.t;
+  server_hello_is_hybrid: bool;
   server_hello_cipher_suite: U16.t;
 }
 
@@ -583,11 +589,14 @@ let is_valid_client_hello ([@@@mkey] l:client_hello) (m:GCH.clientHello) : slpro
        | None -> False))
 
 let is_valid_server_hello ([@@@mkey] l:server_hello) (m:GSH.serverHello) : slprop =
-  exists* random session_id key_share.
+  exists* random session_id key_share hybrid_share.
     V.pts_to l.server_hello_random random **
     V.pts_to l.server_hello_session_id session_id **
     V.pts_to l.server_hello_key_share key_share **
+    V.pts_to l.server_hello_hybrid_share hybrid_share **
     pure (
+      V.is_full_vec l.server_hello_hybrid_share /\
+      V.length l.server_hello_hybrid_share == 1120 /\
       V.is_full_vec l.server_hello_random /\
       V.is_full_vec l.server_hello_session_id /\
       V.length l.server_hello_session_id == 32 /\
@@ -604,8 +613,14 @@ let is_valid_server_hello ([@@@mkey] l:server_hello) (m:GSH.serverHello) : slpro
        | Some (g, k) ->
          Seq.equal key_share (CryptoSpec.pad_share_65 k) /\
          l.server_hello_kex_group == Sem.kex_group_of_named_group g /\
-         B.length k == CryptoSpec.kex_public_len l.server_hello_kex_group
-       | None -> False) /\
+         B.length k == CryptoSpec.kex_public_len l.server_hello_kex_group /\
+         l.server_hello_is_hybrid == false
+       | None ->
+         (match Sem.serverHello_hybrid_share m with
+          | Some k ->
+            l.server_hello_is_hybrid == true /\
+            Seq.equal hybrid_share k
+          | None -> False)) /\
       (match Sem.serverHello_cipher_suite m with
        | Some cs ->
          cipher_suite_matches l.server_hello_cipher_suite cs /\
@@ -768,10 +783,11 @@ fn free_server_hello
   ensures emp
 {
   with m. unfold (is_valid_server_hello l m);
-  with random session_id key_share. _;
+  with random session_id key_share hybrid_share. _;
   V.free l.server_hello_random;
   V.free l.server_hello_session_id;
   V.free l.server_hello_key_share;
+  V.free l.server_hello_hybrid_share;
 }
 
 fn free_encrypted_extensions

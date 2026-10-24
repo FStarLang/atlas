@@ -594,15 +594,6 @@ fn mark_received_server_hello
   unfold (connection_model_exactly c st0.CS.cs_model);
   unfold (control_exactly c.control st0.CS.cs_model.CS.model_control st0.CS.cs_model.CS.model_failure);
   unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
-  unfold (server_key_share_exactly
-    c.handshake.server_key_share
-    st0.CS.cs_model.CS.model_handshake);
-  unfold (optional_fixed_bytes_exactly
-    ({ present = c.handshake.server_key_share.present;
-       bytes = c.handshake.server_key_share.bytes })
-    65
-    (server_kex_bytes st0.CS.cs_model.CS.model_handshake));
-  with old_server_key_share_present old_server_key_share_storage. _;
 
   c.control.handshake_stage_tag := 3uy;
 
@@ -629,38 +620,11 @@ fn mark_received_server_hello
     | _, _ -> pure False);
   c.handshake.messages.server_hello := Some lsh;
 
-  unfold (IM.is_valid_server_hello lsh sh);
-  with lsh_random lsh_session_id lsh_key_share. _;
-  V.to_array_pts_to lsh.IM.server_hello_key_share;
-  V.to_array_pts_to c.handshake.server_key_share.bytes;
-  Arr.memcpy
-    65sz
-    (V.vec_to_array lsh.IM.server_hello_key_share)
-    (V.vec_to_array c.handshake.server_key_share.bytes);
-  V.to_vec_pts_to lsh.IM.server_hello_key_share;
-  V.to_vec_pts_to c.handshake.server_key_share.bytes;
-  c.handshake.server_key_share.present := true;
-  (* The group the server named travels with the bytes; it is stored, never
-     recovered from the buffer's width. *)
-  c.handshake.server_key_share.group := lsh.IM.server_hello_kex_group;
-  with copied_server_key_share. assert (V.pts_to c.handshake.server_key_share.bytes copied_server_key_share);
-  assert (pure (Some? (CS.server_hello_kex (Ghost.reveal sh)) /\
-    Seq.equal copied_server_key_share
-      (CryptoSpec.pad_share_65 (dsnd (Some?.v (CS.server_hello_kex (Ghost.reveal sh)))))));
-  assert (pure (optional_fixed_bytes_match true copied_server_key_share 65
-    (match CS.server_hello_kex (Ghost.reveal sh) with
-     | Some (| _, k |) -> Some (CryptoSpec.pad_share_65 k)
-     | None -> None)));
   lemma_received_server_hello_state_server_hello st0 sh (Ghost.reveal 'raw_bytes);
-  fold (optional_fixed_bytes_exactly
-    ({ present = c.handshake.server_key_share.present;
-       bytes = c.handshake.server_key_share.bytes })
-    65
-    (server_kex_bytes (received_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake));
-  fold (server_key_share_exactly
-    c.handshake.server_key_share
-    (received_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake);
-  fold (IM.is_valid_server_hello lsh sh);
+  store_server_hello_key_shares c.handshake.server_key_share lsh
+    #sh
+    #st0.CS.cs_model.CS.model_handshake
+    #(received_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake;
 
   unfold (handshake_buffers_exactly
     c.handshake.buffers

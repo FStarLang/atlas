@@ -967,15 +967,6 @@ fn mark_sent_server_hello
   unfold (connection_model_exactly c st0.CS.cs_model);
   unfold (control_exactly c.control st0.CS.cs_model.CS.model_control st0.CS.cs_model.CS.model_failure);
   unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
-  unfold (server_key_share_exactly
-    c.handshake.server_key_share
-    st0.CS.cs_model.CS.model_handshake);
-  unfold (optional_fixed_bytes_exactly
-    ({ present = c.handshake.server_key_share.present;
-       bytes = c.handshake.server_key_share.bytes })
-    65
-    (server_kex_bytes st0.CS.cs_model.CS.model_handshake));
-  with old_server_key_share_present old_server_key_share_storage. _;
 
   c.control.handshake_stage_tag := 14uy;
 
@@ -1002,38 +993,11 @@ fn mark_sent_server_hello
     | _, _ -> pure False);
   c.handshake.messages.server_hello := Some lsh;
 
-  unfold (IM.is_valid_server_hello lsh sh);
-  with lsh_random lsh_session_id lsh_key_share. _;
-  V.to_array_pts_to lsh.IM.server_hello_key_share;
-  V.to_array_pts_to c.handshake.server_key_share.bytes;
-  Arr.memcpy
-    65sz
-    (V.vec_to_array lsh.IM.server_hello_key_share)
-    (V.vec_to_array c.handshake.server_key_share.bytes);
-  V.to_vec_pts_to lsh.IM.server_hello_key_share;
-  V.to_vec_pts_to c.handshake.server_key_share.bytes;
-  c.handshake.server_key_share.present := true;
-  (* The group the server named travels with the bytes; it is stored, never
-     recovered from the buffer's width. *)
-  c.handshake.server_key_share.group := lsh.IM.server_hello_kex_group;
-  with copied_server_key_share. assert (V.pts_to c.handshake.server_key_share.bytes copied_server_key_share);
-  assert (pure (Some? (CS.server_hello_kex (Ghost.reveal sh)) /\
-    Seq.equal copied_server_key_share
-      (CryptoSpec.pad_share_65 (dsnd (Some?.v (CS.server_hello_kex (Ghost.reveal sh)))))));
-  assert (pure (optional_fixed_bytes_match true copied_server_key_share 65
-    (match CS.server_hello_kex (Ghost.reveal sh) with
-     | Some (| _, k |) -> Some (CryptoSpec.pad_share_65 k)
-     | None -> None)));
   lemma_sent_server_hello_state_server_hello st0 sh (Ghost.reveal 'raw_bytes);
-  fold (optional_fixed_bytes_exactly
-    ({ present = c.handshake.server_key_share.present;
-       bytes = c.handshake.server_key_share.bytes })
-    65
-    (server_kex_bytes (sent_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake));
-  fold (server_key_share_exactly
-    c.handshake.server_key_share
-    (sent_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake);
-  fold (IM.is_valid_server_hello lsh sh);
+  store_server_hello_key_shares c.handshake.server_key_share lsh
+    #sh
+    #st0.CS.cs_model.CS.model_handshake
+    #(sent_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake;
 
   unfold (handshake_buffers_exactly
     c.handshake.buffers
@@ -4933,7 +4897,7 @@ fn load_kex_private
 }
 
 #restart-solver
-fn try_derive_shared_secret
+fn try_derive_dh_shared_secret
   (c:connection_state)
   (#st0:erased CS.connection_state)
   requires connection_exactly c st0
@@ -5268,6 +5232,316 @@ fn try_derive_shared_secret
   }
 }
 
+(* Copy the client's X25519MLKEM768 seed (RFC 10024) out of the start storage. *)
+fn load_hybrid_private
+  (slot:optional_fixed_bytes)
+  (out:array U8.t)
+  (#spec:erased (option (B.bytes_of_len 96)))
+  requires optional_fixed_bytes_exactly slot 96 spec **
+           ArrPts.pts_to out 'old **
+           pure (B.length 'old == 96)
+  returns present: bool
+  ensures exists* ob.
+          optional_fixed_bytes_exactly slot 96 spec **
+          ArrPts.pts_to out ob **
+          pure (B.length ob == 96 /\
+                present == Some? (Ghost.reveal spec) /\
+                (present ==> Ghost.reveal spec == Some ob))
+{
+  ArrPts.pts_to_len out;
+  unfold (optional_fixed_bytes_exactly slot 96 spec);
+  with present storage. _;
+  let has = !slot.present;
+  if has {
+    lemma_optional_fixed_bytes_match_some present storage 96 spec;
+    V.to_array_pts_to slot.bytes;
+    AC.copy_prefix 96sz (V.vec_to_array slot.bytes) 96sz out 96sz;
+    V.to_vec_pts_to slot.bytes;
+    with ob. assert (ArrPts.pts_to out ob);
+    Seq.lemma_eq_elim ob storage;
+    fold (optional_fixed_bytes_exactly slot 96 spec);
+    true
+  } else {
+    fold (optional_fixed_bytes_exactly slot 96 spec);
+    false
+  }
+}
+
+(* The client's X25519MLKEM768 arm of [LocalDeriveSharedSecret] (RFC 10024):
+   the server answered with a 1120-byte ciphertext share, which is
+   decapsulated with the hybrid seed the client offered.  The shared secret is
+   64 bytes (ML-KEM-768 ss || X25519 ss). *)
+fn try_derive_hybrid_shared_secret
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns ok: bool
+  ensures (if ok then
+             exists* shared.
+               connection_exactly c (derived_shared_secret_state st0 shared) **
+               pure (CS.legal_connection_delta
+                 st0
+                 {
+                   CS.delta_event = CS.ConnLocalEvent (CS.LocalDeriveSharedSecret shared);
+                   CS.delta_raw_sent = B.empty;
+                   CS.delta_raw_received = B.empty;
+                 }
+                 (derived_shared_secret_state st0 shared))
+           else
+             connection_exactly c st0)
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  let role_ok = config_role_is_client c.config;
+  unfold (control_exactly c.control st0.CS.cs_model.CS.model_control st0.CS.cs_model.CS.model_failure);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  unfold (handshake_start_exactly
+    c.handshake.start
+    st0.CS.cs_model.CS.model_handshake.CS.hs_start);
+  unfold (server_key_share_exactly
+    c.handshake.server_key_share
+    st0.CS.cs_model.CS.model_handshake);
+  unfold (optional_fixed_bytes_exactly
+    c.handshake.server_key_share.hybrid_share
+    1120
+    (server_hybrid_bytes st0.CS.cs_model.CS.model_handshake));
+  unfold (key_schedule_exactly
+    c.handshake.keys
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+  unfold (optional_shared_secret_exactly
+    c.handshake.keys.shared_secret
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+  with shared_present shared_storage. _;
+  let shared_secret_present = !c.handshake.keys.shared_secret.present;
+  lemma_shared_secret_match_present_iff
+    shared_present
+    shared_storage
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+  fold (optional_shared_secret_exactly
+    c.handshake.keys.shared_secret
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+
+  let tag = !c.control.control_tag;
+  let stage = !c.control.handshake_stage_tag;
+  let tag_ok = tag = 1uy;
+  let stage_ok = stage = 3uy;
+
+  with start_present. assert (Box.pts_to c.handshake.start.present start_present);
+  let has_start = !c.handshake.start.present;
+
+  let has_hybrid = !c.handshake.server_key_share.hybrid_share.present;
+  with hybrid_present hybrid_storage.
+    assert (Box.pts_to c.handshake.server_key_share.hybrid_share.present hybrid_present **
+            V.pts_to c.handshake.server_key_share.hybrid_share.bytes hybrid_storage);
+
+  let ready =
+    role_ok &&
+    tag_ok &&
+    stage_ok &&
+    has_start &&
+    has_hybrid &&
+    not shared_secret_present;
+
+  if ready {
+    assert (pure (st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint));
+    assert (pure (U8.v tag == 1));
+    assert (pure (U8.v stage == 3));
+    assert (pure (st0.CS.cs_model.CS.model_control ==
+      CS.ControlHandshaking CS.HsServerHelloReceived));
+    assert (pure (Some? st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret == false));
+    lemma_optional_fixed_bytes_match_some
+      hybrid_present
+      hybrid_storage
+      1120
+      (server_hybrid_bytes st0.CS.cs_model.CS.model_handshake);
+    assert (pure (Some? st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello));
+    let sh = Ghost.hide (Some?.v st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello);
+    assert (pure (CS.server_hello_hybrid_share (Ghost.reveal sh) ==
+                  Some (hybrid_storage <: B.bytes_of_len 1120)));
+    assert (pure (CS.server_hello_kex (Ghost.reveal sh) == None));
+    let hybrid_storage_e = Ghost.hide (hybrid_storage <: B.bytes);
+
+    if has_start {
+      unfold (handshake_start_payload_exactly
+        c.handshake.start
+        has_start
+        st0.CS.cs_model.CS.model_handshake.CS.hs_start);
+      with start_spec. assert (handshake_start_fields_exactly c.handshake.start start_spec);
+      unfold (handshake_start_fields_exactly c.handshake.start start_spec);
+
+      let mut hybrid_sk = [| 0uy; 96sz |];
+      let has_private =
+        load_hybrid_private c.handshake.start.client_hybrid_private hybrid_sk;
+      with private_storage. assert (ArrPts.pts_to hybrid_sk private_storage);
+      let private_storage_e = Ghost.hide (private_storage <: B.bytes);
+
+      V.pts_to_len c.handshake.server_key_share.hybrid_share.bytes;
+      V.to_array_pts_to c.handshake.server_key_share.hybrid_share.bytes;
+      let mut shared_out = [| 0uy; 64sz |];
+      let crypto_ok =
+        KEX.kex_hybrid_client_shared_runtime
+          hybrid_sk
+          (V.vec_to_array c.handshake.server_key_share.hybrid_share.bytes)
+          shared_out;
+      V.to_vec_pts_to c.handshake.server_key_share.hybrid_share.bytes;
+      with shared. assert (ArrPts.pts_to shared_out shared);
+
+      if (has_private && crypto_ok) {
+        assert (pure (start_spec.CS.start_client_hybrid_private ==
+                      Some (Ghost.reveal private_storage_e)));
+        let shared_secret : erased TLS13.Crypto.Spec.kex_shared_secret_any =
+          Ghost.hide (Some?.v (KX.kex_client_shared CryptoSpec.KexX25519MLKEM768
+                                 (Ghost.reveal private_storage_e)
+                                 (Ghost.reveal hybrid_storage_e)));
+        assert (pure ((Ghost.reveal shared_secret <: B.bytes) == shared));
+        assert (pure (B.length shared == 64));
+        assert (pure (st0.CS.cs_model.CS.model_handshake.CS.hs_start == Some start_spec));
+        assert (pure (CS.legal_event
+          st0.CS.cs_model
+          (CS.ConnLocalEvent (CS.LocalDeriveSharedSecret (Ghost.reveal shared_secret)))));
+
+        let mut early_out = [| 0uy; 32sz |];
+        KS.early_secret_empty early_out;
+        let mut handshake_out = [| 0uy; 32sz |];
+        KS.handshake_secret early_out shared_out 64sz handshake_out;
+        let mut master_out = [| 0uy; 32sz |];
+        KS.master_secret handshake_out master_out;
+
+        rewrite (ArrPts.pts_to shared_out shared)
+             as (ArrPts.pts_to shared_out (Ghost.reveal shared_secret));
+        store_optional_shared_secret c.handshake.keys.shared_secret shared_out 64sz
+          #shared_secret;
+        store_optional_secret
+          c.handshake.keys.early_secret
+          early_out
+          #(K.early_secret B.empty);
+        store_optional_secret
+          c.handshake.keys.handshake_secret
+          handshake_out
+          #(K.handshake_secret (K.early_secret B.empty) (Ghost.reveal shared_secret));
+        store_optional_secret
+          c.handshake.keys.master_secret
+          master_out
+          #(K.master_secret (K.handshake_secret (K.early_secret B.empty) (Ghost.reveal shared_secret)));
+
+        fold (key_schedule_exactly
+          c.handshake.keys
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake.CS.hs_keys);
+
+        fold (handshake_start_fields_exactly c.handshake.start start_spec);
+        fold (handshake_start_payload_exactly
+          c.handshake.start
+          has_start
+          st0.CS.cs_model.CS.model_handshake.CS.hs_start);
+        fold (handshake_start_exactly
+          c.handshake.start
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake.CS.hs_start);
+        assert (pure ((derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake.CS.hs_server_hello ==
+                      st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello));
+        fold (optional_fixed_bytes_exactly
+          c.handshake.server_key_share.hybrid_share
+          1120
+          (server_hybrid_bytes (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake));
+        fold (server_key_share_exactly
+          c.handshake.server_key_share
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake);
+        unfold (handshake_messages_exactly c.handshake.messages st0.CS.cs_model.CS.model_handshake);
+        fold (handshake_messages_exactly
+          c.handshake.messages
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake);
+        fold (handshake_exactly
+          c.handshake
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_handshake);
+        fold (control_exactly
+          c.control
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_control
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model.CS.model_failure);
+        fold (connection_model_exactly
+          c
+          (derived_shared_secret_state st0 (Ghost.reveal shared_secret)).CS.cs_model);
+
+        lemma_derived_shared_secret_state_evolves st0 (Ghost.reveal shared_secret);
+        MR.update c.ghost_state (derived_shared_secret_state st0 (Ghost.reveal shared_secret));
+        fold (connection_exactly c (derived_shared_secret_state st0 (Ghost.reveal shared_secret)));
+        true
+      } else {
+        fold (handshake_start_fields_exactly c.handshake.start start_spec);
+        fold (handshake_start_payload_exactly
+          c.handshake.start
+          has_start
+          st0.CS.cs_model.CS.model_handshake.CS.hs_start);
+        fold (handshake_start_exactly
+          c.handshake.start
+          st0.CS.cs_model.CS.model_handshake.CS.hs_start);
+        fold (optional_fixed_bytes_exactly
+          c.handshake.server_key_share.hybrid_share
+          1120
+          (server_hybrid_bytes st0.CS.cs_model.CS.model_handshake));
+        fold (server_key_share_exactly c.handshake.server_key_share st0.CS.cs_model.CS.model_handshake);
+        fold (key_schedule_exactly c.handshake.keys st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+        fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+        fold (control_exactly
+          c.control
+          st0.CS.cs_model.CS.model_control
+          st0.CS.cs_model.CS.model_failure);
+        fold (connection_model_exactly c st0.CS.cs_model);
+        fold (connection_exactly c st0);
+        false
+      }
+    } else {
+      unreachable ()
+    }
+  } else {
+    fold (handshake_start_exactly
+      c.handshake.start
+      st0.CS.cs_model.CS.model_handshake.CS.hs_start);
+    fold (optional_fixed_bytes_exactly
+      c.handshake.server_key_share.hybrid_share
+      1120
+      (server_hybrid_bytes st0.CS.cs_model.CS.model_handshake));
+    fold (server_key_share_exactly c.handshake.server_key_share st0.CS.cs_model.CS.model_handshake);
+    fold (key_schedule_exactly c.handshake.keys st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+    fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+    fold (control_exactly
+      c.control
+      st0.CS.cs_model.CS.model_control
+      st0.CS.cs_model.CS.model_failure);
+    fold (connection_model_exactly c st0.CS.cs_model);
+    fold (connection_exactly c st0);
+    false
+  }
+}
+
+(* [LocalDeriveSharedSecret] on the client: the (EC)DH arm when the server
+   answered with X25519 or P-256, else the X25519MLKEM768 arm.  A failed
+   attempt leaves the state untouched, so the second arm can simply follow. *)
+fn try_derive_shared_secret
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns ok: bool
+  ensures (if ok then
+             exists* shared.
+               connection_exactly c (derived_shared_secret_state st0 shared) **
+               pure (CS.legal_connection_delta
+                 st0
+                 {
+                   CS.delta_event = CS.ConnLocalEvent (CS.LocalDeriveSharedSecret shared);
+                   CS.delta_raw_sent = B.empty;
+                   CS.delta_raw_received = B.empty;
+                 }
+                 (derived_shared_secret_state st0 shared))
+           else
+             connection_exactly c st0)
+{
+  let dh_ok = try_derive_dh_shared_secret c;
+  if dh_ok {
+    true
+  } else {
+    try_derive_hybrid_shared_secret c
+  }
+}
+
 (* The peer's contribution to the ECDH, when the mirror holds *both* of the
    ClientHello's possible offers, each in its natural width.
 
@@ -5345,7 +5619,7 @@ fn try_derive_server_shared_secret_from_private_array
                   | None -> False))
   returns ok: bool
   ensures (if ok then
-             exists* shared.
+             exists* (shared:TLS13.Crypto.Spec.x25519_shared_secret).
                connection_exactly c (derived_shared_secret_state st0 shared) **
                ArrPts.pts_to server_private_key 'server_private_key_bytes **
                pure ((match st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection with

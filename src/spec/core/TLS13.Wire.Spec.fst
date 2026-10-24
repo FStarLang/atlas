@@ -509,11 +509,12 @@ let lemma_ch_extensions_connect (c:GCH.clientHello) =
   lemma_connect_sa (c.GCH.extensions <: list GECH.extensionClientHello) None None false []
 
 // A (non-HRR) ServerHello is representable iff it selects a key share at one of
-// the groups ATLAS offers, at that group's exact length, and one of the
-// supported cipher suites.  Matches is_valid_server_hello
+// the groups ATLAS offers, at that group's exact length -- an (EC)DH group, or
+// the X25519MLKEM768 hybrid at its 1120-byte ciphertext length (RFC 10024) --
+// and one of the supported cipher suites.  Matches is_valid_server_hello
 // (Sem.serverHello_random is always Some on this arm).
 let serverHello_representable (b:GSH.serverHello) : GTot bool =
-  Some? (Sem.serverHello_kex_share b) &&
+  (Some? (Sem.serverHello_kex_share b) || Some? (Sem.serverHello_hybrid_share b)) &&
   (match Sem.serverHello_cipher_suite b with
    | Some cs -> H.is_supported_cipher_suite cs
    | None -> false)

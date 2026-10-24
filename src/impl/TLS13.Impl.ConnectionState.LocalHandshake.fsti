@@ -867,7 +867,7 @@ fn try_derive_server_shared_secret_from_private_array
                   | None -> False))
   returns ok: bool
   ensures (if ok then
-             exists* shared.
+             exists* (shared:TLS13.Crypto.Spec.x25519_shared_secret).
                connection_exactly c (derived_shared_secret_state st0 shared) **
                ArrPts.pts_to server_private_key 'server_private_key_bytes **
                pure ((match st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection with

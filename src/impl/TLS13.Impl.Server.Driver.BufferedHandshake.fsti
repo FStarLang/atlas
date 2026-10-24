@@ -134,7 +134,7 @@ let derive_shared_secret_from_payload_correct
   : prop =
   B.length payload == 64 /\
   (resp.ST.status == ST.StepOk ==>
-   exists shared.
+   exists (shared:TLS13.Crypto.Spec.x25519_shared_secret).
      st1 == CM.derived_shared_secret_state st0 shared /\
      (* G2 stage S6.8d: group-agile; see BN.local_event_success_correct. *)
      (match st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello with

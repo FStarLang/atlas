@@ -1409,6 +1409,9 @@ fn build_server_hello_from_arrays
      logical share is the [unpad_share_65] prefix at the width named by the
      [kex_group] tag the caller read off the stored ClientHello. *)
   let key_share_vec = V.alloc 0uy 65sz;
+  (* The server does not answer with X25519MLKEM768 yet (H9): the hybrid slot
+     is allocated empty and [server_hello_is_hybrid] is unset. *)
+  let hybrid_share_vec = V.alloc 0uy 1120sz;
   CR.copy_fixed32_array_to_vec server_random random_vec;
   CR.copy_fixed32_array_to_vec session_id session_id_vec;
   CR.copy_fixed65_array_to_vec server_key_share key_share_vec;
@@ -1418,6 +1421,8 @@ fn build_server_hello_from_arrays
     IM.server_hello_session_id_len = session_id_len;
     IM.server_hello_key_share = key_share_vec;
     IM.server_hello_kex_group = kex_group;
+    IM.server_hello_hybrid_share = hybrid_share_vec;
+    IM.server_hello_is_hybrid = false;
     IM.server_hello_cipher_suite = cipher_suite;
   };
   with random_bytes. assert (V.pts_to random_vec random_bytes);
@@ -1439,6 +1444,8 @@ fn build_server_hello_from_arrays
     as (V.pts_to lsh.IM.server_hello_session_id session_id_vec_bytes);
   rewrite (V.pts_to key_share_vec key_share_bytes)
     as (V.pts_to lsh.IM.server_hello_key_share key_share_bytes);
+  rewrite (V.pts_to hybrid_share_vec (Seq.create 1120 0uy))
+    as (V.pts_to lsh.IM.server_hello_hybrid_share (Seq.create 1120 0uy));
   fold (IM.is_valid_server_hello
     lsh
     (Ghost.reveal sh));

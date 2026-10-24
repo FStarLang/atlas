@@ -87,7 +87,7 @@ let local_event_success_correct
   : prop =
   kind == ST.LocalDeriveSharedSecret /\
   resp.ST.status == ST.StepOk ==>
-  exists shared.
+  exists (shared:TLS13.Crypto.Spec.x25519_shared_secret).
    st1 == CM.derived_shared_secret_state st0 shared /\
    (* G2 stage S6.8d: group-agile.  The ECDH runs at the group the stored
       ClientHello's accepted key_share offer names, which is the group the

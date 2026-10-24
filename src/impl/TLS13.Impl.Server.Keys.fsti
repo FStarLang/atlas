@@ -114,7 +114,7 @@ fn process_derive_shared_secret_from_private_array
                   network_out_bytes
                   app_out_bytes /\
                 (resp.ST.status == ST.StepOk ==>
-                  (exists shared.
+                  (exists (shared:TLS13.Crypto.Spec.x25519_shared_secret).
                     st1 == CM.derived_shared_secret_state 'st0 shared /\
                     (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection with
                      | Some selection ->

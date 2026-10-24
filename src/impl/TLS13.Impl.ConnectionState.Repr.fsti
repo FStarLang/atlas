@@ -74,12 +74,15 @@ type optional_fixed_bytes = {
    [group] records which group the server named in its `KeyShareEntry`.  The
    group is a tag carried alongside the bytes, never recovered from them: field
    names match [optional_fixed_bytes] so the presence/bytes accessors read the
-   same. *)
+   same.  [hybrid_share] holds the 1120-byte X25519MLKEM768 ciphertext share
+   (RFC 10024) instead, when that is what the server answered with; at most one
+   of the two is present. *)
 noeq
 type kex_share_storage = {
   present: box bool;
   bytes: V.vec U8.t;
   group: box CryptoSpec.dh_group;
+  hybrid_share: optional_fixed_bytes;
 }
 
 noeq
@@ -1184,6 +1187,14 @@ let server_kex_bytes (hs:CS.handshake_state)
   | Some (| _, k |) -> Some (CryptoSpec.pad_share_65 k)
   | None -> None
 
+(* The server's X25519MLKEM768 ciphertext share, as stored. *)
+noextract
+let server_hybrid_bytes (hs:CS.handshake_state)
+  : option (B.bytes_of_len 1120) =
+  match hs.CS.hs_server_hello with
+  | Some sh -> CS.server_hello_hybrid_share sh
+  | None -> None
+
 let server_key_share_exactly
   ([@@@mkey] slot:kex_share_storage)
   (hs:CS.handshake_state)
@@ -1194,6 +1205,7 @@ let server_key_share_exactly
       ({ present = slot.present; bytes = slot.bytes })
       65
       (server_kex_bytes hs) **
+    optional_fixed_bytes_exactly slot.hybrid_share 1120 (server_hybrid_bytes hs) **
     pure (match server_kex hs with
           | Some (| g', _ |) -> g == g'
           | None -> True)
@@ -2092,3 +2104,19 @@ fn overwrite_optional_sized_bytes_from_certificate_chain
             slot
             max_handshake_flight_len
             (Some (Ghost.reveal leaf))
+
+(* Land a received ServerHello's key share in the client's peer-share slot:
+   the 65-byte (EC)DH share and its group, or -- when the server answered with
+   X25519MLKEM768 (RFC 10024) -- the 1120-byte ciphertext share.  Whatever the
+   slot held before is overwritten. *)
+fn store_server_hello_key_shares
+  (slot:kex_share_storage)
+  (lsh:IM.server_hello)
+  (#sh:erased GSH.serverHello)
+  (#hs0:erased CS.handshake_state)
+  (#hs1:erased CS.handshake_state)
+  requires server_key_share_exactly slot hs0 **
+           IM.is_valid_server_hello lsh sh **
+           pure (hs1.CS.hs_server_hello == Some (Ghost.reveal sh))
+  ensures server_key_share_exactly slot hs1 **
+          IM.is_valid_server_hello lsh sh

@@ -20,8 +20,8 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H5b D1 fields, hybrid consistency clauses (D3), one key family per selection, `kex_group_of_named_group_full` | **landed** (`b7e9321`) |
 | H6 model + proofs: hybrid ServerHello side arm, derive arms, D6 threaded to the System layers and the flagships | **landed** (`5e9a69f`) |
 | H7 KEM-shaped runtime wrappers in `TLS13.KEX`; D4 64-byte shared-secret slot (`Repr.shared_secret_match`) | **landed** (`cf8f45a`) |
-| H8a+b client offer: `poc_canonical_ch_g` / `client_hello_of_start` with an optional hybrid share, start storage (96-byte seed, 1216-byte share), gated generation behind the abstract `KEX.client_offers_hybrid`; Repr / `valid_start` pins removed | **landed** (this commit) |
-| H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | not started |
+| H8a+b client offer: `poc_canonical_ch_g` / `client_hello_of_start` with an optional hybrid share, start storage (96-byte seed, 1216-byte share), gated generation behind the abstract `KEX.client_offers_hybrid`; Repr / `valid_start` pins removed | **landed** (`15b5d3f`) |
+| H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | **landed** (this commit) |
 | H9, H10 | not started |
 
 H8 notes.  `KEX.client_offers_hybrid` is a `val` in `KEX.fsti` (`false` in
@@ -30,6 +30,22 @@ With the hybrid offered, the ClientHello grows by 1222 bytes (2 in
 `supported_groups`, 2 + 2 + 1216 for the KeyShareEntry): the handshake message
 is at most 1761 bytes and the record 1766, so the `network_out_len` bound on
 `LocalSendClientHello` goes from 544 to 1766 (the driver buffer is 20000).
+
+H8c notes.  `Wire.Spec.serverHello_representable` accepts a ServerHello
+whose only key share is the 1120-byte hybrid one.  `Messages.server_hello`
+gains a 1120-byte `server_hello_hybrid_share` and an `is_hybrid` tag; the
+parser scans for the hybrid entry (`scan_sh_hybrid_share`, first match wins).
+`Repr.kex_share_storage` gains a 1120-byte `hybrid_share` slot, pinned by
+`server_key_share_exactly` to `server_hybrid_bytes`, and the helper
+`Repr.store_server_hello_key_shares` fills whichever slot the hello uses (it
+is shared by `Network.mark_received_server_hello` and the server's
+SH bookkeeping).  `LocalHandshake.try_derive_shared_secret` now tries the
+(EC)DH arm first and, if that fails, the hybrid arm, which decapsulates using
+`KEX.kex_hybrid_client_shared_runtime` and feeds the 64-byte secret to
+`handshake_secret`.  To make this possible, `Model.derived_shared_secret_state`
+takes a `kex_shared_secret_any`.  The server-side ensures, which are still
+(EC)DH-only until H9, give their existential `shared` the type
+`x25519_shared_secret`.
 
 Re-staging made in H7: the hybrid start buffers (96-byte seed, 1216-byte
 share) and the 1216/1120-byte hello slots (D5) are added with their first

@@ -31,6 +31,7 @@ module U8 = FStar.UInt8
 module U16 = FStar.UInt16
 module U64 = FStar.UInt64
 module V = Pulse.Lib.Vec
+module Sem = TLS13.Wire.Semantics
 module X = TLS13.X509.Spec
 
 open TLS13.Impl.ConnectionState.Bounds
@@ -716,7 +717,18 @@ fn alloc_empty_kex_share ()
   let present = Box.alloc false;
   let bytes = V.alloc 0uy 65sz;
   let group = Box.alloc (CryptoSpec.KexX25519 <: CryptoSpec.dh_group);
-  let slot = { present; bytes; group };
+  let hy_present = Box.alloc false;
+  let hy_bytes = V.alloc 0uy 1120sz;
+  let hybrid_share : optional_fixed_bytes = { present = hy_present; bytes = hy_bytes };
+  rewrite (Box.pts_to hy_present false) as (Box.pts_to hybrid_share.present false);
+  rewrite (V.pts_to hy_bytes (Seq.create 1120 0uy)) as
+    (V.pts_to hybrid_share.bytes (Seq.create 1120 0uy));
+  assert_norm (optional_fixed_bytes_match false (Seq.create 1120 0uy) 1120 None);
+  fold (optional_fixed_bytes_exactly hybrid_share 1120 None);
+  let slot = { present; bytes; group; hybrid_share };
+  rewrite (optional_fixed_bytes_exactly hybrid_share 1120 None) as
+    (optional_fixed_bytes_exactly slot.hybrid_share 1120
+       (server_hybrid_bytes CS.empty_handshake_state));
   rewrite (Box.pts_to present false) as (Box.pts_to slot.present false);
   rewrite (Box.pts_to group CryptoSpec.KexX25519) as
     (Box.pts_to slot.group CryptoSpec.KexX25519);
@@ -740,6 +752,7 @@ fn free_kex_share_exactly (slot:kex_share_storage)
   with g. _;
   Box.free slot.group;
   free_optional_fixed_bytes_exactly ({ present = slot.present; bytes = slot.bytes });
+  free_optional_fixed_bytes_exactly slot.hybrid_share;
 }
 
 fn free_handshake_exactly (handshake:handshake_storage)
@@ -3119,4 +3132,84 @@ fn overwrite_optional_sized_bytes_from_certificate_chain
     slot
     max_handshake_flight_len
     (Some (Ghost.reveal leaf)))
+}
+
+fn store_server_hello_key_shares
+  (slot:kex_share_storage)
+  (lsh:IM.server_hello)
+  (#sh:erased TLS13.Wire.Generated.ServerHello.serverHello)
+  (#hs0:erased CS.handshake_state)
+  (#hs1:erased CS.handshake_state)
+  requires server_key_share_exactly slot hs0 **
+           IM.is_valid_server_hello lsh sh **
+           pure (hs1.CS.hs_server_hello == Some (Ghost.reveal sh))
+  ensures server_key_share_exactly slot hs1 **
+          IM.is_valid_server_hello lsh sh
+{
+  unfold (server_key_share_exactly slot hs0);
+  unfold (optional_fixed_bytes_exactly
+    ({ present = slot.present; bytes = slot.bytes })
+    65
+    (server_kex_bytes hs0));
+  unfold (optional_fixed_bytes_exactly slot.hybrid_share 1120 (server_hybrid_bytes hs0));
+  unfold (IM.is_valid_server_hello lsh sh);
+  with lsh_random lsh_session_id lsh_key_share lsh_hybrid. _;
+  V.pts_to_len slot.bytes;
+  V.pts_to_len slot.hybrid_share.bytes;
+  V.pts_to_len lsh.IM.server_hello_key_share;
+  V.pts_to_len lsh.IM.server_hello_hybrid_share;
+  if (lsh.IM.server_hello_is_hybrid) {
+    V.to_array_pts_to lsh.IM.server_hello_hybrid_share;
+    V.to_array_pts_to slot.hybrid_share.bytes;
+    Arr.memcpy
+      1120sz
+      (V.vec_to_array lsh.IM.server_hello_hybrid_share)
+      (V.vec_to_array slot.hybrid_share.bytes);
+    V.to_vec_pts_to lsh.IM.server_hello_hybrid_share;
+    V.to_vec_pts_to slot.hybrid_share.bytes;
+    slot.hybrid_share.present := true;
+    slot.present := false;
+    with copied. assert (V.pts_to slot.hybrid_share.bytes copied);
+    assert (pure (Sem.serverHello_kex_share (Ghost.reveal sh) == None));
+    assert (pure (CS.server_hello_kex (Ghost.reveal sh) == None));
+    assert (pure (server_kex_bytes hs1 == None));
+    assert (pure (Seq.equal copied lsh_hybrid));
+    assert (pure (CS.server_hello_hybrid_share (Ghost.reveal sh) == Some (copied <: B.bytes_of_len 1120)));
+    assert (pure (server_hybrid_bytes hs1 == Some (copied <: B.bytes_of_len 1120)));
+    fold (optional_fixed_bytes_exactly slot.hybrid_share 1120 (server_hybrid_bytes hs1));
+    fold (optional_fixed_bytes_exactly
+      ({ present = slot.present; bytes = slot.bytes })
+      65
+      (server_kex_bytes hs1));
+    fold (server_key_share_exactly slot hs1);
+    fold (IM.is_valid_server_hello lsh sh);
+  } else {
+    V.to_array_pts_to lsh.IM.server_hello_key_share;
+    V.to_array_pts_to slot.bytes;
+    Arr.memcpy
+      65sz
+      (V.vec_to_array lsh.IM.server_hello_key_share)
+      (V.vec_to_array slot.bytes);
+    V.to_vec_pts_to lsh.IM.server_hello_key_share;
+    V.to_vec_pts_to slot.bytes;
+    slot.present := true;
+    (* The group the server named travels with the bytes; it is stored, never
+       recovered from the buffer's width. *)
+    slot.group := lsh.IM.server_hello_kex_group;
+    slot.hybrid_share.present := false;
+    with copied. assert (V.pts_to slot.bytes copied);
+    assert (pure (Some? (CS.server_hello_kex (Ghost.reveal sh)) /\
+      Seq.equal copied
+        (CryptoSpec.pad_share_65 (dsnd (Some?.v (CS.server_hello_kex (Ghost.reveal sh)))))));
+    assert (pure (CS.server_hello_hybrid_share (Ghost.reveal sh) == None));
+    assert (pure (server_hybrid_bytes hs1 == None));
+    assert (pure (optional_fixed_bytes_match true copied 65 (server_kex_bytes hs1)));
+    fold (optional_fixed_bytes_exactly slot.hybrid_share 1120 (server_hybrid_bytes hs1));
+    fold (optional_fixed_bytes_exactly
+      ({ present = slot.present; bytes = slot.bytes })
+      65
+      (server_kex_bytes hs1));
+    fold (server_key_share_exactly slot hs1);
+    fold (IM.is_valid_server_hello lsh sh);
+  }
 }

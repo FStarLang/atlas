@@ -1172,7 +1172,7 @@ let lemma_select_derive_success_server_hello_ready
         derive_shared_secret_from_payload_correct st1 st2 resp payload) in
   assert (selection_from_payload_correct st0 st1 payload);
   assert (derive_shared_secret_from_payload_correct st1 st2 resp payload);
-  assert (exists shared.
+  assert (exists (shared:TLS13.Crypto.Spec.x25519_shared_secret).
     st2 == CM.derived_shared_secret_state st1 shared /\
     (match st1.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
      | Some ch ->

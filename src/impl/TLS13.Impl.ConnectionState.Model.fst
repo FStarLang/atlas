@@ -852,7 +852,7 @@ let lemma_sent_client_hello_state_evolves
 
 let lemma_derived_shared_secret_state_evolves
   (st:CS.connection_state)
-  (shared:TLS13.Crypto.Spec.x25519_shared_secret)
+  (shared:TLS13.Crypto.Spec.kex_shared_secret_any)
   : Lemma
       (requires TLS13.Spec.StateMachine.Reachability.connection_state_consistent st /\
                 CS.legal_event
