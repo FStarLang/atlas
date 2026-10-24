@@ -56,41 +56,41 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: devcontainer.tgz
-          key: agentic-tls-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
+          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
           lookup-only: true
 
       - name: Build the dev container image + toolchain
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          docker build -t agentic-tls-base -f .devcontainer/Dockerfile .
+          docker build -t atlas-base -f .devcontainer/Dockerfile .
           # Prepare a container, copy the checked-out repo in (as the vscode user
           # the image runs as), and build the toolchain + fetch deps there — the
           # devcontainer.json onCreateCommand, run by hand.
-          docker run -d --name prep agentic-tls-base sleep infinity
-          docker exec -u root prep mkdir -p /workspaces/agentic-tls
-          docker cp . prep:/workspaces/agentic-tls
+          docker run -d --name prep atlas-base sleep infinity
+          docker exec -u root prep mkdir -p /workspaces/atlas
+          docker cp . prep:/workspaces/atlas
           docker exec -u root prep chown -R vscode:vscode /workspaces
-          docker exec -u vscode -w /workspaces/agentic-tls prep \
+          docker exec -u vscode -w /workspaces/atlas prep \
             bash -lc './setup.sh --jobs "$(nproc)"'
           # Keep only the built toolchain (tools/everparse) and fetched deps
           # (third_party); the project source is injected fresh by each test job,
           # so the cached image is a pure toolchain image that never carries
           # stale source across the many commits that reuse it.
           docker exec -u root prep bash -c \
-            'cd /workspaces/agentic-tls && find . -mindepth 1 -maxdepth 1 \
+            'cd /workspaces/atlas && find . -mindepth 1 -maxdepth 1 \
                ! -name tools ! -name third_party -exec rm -rf {} +'
-          docker exec -u root prep rm -rf /workspaces/agentic-tls/tools/everparse/.git
-          docker exec -u root prep rm -rf /workspaces/agentic-tls/tools/hacl-pulse/.git
-          docker commit -c 'WORKDIR /workspaces/agentic-tls' prep agentic-tls-ci
+          docker exec -u root prep rm -rf /workspaces/atlas/tools/everparse/.git
+          docker exec -u root prep rm -rf /workspaces/atlas/tools/hacl-pulse/.git
+          docker commit -c 'WORKDIR /workspaces/atlas' prep atlas-ci
           docker rm -f prep
-          docker save agentic-tls-ci | gzip > devcontainer.tgz
+          docker save atlas-ci | gzip > devcontainer.tgz
 
       - name: Save dev container image to cache
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: devcontainer.tgz
-          key: agentic-tls-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
+          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
 
   # ── 2. Parallel test jobs ─────────────────────────────────────────────────
   # Each matrix leg restores the cached toolchain image and injects the FRESH
@@ -180,7 +180,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: devcontainer.tgz
-          key: agentic-tls-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
+          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
           fail-on-cache-miss: true
 
       - name: Load the dev container image
@@ -222,7 +222,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: generated-checked.tar.gz
-          key: agentic-tls-generated-checked-${{ hashFiles('generated/**', 'scripts/build-everparse.sh') }}
+          key: atlas-generated-checked-${{ hashFiles('generated/**', 'scripts/build-everparse.sh') }}
 
       - name: Run ${{ matrix.name }}
         env:
@@ -230,29 +230,29 @@ jobs:
           CACHE_GENERATED: ${{ matrix.cache_generated }}
           CACHE_HIT: ${{ steps.gencache.outputs.cache-hit }}
         run: |
-          container=$(docker run -d agentic-tls-ci sleep infinity)
+          container=$(docker run -d atlas-ci sleep infinity)
           # Inject the freshly checked-out source into the toolchain-only image
           # so the committed code is what gets tested.  tools/everparse and the
           # fetched RFCs are gitignored (absent from the checkout), so the cached
           # toolchain and deps are left intact.  The generated-verification cache
           # tarball is injected separately (below), so exclude it here.
           tar c --exclude=./.git --exclude=./generated-checked.tar.gz . \
-            | docker exec -i -w /workspaces/agentic-tls "$container" tar --overwrite -x
+            | docker exec -i -w /workspaces/atlas "$container" tar --overwrite -x
           # tls-root only: restore the cached generated-module verification so
           # `make` skips re-verifying the TLS13.Wire.Generated.* parsers.  A miss
           # (no tarball) is a no-op and the modules are verified from scratch.
           if [ -n "$CACHE_GENERATED" ]; then
             if [ -f generated-checked.tar.gz ]; then
-              docker cp generated-checked.tar.gz "$container":/workspaces/agentic-tls/
+              docker cp generated-checked.tar.gz "$container":/workspaces/atlas/
             fi
-            docker exec -w /workspaces/agentic-tls "$container" make restore-generated-cache
+            docker exec -w /workspaces/atlas "$container" make restore-generated-cache
           fi
-          docker exec -w /workspaces/agentic-tls "$container" bash -lc "$CMD"
+          docker exec -w /workspaces/atlas "$container" bash -lc "$CMD"
           # On a miss, export the freshly-computed verification to the host so the
           # post-job actions/cache save stores it under the content-hash key.
           if [ -n "$CACHE_GENERATED" ] && [ "$CACHE_HIT" != "true" ]; then
-            docker exec -w /workspaces/agentic-tls "$container" make save-generated-cache
-            docker cp "$container":/workspaces/agentic-tls/generated-checked.tar.gz .
+            docker exec -w /workspaces/atlas "$container" make save-generated-cache
+            docker cp "$container":/workspaces/atlas/generated-checked.tar.gz .
           fi
           docker rm -f "$container"
 

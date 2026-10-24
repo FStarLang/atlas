@@ -8,7 +8,7 @@
 #   - the QuackyDucky compiler at bin/everparse-qd.exe
 #   - the verified LowParse + LowParse.Pulse .checked libraries under lib/everparse/lowparse
 #
-# The agentic-tls Makefile consumes this toolchain via EVERPARSE_HOME (no separate
+# The atlas Makefile consumes this toolchain via EVERPARSE_HOME (no separate
 # F* install is required).
 set -euo pipefail
 
@@ -20,7 +20,7 @@ EVERPARSE_BRANCH="${EVERPARSE_BRANCH:-_gebner_master_qd_enum}"
 EVERPARSE_COMMIT="${EVERPARSE_COMMIT:-2421a75b21d114de9879c76d6a7d138079da74f8}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Default location: tools/everparse inside the agentic-tls checkout (matches the
+# Default location: tools/everparse inside the atlas checkout (matches the
 # Makefile's EVERPARSE_HOME default of $(CURDIR)/tools/everparse, and the
 # tools/FStar convention used previously).  Override with EVERPARSE_HOME.
 EVERPARSE_HOME="${EVERPARSE_HOME:-$repo_root/tools/everparse}"

@@ -1,10 +1,10 @@
-# Dev container for agentic-tls.
+# Dev container for atlas.
 #
 # This image carries ONLY the system packages required to:
 #   1. build the EverParse / QuackyDucky toolchain (F*, KaRaMeL, QuackyDucky,
 #      LowParse) via `make quackyducky`, which spins up its own local opam
 #      switch (OCaml 5.3.0) and downloads the pinned Z3 binaries itself; and
-#   2. verify, extract and interop-test agentic-tls (C compiler + OpenSSL).
+#   2. verify, extract and interop-test atlas (C compiler + OpenSSL).
 #
 # It deliberately omits EverParse dependencies that QuackyDucky does not need
 # (clang, cmake, rust, python3-pip/venv, code-server, libsqlite3-dev, ...).
@@ -16,13 +16,13 @@ FROM mcr.microsoft.com/devcontainers/base:ubuntu24.04
 #   time                      - build Karamel
 #   ca-certificates,curl,git  - fetch the EverParse fork, HACL* submodule, RFCs, Z3
 #   opam                      - drives the local OCaml switch for the F*/KaRaMeL build
-#   build-essential           - gcc/make for the OCaml build and the agentic-tls C code
+#   build-essential           - gcc/make for the OCaml build and the atlas C code
 #   pkg-config                - OpenSSL discovery + opam package configuration
 #   libgmp-dev                - zarith (F*/Z3 bignum)
 #   libffi-dev                - ctypes (EverParse opam dep)
 #   libssl-dev,openssl        - OpenSSL headers/lib + CLI for the interop echo test
 #   unzip                     - extract the downloaded Z3 release archives
-#   python3                   - agentic-tls test scripts (port picker, payload gen)
+#   python3                   - atlas test scripts (port picker, payload gen)
 #   tftp-hpa,tftpd-hpa         - TFTP reference client (tftp) / server (in.tftpd)
 #                               for the tftp_sample interop tests (RFC 1350)
 #   lrzsz                     - XMODEM/YMODEM/ZMODEM reference client/server (sb/rb)
@@ -68,5 +68,5 @@ ENV HOME=/home/vscode
 WORKDIR /home/vscode
 
 # Put F*, Z3, and QD on the PATH
-RUN ep=/workspaces/agentic-tls/tools/everparse/; \
+RUN ep=/workspaces/atlas/tools/everparse/; \
   echo "export PATH=$ep/opt/FStar/out/bin:$ep/opt/karamel/out/bin:$ep/bin:$ep/opt/z3:\$PATH" | tee --append $HOME/.profile $HOME/.bashrc $HOME/.bash_profile

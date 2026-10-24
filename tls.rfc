@@ -1,7 +1,7 @@
 /*
  * tls.rfc
  *
- * The subset of the TLS 1.3 (RFC 8446) message formats that the agentic-tls
+ * The subset of the TLS 1.3 (RFC 8446) message formats that the atlas
  * parser (src/impl/TLS13.Impl.Parser.fsti) and serializer
  * (src/impl/TLS13.Impl.Serializer.fsti) currently cover, expressed in the
  * RFC 8446 presentation language (RFC 8446 Section 3).

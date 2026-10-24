@@ -7,7 +7,7 @@ dest_dir="${1:-"$repo_root/test/certs"}"
 mkdir -p "$dest_dir"
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
-  -subj "/CN=agentic-tls test CA" \
+  -subj "/CN=atlas test CA" \
   -keyout "$dest_dir/ca.key" \
   -out "$dest_dir/ca.pem" \
   >/dev/null 2>&1

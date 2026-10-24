@@ -1,4 +1,4 @@
-# agentic-tls
+# atlas
 
 Experimental TLS 1.3 client implementation in F*/Pulse, extracted to C. 
 

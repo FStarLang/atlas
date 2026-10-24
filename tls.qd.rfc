@@ -4,7 +4,7 @@
  * QuackyDucky-compatible rewrite of tls.rfc.
  *
  * This file expresses the SAME covered subset of TLS 1.3 (RFC 8446) that the
- * agentic-tls parser (src/impl/TLS13.Impl.Parser.fsti) and serializer
+ * atlas parser (src/impl/TLS13.Impl.Parser.fsti) and serializer
  * (src/impl/TLS13.Impl.Serializer.fsti) implement, but using the QuackyDucky
  * input grammar (everparse/src/qd/rfc_parser.mly, rfc_lexer.mll) rather than
  * raw RFC 8446 presentation language.  It parses and generates with

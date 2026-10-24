@@ -4,7 +4,7 @@
 # from the EverParse toolchain (scripts/build-everparse.sh must run first).
 #
 # hacl-pulse does not commit dist/: `make extract` verifies the library and
-# extracts it with Custard.  The agentic-tls Makefile compiles dist/Hacl.c
+# extracts it with Custard.  The atlas Makefile compiles dist/Hacl.c
 # together with c/Hacl_Random.c (the platform entropy shim) and never re-runs
 # hacl-pulse's own make.  TLS13.Crypto calls hacl-pulse from Pulse, so the
 # Makefile also needs the checked files in obj/cache and the Custard unit
