@@ -18,8 +18,13 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H4 `x25519mlkem768(0x11EC)` on the wire; ClientHello finder (1216) | **landed** (`f8bdbe4`) |
 | H5a D4 as a type change: `ks_shared_secret : kex_shared_secret_any`, `optional_shared_secret_exactly` slot | **landed** (`bd04d41`) |
 | H5b D1 fields, hybrid consistency clauses (D3), one key family per selection, `kex_group_of_named_group_full` | **landed** (`b7e9321`) |
-| H6 model + proofs: hybrid ServerHello side arm, derive arms, D6 threaded to the System layers and the flagships | **landed** (this commit) |
-| H7 … H10 | not started |
+| H6 model + proofs: hybrid ServerHello side arm, derive arms, D6 threaded to the System layers and the flagships | **landed** (`5e9a69f`) |
+| H7 KEM-shaped runtime wrappers in `TLS13.KEX`; D4 64-byte shared-secret slot (`Repr.shared_secret_match`) | **landed** (this commit) |
+| H8 … H10 | not started |
+
+Re-staging made in H7: the hybrid start buffers (96-byte seed, 1216-byte
+share) and the 1216/1120-byte hello slots (D5) are added with their first
+user, so they move to H8 (client) and H9 (server).
 
 Re-staging made in H5b: the `LocalDeriveSharedSecret` arms stay (EC)DH-only.
 Opening the server arm to the KEM also changes

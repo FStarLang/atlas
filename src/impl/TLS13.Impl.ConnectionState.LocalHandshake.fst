@@ -3108,7 +3108,8 @@ fn derive_shared_secret_from_bytes
   let mut master_out = [| 0uy; 32sz |];
   KS.master_secret handshake_out master_out;
 
-  store_optional_shared_secret c.handshake.keys.shared_secret shared_src #shared;
+  store_optional_shared_secret c.handshake.keys.shared_secret shared_src 32sz
+    #(Ghost.hide (Ghost.reveal shared <: TLS13.Crypto.Spec.kex_shared_secret_any));
   store_optional_secret
     c.handshake.keys.early_secret
     early_out
@@ -4895,11 +4896,10 @@ fn try_derive_shared_secret
   with shared_present shared_storage. _;
   let shared_secret_present = !c.handshake.keys.shared_secret.present;
   assert (pure (shared_secret_present == shared_present));
-  lemma_optional_fixed_bytes_match_present_iff
+  lemma_shared_secret_match_present_iff
     shared_present
     shared_storage
-    32
-    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   fold (optional_shared_secret_exactly
     c.handshake.keys.shared_secret
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
@@ -5031,7 +5031,8 @@ fn try_derive_shared_secret
           let mut master_out = [| 0uy; 32sz |];
           KS.master_secret handshake_out master_out;
 
-          store_optional_shared_secret c.handshake.keys.shared_secret shared_out #shared_secret;
+          store_optional_shared_secret c.handshake.keys.shared_secret shared_out 32sz
+            #(Ghost.hide (Ghost.reveal shared_secret <: TLS13.Crypto.Spec.kex_shared_secret_any));
           store_optional_secret
             c.handshake.keys.early_secret
             early_out

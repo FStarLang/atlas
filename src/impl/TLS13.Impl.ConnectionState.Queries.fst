@@ -396,11 +396,10 @@ fn get_key_schedule_snapshot
             V.pts_to c.handshake.keys.server_application_traffic.traffic_key server_app_key **
             V.pts_to c.handshake.keys.server_application_traffic.traffic_iv server_app_iv);
 
-  assert (pure (optional_fixed_bytes_match
+  assert (pure (shared_secret_match
     shared_present_w
     shared_secret_bytes
-    32
-    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
   assert (pure (optional_fixed_bytes_match
     handshake_present_w
     handshake_secret_bytes
@@ -482,11 +481,10 @@ fn get_key_schedule_snapshot
   assert (pure (client_application_present == client_app_present_w));
   assert (pure (server_application_present == server_app_present_w));
 
-  lemma_optional_fixed_bytes_match_present_iff
+  lemma_shared_secret_match_present_iff
     shared_present_w
     shared_secret_bytes
-    32
-    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   lemma_optional_fixed_bytes_match_present_iff
     handshake_present_w
     handshake_secret_bytes
@@ -2163,11 +2161,10 @@ fn select_supported_server_parameters_runtime
   with shared_secret_present shared_secret_bytes.
     assert (Box.pts_to c.handshake.keys.shared_secret.present shared_secret_present **
             V.pts_to c.handshake.keys.shared_secret.secret shared_secret_bytes **
-            pure (optional_fixed_bytes_match
+            pure (shared_secret_match
               shared_secret_present
               shared_secret_bytes
-              32
-              (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
+              (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
   let shared_secret_is_present = !c.handshake.keys.shared_secret.present;
   assert (pure (shared_secret_is_present == shared_secret_present));
   fold (optional_shared_secret_exactly
@@ -2559,11 +2556,10 @@ fn can_schedule_derive_shared_secret_runtime
   assert (pure (ok ==>
     Some? st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello));
   assert (pure (shared_secret_present == shared_present));
-  lemma_optional_fixed_bytes_match_present_iff
+  lemma_shared_secret_match_present_iff
     shared_present
     shared_secret_bytes
-    32
-    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   assert (pure (ok ==>
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret == None));
   if ok {
@@ -2717,11 +2713,10 @@ fn can_send_server_hello_runtime
   assert (pure (ok ==>
     st0.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint));
   assert (pure (shared_secret_present == shared_present));
-  lemma_optional_fixed_bytes_match_present_iff
+  lemma_shared_secret_match_present_iff
     shared_present
     shared_secret_bytes
-    32
-    (shared_secret_32 st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
   assert (pure (ok ==>
     (Some? st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
   assert (pure (server_hello == stored_server_hello));

@@ -28,6 +28,7 @@ module C = TLS13.Crypto.Spec
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
+module KX = TLS13.Crypto.Kex.Spec
 
 (** Runtime equality on groups.  Written out rather than relying on structural
     equality so that extraction produces a plain comparison. *)
@@ -168,3 +169,68 @@ fn kex_public_from_private_runtime
                  Seq.equal
                    out_bytes
                    (C.pad_share_65 (C.kex_public_from_private g 'sk_bytes))))
+
+(** ── X25519MLKEM768 (RFC 10024) ─────────────────────────────────────────
+    The hybrid group is a KEM, not a DH group, so it does not fit the
+    [C.dh_group]-indexed functions above: the two sides run different
+    algorithms (keygen / encaps / decaps) on different widths.  These three
+    wrappers restate the exact-width [TLS13.Crypto.Hybrid] bindings against
+    the group-agile model [TLS13.Crypto.Kex.Spec] at [C.KexX25519MLKEM768],
+    which is the vocabulary the state machine uses. *)
+
+fn kex_hybrid_client_public_runtime (sk: array U8.t) (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to out 'old **
+           pure (B.length 'sk_bytes == 96 /\ B.length 'old == 1216)
+  ensures pts_to sk 'sk_bytes **
+          pts_to out (KX.kex_client_public C.KexX25519MLKEM768 'sk_bytes)
+
+fn kex_hybrid_server_encaps_runtime
+  (sk: array U8.t)
+  (client_share: array U8.t)
+  (share_out: array U8.t)
+  (ss_out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to client_share 'cs_bytes **
+           pts_to share_out 'old_share **
+           pts_to ss_out 'old_ss **
+           pure (B.length 'sk_bytes == 64 /\
+                 B.length 'cs_bytes == 1216 /\
+                 B.length 'old_share == 1120 /\
+                 B.length 'old_ss == 64)
+  returns ok: bool
+  ensures exists* share ss.
+          pts_to sk 'sk_bytes **
+          pts_to client_share 'cs_bytes **
+          pts_to share_out share **
+          pts_to ss_out ss **
+          pure (B.length share == 1120 /\
+                B.length ss == 64 /\
+                (ok <==> Some? (KX.kex_server_shared C.KexX25519MLKEM768 'sk_bytes 'cs_bytes)) /\
+                (ok ==>
+                  Some? (KX.kex_server_share C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) /\
+                  (Some?.v (KX.kex_server_share C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) <: B.bytes)
+                    == share /\
+                  (Some?.v (KX.kex_server_shared C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) <: B.bytes)
+                    == ss))
+
+fn kex_hybrid_client_shared_runtime
+  (sk: array U8.t)
+  (server_share: array U8.t)
+  (ss_out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to server_share 'ss_bytes **
+           pts_to ss_out 'old **
+           pure (B.length 'sk_bytes == 96 /\
+                 B.length 'ss_bytes == 1120 /\
+                 B.length 'old == 64)
+  returns ok: bool
+  ensures exists* ss.
+          pts_to sk 'sk_bytes **
+          pts_to server_share 'ss_bytes **
+          pts_to ss_out ss **
+          pure (B.length ss == 64 /\
+                (ok <==> Some? (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes)) /\
+                (ok ==>
+                  (Some?.v (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes) <: B.bytes)
+                    == ss))

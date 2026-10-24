@@ -17,6 +17,7 @@ module MR = Pulse.Lib.MonotonicGhostRef
 module Bounds = TLS13.Impl.ConnectionState.Bounds
 module Model = TLS13.Impl.ConnectionState.Model
 module Tags = TLS13.Impl.ConnectionState.Tags
+module AC = TLS13.Impl.ArrayCopy
 module Arr = Pulse.Lib.Array
 module ArrPts = Pulse.Lib.Array.PtsTo
 module R = TLS13.Record.Spec
@@ -63,9 +64,11 @@ fn store_optional_secret
 fn store_optional_shared_secret
   (slot:optional_secret_storage)
   (src:array U8.t)
-  (#src_secret:erased TLS13.Crypto.Spec.secret)
+  (src_len:SZ.t)
+  (#src_secret:erased TLS13.Crypto.Spec.kex_shared_secret_any)
   requires (exists* prev. optional_shared_secret_exactly slot prev) **
-           ArrPts.pts_to src src_secret
+           ArrPts.pts_to src src_secret **
+           pure (SZ.v src_len == B.length src_secret)
   ensures optional_shared_secret_exactly slot
             (Some (Ghost.reveal src_secret <: TLS13.Crypto.Spec.kex_shared_secret_any)) **
           ArrPts.pts_to src src_secret
@@ -75,14 +78,13 @@ fn store_optional_shared_secret
   ArrPts.pts_to_len src;
   V.pts_to_len slot.secret;
   V.to_array_pts_to slot.secret;
-  Arr.memcpy 32sz src (V.vec_to_array slot.secret);
+  AC.copy_prefix src_len src src_len (V.vec_to_array slot.secret) 64sz;
   V.to_vec_pts_to slot.secret;
   slot.present := true;
   with stored. assert (V.pts_to slot.secret stored);
-  assert (pure (stored == Ghost.reveal src_secret));
+  assert (pure (Seq.equal (Seq.slice stored 0 (SZ.v src_len)) (Ghost.reveal src_secret)));
   let spec = Ghost.hide (Some (Ghost.reveal src_secret <: TLS13.Crypto.Spec.kex_shared_secret_any));
-  assert (pure (shared_secret_32 spec == Some (Ghost.reveal src_secret)));
-  assert (pure (optional_fixed_bytes_match true stored 32 (shared_secret_32 spec)));
+  assert (pure (shared_secret_match true stored spec));
   fold (optional_shared_secret_exactly slot spec)
 }
 
@@ -980,6 +982,22 @@ fn alloc_empty_secret ()
   slot
 }
 
+fn alloc_empty_shared_secret ()
+  requires emp
+  returns slot:optional_secret_storage
+  ensures optional_shared_secret_exactly slot None
+{
+  let present = Box.alloc false;
+  let secret = V.alloc 0uy 64sz;
+  let slot = { present; secret };
+  rewrite (Box.pts_to present false) as (Box.pts_to slot.present false);
+  rewrite (V.pts_to secret (Seq.create 64 0uy)) as
+    (V.pts_to slot.secret (Seq.create 64 0uy));
+  assert (pure (shared_secret_match false (Seq.create 64 0uy) None));
+  fold (optional_shared_secret_exactly slot None);
+  slot
+}
+
 fn alloc_empty_traffic_key_material ()
   requires emp
   returns slot:traffic_key_material_storage
@@ -1479,7 +1497,7 @@ fn alloc_key_schedule_empty ()
   ensures key_schedule_exactly keys CS.empty_key_schedule_state
 {
   let early_secret = alloc_empty_secret ();
-  let shared_secret = alloc_empty_secret ();
+  let shared_secret = alloc_empty_shared_secret ();
   let handshake_secret = alloc_empty_secret ();
   let master_secret = alloc_empty_secret ();
   let client_handshake_traffic = alloc_empty_traffic_key_material ();
@@ -1502,9 +1520,8 @@ fn alloc_key_schedule_empty ()
   };
   rewrite (optional_secret_exactly early_secret None) as
     (optional_secret_exactly keys.early_secret CS.empty_key_schedule_state.CS.ks_early_secret);
-  unfold (optional_secret_exactly shared_secret None);
+  unfold (optional_shared_secret_exactly shared_secret None);
   with sp ss. _;
-  assert (pure (shared_secret_32 CS.empty_key_schedule_state.CS.ks_shared_secret == None));
   rewrite (Box.pts_to shared_secret.present sp) as (Box.pts_to keys.shared_secret.present sp);
   rewrite (V.pts_to shared_secret.secret ss) as (V.pts_to keys.shared_secret.secret ss);
   fold (optional_shared_secret_exactly keys.shared_secret CS.empty_key_schedule_state.CS.ks_shared_secret);
