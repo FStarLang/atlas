@@ -10,7 +10,7 @@
 # (clang, cmake, rust, python3-pip/venv, code-server, libsqlite3-dev, ...).
 # The heavy toolchain build is performed by ./setup.sh as a post-create step,
 # not baked into the image, so the image stays small and cache-friendly.
-FROM mcr.microsoft.com/devcontainers/base:ubuntu24.04
+FROM mcr.microsoft.com/devcontainers/base:ubuntu26.04
 
 # Minimal apt set:
 #   time                      - build Karamel
