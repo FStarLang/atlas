@@ -17,7 +17,7 @@ fn copy_server_random_and_private_from_payload
   requires pts_to payload 'payload_bytes **
            pts_to server_random 'old_server_random **
            pts_to server_private_key 'old_server_private_key **
-           pure (B.length 'payload_bytes == 64 /\
+           pure (B.length 'payload_bytes == 128 /\
                  B.length 'old_server_random == 32 /\
                  B.length 'old_server_private_key == 32)
   ensures pts_to payload 'payload_bytes **

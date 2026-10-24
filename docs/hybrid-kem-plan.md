@@ -22,8 +22,14 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H7 KEM-shaped runtime wrappers in `TLS13.KEX`; D4 64-byte shared-secret slot (`Repr.shared_secret_match`) | **landed** (`cf8f45a`) |
 | H8a+b client offer: `poc_canonical_ch_g` / `client_hello_of_start` with an optional hybrid share, start storage (96-byte seed, 1216-byte share), gated generation behind the abstract `KEX.client_offers_hybrid`; Repr / `valid_start` pins removed | **landed** (`15b5d3f`) |
 | H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | **landed** (`500d9d4`) |
-| H9a server: ClientHello hybrid share (1216 bytes) parsing and storage, `client_hello_hybrid_offered` metadata box | **landed** (this commit) |
-| H9b, H9c, H10 | not started |
+| H9a server: ClientHello hybrid share (1216 bytes) parsing and storage, `client_hello_hybrid_offered` metadata box | **landed** (`001533b`) |
+| H9b server: driver key-exchange material widened from 64 to 128 bytes | **landed** (this commit) |
+| H9c, H10 | not started |
+
+H9b notes.  `driver_material_capacity` and every select / ServerHello payload
+length is now 128 bytes, laid out as `[0,32)` server random, `[32,64)` DH
+scalar, `[64,128)` hybrid encapsulation randomness (reserved; consumed in H9c).
+The classical paths read only `[0,64)`, so behaviour is unchanged.
 
 H9a notes.  `Messages.client_hello` gains a 1216-byte
 `client_hello_hybrid_key_share` and a `has_hybrid` flag that

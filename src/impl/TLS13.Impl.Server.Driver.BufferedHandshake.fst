@@ -115,7 +115,7 @@ let lemma_select_server_parameters_input_ready_intro
   (server_random server_private_key:B.bytes_of_len 32)
   : Lemma
       (requires
-        B.length payload == 64 /\
+        B.length payload == 128 /\
         st.CS.cs_model.CS.model_config.CS.config_role ==
           CS.ServerEndpoint /\
         st.CS.cs_model.CS.model_control ==
@@ -434,7 +434,7 @@ fn select_default_server_parameters_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_network_out == SZ.v network_out_len /\
       B.length 'old_app_out == SZ.v app_out_len /\
       network_out_len == DS.driver_network_out_capacity /\
@@ -626,7 +626,7 @@ fn send_server_hello_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_app_out == SZ.v app_out_len /\
       ST.server_local_event_input_ready
         'st0
@@ -985,7 +985,7 @@ fn derive_shared_secret_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_network_out == SZ.v network_out_len /\
       B.length 'old_app_out == SZ.v app_out_len /\
       ST.server_local_event_input_ready
@@ -1132,7 +1132,7 @@ let lemma_select_derive_success_server_hello_ready
   (payload:B.bytes)
   : Lemma
       (requires
-        B.length payload == 64 /\
+        B.length payload == 128 /\
         resp.ST.status == ST.StepOk /\
         select_derive_from_payload_success_correct st0 st2 resp payload /\
         st2.CS.cs_model.CS.model_control ==
@@ -1299,7 +1299,7 @@ let lemma_assemble_can_send_server_hello
   (payload:B.bytes)
   : Lemma
       (requires
-        B.length payload == 64 /\
+        B.length payload == 128 /\
         st.CS.cs_model.CS.model_control ==
           CS.ControlHandshaking CS.HsClientHelloReceived /\
         st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
@@ -1385,7 +1385,7 @@ fn select_derive_send_server_hello_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_network_out == SZ.v network_out_len /\
       B.length 'old_app_out == SZ.v app_out_len /\
       network_out_len == DS.driver_network_out_capacity /\

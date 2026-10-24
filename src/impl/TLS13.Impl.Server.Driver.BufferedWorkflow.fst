@@ -319,7 +319,7 @@ fn rec drive_handshake
           with material_bytes.
             assert (pts_to material_payload material_bytes);
           if material_ok {
-            assert (pure (B.length material_bytes == 64));
+            assert (pure (B.length material_bytes == 128));
             Seq.lemma_len_slice material_bytes 0 32;
             Seq.lemma_len_slice material_bytes 32 64;
             let server_random : erased (b:B.bytes{B.length b == 32}) =

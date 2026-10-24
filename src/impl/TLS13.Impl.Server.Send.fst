@@ -505,7 +505,7 @@ let lemma_input_ready_server_hello_of_selection
   (material: B.bytes)
   : Lemma
     (requires
-      B.length material == 64 /\
+      B.length material == 128 /\
       st.CS.cs_model.CS.model_control ==
         CS.ControlHandshaking CS.HsClientHelloReceived /\
       st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
@@ -686,7 +686,7 @@ let lemma_server_process_local_obligations
     with
     ( let server_random = CL.raw_slice payload 0 32 in
       let server_private_key = CL.raw_slice payload 32 64 in
-      assert (B.length payload == 64);
+      assert (B.length payload == 128);
       assert (Seq.length server_random == 32);
       assert (Seq.length server_private_key == 32);
       match st.CS.cs_model.CS.model_handshake.CS.hs_server_selection with

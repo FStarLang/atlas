@@ -35,7 +35,7 @@ val lemma_select_server_parameters_input_ready_intro
   (server_random server_private_key:B.bytes_of_len 32)
   : Lemma
       (requires
-        B.length payload == 64 /\
+        B.length payload == 128 /\
         st.CS.cs_model.CS.model_config.CS.config_role ==
           CS.ServerEndpoint /\
         st.CS.cs_model.CS.model_control ==
@@ -80,7 +80,7 @@ let selection_from_payload_correct
   (st0 st1:CS.connection_state)
   (payload:B.bytes)
   : prop =
-  B.length payload == 64 /\
+  B.length payload == 128 /\
   (match st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello,
          st0.CS.cs_model.CS.model_config.CS.config_server with
    | Some ch, Some cfg ->
@@ -111,7 +111,7 @@ let server_hello_from_payload_correct
   (st0 st1:CS.connection_state)
   (payload:B.bytes)
   : prop =
-  B.length payload == 64 /\
+  B.length payload == 128 /\
   (let sh =
      SS.mk_server_hello_witness (CM.stored_client_hello_named_group st0)
        (CL.raw_slice payload 0 32)
@@ -132,7 +132,7 @@ let derive_shared_secret_from_payload_correct
   (resp:ST.server_response)
   (payload:B.bytes)
   : prop =
-  B.length payload == 64 /\
+  B.length payload == 128 /\
   (resp.ST.status == ST.StepOk ==>
    exists (shared:TLS13.Crypto.Spec.x25519_shared_secret).
      st1 == CM.derived_shared_secret_state st0 shared /\
@@ -221,7 +221,7 @@ fn select_default_server_parameters_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_network_out == SZ.v network_out_len /\
       B.length 'old_app_out == SZ.v app_out_len /\
       network_out_len == DS.driver_network_out_capacity /\
@@ -269,7 +269,7 @@ fn send_server_hello_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_app_out == SZ.v app_out_len /\
       ST.server_local_event_input_ready
         'st0
@@ -346,7 +346,7 @@ fn derive_shared_secret_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_network_out == SZ.v network_out_len /\
       B.length 'old_app_out == SZ.v app_out_len /\
       ST.server_local_event_input_ready
@@ -404,7 +404,7 @@ fn select_derive_send_server_hello_from_payload_once
     pts_to app_out 'old_app_out **
     pure (
       B.length 'payload_bytes == SZ.v payload_len /\
-      SZ.v payload_len == 64 /\
+      SZ.v payload_len == 128 /\
       B.length 'old_network_out == SZ.v network_out_len /\
       B.length 'old_app_out == SZ.v app_out_len /\
       network_out_len == DS.driver_network_out_capacity /\

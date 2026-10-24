@@ -213,7 +213,7 @@ val lemma_input_ready_server_hello_of_selection
   (material: B.bytes)
   : Lemma
     (requires
-      B.length material == 64 /\
+      B.length material == 128 /\
       st.CS.cs_model.CS.model_control ==
         CS.ControlHandshaking CS.HsClientHelloReceived /\
       st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\

@@ -20,7 +20,7 @@ fn copy_server_random_and_private_from_payload
   requires pts_to payload 'payload_bytes **
            pts_to server_random 'old_server_random **
            pts_to server_private_key 'old_server_private_key **
-           pure (B.length 'payload_bytes == 64 /\
+           pure (B.length 'payload_bytes == 128 /\
                  B.length 'old_server_random == 32 /\
                  B.length 'old_server_private_key == 32)
   ensures pts_to payload 'payload_bytes **
@@ -33,8 +33,11 @@ fn copy_server_random_and_private_from_payload
   pts_to_len server_random;
   pts_to_len server_private_key;
 
-  let payload_slice = Slice.from_array payload 64sz;
-  let payload_split = Slice.split payload_slice 32sz;
+  let whole_slice = Slice.from_array payload 128sz;
+  let whole_split = Slice.split whole_slice 64sz;
+  Slice.pts_to_len (fst whole_split);
+  assert (pure (Slice.len (fst whole_split) == 64sz));
+  let payload_split = Slice.split (fst whole_split) 32sz;
   let random_slice = Slice.from_array server_random 32sz;
   let private_slice = Slice.from_array server_private_key 32sz;
 
@@ -52,9 +55,11 @@ fn copy_server_random_and_private_from_payload
 
   Slice.to_array random_slice;
   Slice.to_array private_slice;
-  Slice.join (fst payload_split) (snd payload_split) payload_slice;
-  SeqP.lemma_split 'payload_bytes 32;
-  Slice.to_array payload_slice;
+  Slice.join (fst payload_split) (snd payload_split) (fst whole_split);
+  Slice.join (fst whole_split) (snd whole_split) whole_slice;
+  with joined. assert (Slice.pts_to whole_slice joined);
+  assert (pure (Seq.equal joined 'payload_bytes));
+  Slice.to_array whole_slice;
 
   Seq.lemma_len_slice 'payload_bytes 0 32;
   Seq.lemma_len_slice 'payload_bytes 32 64;

@@ -34,7 +34,7 @@ val driver_network_out_capacity : c:SZ.t { SZ.v c == 20000 }
 val driver_app_out_capacity :
   c:SZ.t { SZ.v c == 16640 /\ IM.max_record_fragment_len <= SZ.v c }
 val driver_rx_capacity : c:SZ.t { SZ.v c == 65535 }
-val driver_material_capacity : c:SZ.t { SZ.v c == 64 }
+val driver_material_capacity : c:SZ.t { SZ.v c == 128 }
 val driver_certificate_verify_input_capacity :
   c:SZ.t { SZ.v c == 256 /\ Bounds.max_certificate_verify_input_len <= SZ.v c }
 val driver_signature_capacity :

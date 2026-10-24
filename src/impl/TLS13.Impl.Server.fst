@@ -2811,7 +2811,7 @@ fn process_local_event
       resp
     }
     ST.LocalSelectServerParameters -> {
-      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 64));
+      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 128));
       let mut server_random = [| 0uy; 32sz |];
       let mut server_private_key = [| 0uy; 32sz |];
       SMat.copy_server_random_and_private_from_payload
@@ -2930,7 +2930,7 @@ fn process_local_event
       })
     }
     ST.LocalSendServerHello -> {
-      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 64));
+      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 128));
       let mut dispatch_session_id = [| 0uy; 32sz |];
       unfold (connection_exactly s 'st0);
       let dispatch_sid_len = CQ.read_client_hello_session_id s dispatch_session_id;
