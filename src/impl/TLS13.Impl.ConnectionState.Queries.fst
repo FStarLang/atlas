@@ -2192,8 +2192,8 @@ fn select_supported_server_parameters_runtime
     signature_supported;
 
   if ok {
-    assert (pure (U8.v tag == 1));
-    assert (pure (U8.v stage == 13));
+    assert (pure (control_ok == true));
+    assert (pure (tag == 1uy /\ stage == 13uy));
     assert (pure (st0.CS.cs_model.CS.model_control ==
       CS.ControlHandshaking CS.HsClientHelloReceived));
     assert (pure (st0.CS.cs_model.CS.model_config.CS.config_role ==
@@ -2626,6 +2626,81 @@ fn can_schedule_derive_shared_secret_runtime
   }
 }
 
+ghost
+fn server_key_share_private_exactly_to_option
+  (slot:optional_fixed_bytes)
+  (hs:erased CS.handshake_state)
+  requires server_key_share_private_exactly slot (Ghost.reveal hs)
+  ensures optional_fixed_bytes_exactly slot 32 (server_key_share_private_option (Ghost.reveal hs))
+{
+  let hs_value = Ghost.reveal hs;
+  match hs_value.CS.hs_server_selection {
+    Some selection -> {
+      match selection.CS.server_key_share_private {
+        Some sk -> {
+          rewrite (server_key_share_private_exactly slot hs_value) as
+            (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option hs_value));
+        }
+        None -> {
+          rewrite (server_key_share_private_exactly slot hs_value) as
+            (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option hs_value));
+        }
+      }
+    }
+    None -> {
+      rewrite (server_key_share_private_exactly slot hs_value) as
+        (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option hs_value));
+    }
+  }
+}
+
+ghost
+fn server_key_share_private_exactly_of_option
+  (slot:optional_fixed_bytes)
+  (hs:erased CS.handshake_state)
+  requires optional_fixed_bytes_exactly slot 32 (server_key_share_private_option (Ghost.reveal hs))
+  ensures server_key_share_private_exactly slot (Ghost.reveal hs)
+{
+  let hs_value = Ghost.reveal hs;
+  match hs_value.CS.hs_server_selection {
+    Some selection -> {
+      match selection.CS.server_key_share_private {
+        Some sk -> {
+          rewrite (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option hs_value))
+            as (server_key_share_private_exactly slot hs_value);
+        }
+        None -> {
+          rewrite (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option hs_value))
+            as (server_key_share_private_exactly slot hs_value);
+        }
+      }
+    }
+    None -> {
+      rewrite (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option hs_value))
+        as (server_key_share_private_exactly slot hs_value);
+    }
+  }
+}
+
+(* Whether the selection holds an (EC)DH private: false for no selection and
+   for an X25519MLKEM768 (RFC 10024) selection, whose randomness is not
+   stored. *)
+fn read_server_key_share_private_present
+  (slot:optional_fixed_bytes)
+  (#hs:erased CS.handshake_state)
+  requires server_key_share_private_exactly slot (Ghost.reveal hs)
+  returns b: bool
+  ensures server_key_share_private_exactly slot (Ghost.reveal hs) **
+          pure (b <==> Some? (server_key_share_private_option (Ghost.reveal hs)))
+{
+  server_key_share_private_exactly_to_option slot hs;
+  unfold (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option (Ghost.reveal hs)));
+  let b = !slot.present;
+  fold (optional_fixed_bytes_exactly slot 32 (server_key_share_private_option (Ghost.reveal hs)));
+  server_key_share_private_exactly_of_option slot hs;
+  b
+}
+
 fn can_send_server_hello_runtime
   (c:connection_state)
   (#st0:erased CS.connection_state)
@@ -2686,6 +2761,10 @@ fn can_send_server_hello_runtime
   let tag = !c.control.control_tag;
   let stage = !c.control.handshake_stage_tag;
   let has_selection = !c.handshake.server_selection_present;
+  (* An X25519MLKEM768 selection (RFC 10024) holds no (EC)DH private, and
+     its ServerHello goes out on the separate hybrid send path. *)
+  let has_private =
+    read_server_key_share_private_present c.handshake.server_key_share_private;
   let server_hello = !c.handshake.messages.server_hello;
   let shared_secret_present = !c.handshake.keys.shared_secret.present;
   let current_transcript_len = !c.handshake.transcript.len;
@@ -2700,6 +2779,7 @@ fn can_send_server_hello_runtime
     shared_secret_present &&
     no_server_hello &&
     has_selection &&
+    has_private &&
     transcript_room;
 
   assert_norm (Tags.handshake_stage_tag_matches
@@ -2799,6 +2879,167 @@ fn can_send_server_hello_runtime
     false
   }
 }
+
+fn can_send_hybrid_server_hello_runtime
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns ok: bool
+  ensures connection_exactly c st0 **
+          pure (ok ==>
+            st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsClientHelloReceived /\
+            st0.CS.cs_model.CS.model_config.CS.config_role ==
+              CS.ServerEndpoint /\
+            Some?
+              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
+            st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello == None /\
+            Some? st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection /\
+            B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 1210 <=
+              max_transcript_len)
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  let role_ok = config_role_is_server c.config;
+  unfold (control_exactly
+    c.control
+    st0.CS.cs_model.CS.model_control
+    st0.CS.cs_model.CS.model_failure);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  with cv_verified server_finished_verified. _;
+  unfold (server_selection_presence_exactly
+    c.handshake.server_selection_present
+    st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection);
+  with selection_present. _;
+  unfold (handshake_messages_exactly
+    c.handshake.messages
+    st0.CS.cs_model.CS.model_handshake);
+  unfold (server_hello_slot_exactly
+    c.handshake.messages.server_hello
+    st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello);
+  with stored_server_hello. _;
+  unfold (sized_bytes_exactly
+    c.handshake.transcript
+    max_transcript_len
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+  with transcript_storage transcript_len. _;
+  unfold (key_schedule_exactly
+    c.handshake.keys
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+  unfold (optional_shared_secret_exactly
+    c.handshake.keys.shared_secret
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+  with shared_present shared_secret_bytes. _;
+
+  let tag = !c.control.control_tag;
+  let stage = !c.control.handshake_stage_tag;
+  let has_selection = !c.handshake.server_selection_present;
+  let server_hello = !c.handshake.messages.server_hello;
+  let shared_secret_present = !c.handshake.keys.shared_secret.present;
+  let current_transcript_len = !c.handshake.transcript.len;
+  let no_server_hello = None? server_hello;
+  let max_start = SZ.sub max_transcript_len_sz 1210sz;
+  let transcript_room = sizet_lte_plain current_transcript_len max_start;
+  lemma_sizet_lte_plain current_transcript_len max_start;
+  let ok =
+    tag = 1uy &&
+    stage = 13uy &&
+    role_ok &&
+    shared_secret_present &&
+    no_server_hello &&
+    has_selection &&
+    transcript_room;
+
+  assert_norm (Tags.handshake_stage_tag_matches
+    13uy
+    CS.HsClientHelloReceived);
+  assert (pure (ok ==> U8.v tag == 1));
+  assert (pure (ok ==> U8.v stage == 13));
+  assert (pure (ok ==>
+    st0.CS.cs_model.CS.model_control ==
+      CS.ControlHandshaking CS.HsClientHelloReceived));
+  assert (pure (ok ==>
+    st0.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint));
+  assert (pure (shared_secret_present == shared_present));
+  lemma_shared_secret_match_present_iff
+    shared_present
+    shared_secret_bytes
+    (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+  assert (pure (ok ==>
+    (Some? st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret)));
+  assert (pure (server_hello == stored_server_hello));
+  assert (pure (ok ==> no_server_hello));
+  assert (pure (ok ==> stored_server_hello == None));
+  assert (pure (ok ==>
+    st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello == None));
+  assert (pure (has_selection == selection_present));
+  assert (pure (ok ==> has_selection));
+  assert (pure (ok ==>
+    (Some? st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection)));
+  assert (pure (current_transcript_len == transcript_len));
+  assert (pure (ok ==> SZ.v current_transcript_len <= SZ.v max_start));
+  assert (pure (ok ==>
+    B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 1210 <=
+      max_transcript_len));
+  if ok {
+    fold (optional_shared_secret_exactly
+      c.handshake.keys.shared_secret
+      st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+    fold (key_schedule_exactly
+      c.handshake.keys
+      st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+    fold (sized_bytes_exactly
+      c.handshake.transcript
+      max_transcript_len
+      st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+    fold (server_hello_slot_exactly
+      c.handshake.messages.server_hello
+      st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello);
+    fold (handshake_messages_exactly
+      c.handshake.messages
+      st0.CS.cs_model.CS.model_handshake);
+    fold (server_selection_presence_exactly
+      c.handshake.server_selection_present
+      st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection);
+    fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+    fold (control_exactly
+      c.control
+      st0.CS.cs_model.CS.model_control
+      st0.CS.cs_model.CS.model_failure);
+    fold (connection_model_exactly c st0.CS.cs_model);
+    fold (connection_exactly c st0);
+    true
+  } else {
+    fold (optional_shared_secret_exactly
+      c.handshake.keys.shared_secret
+      st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret);
+    fold (key_schedule_exactly
+      c.handshake.keys
+      st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+    fold (sized_bytes_exactly
+      c.handshake.transcript
+      max_transcript_len
+      st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+    fold (server_hello_slot_exactly
+      c.handshake.messages.server_hello
+      st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello);
+    fold (handshake_messages_exactly
+      c.handshake.messages
+      st0.CS.cs_model.CS.model_handshake);
+    fold (server_selection_presence_exactly
+      c.handshake.server_selection_present
+      st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection);
+    fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+    fold (control_exactly
+      c.control
+      st0.CS.cs_model.CS.model_control
+      st0.CS.cs_model.CS.model_failure);
+    fold (connection_model_exactly c st0.CS.cs_model);
+    fold (connection_exactly c st0);
+    false
+  }
+}
+
 
 fn can_receive_application_data
   (c:connection_state)
@@ -7002,6 +7243,90 @@ fn read_client_hello_kex_group
   fold (connection_model_exactly c st0.CS.cs_model);
   fold (connection_exactly c st0);
   g
+}
+
+fn read_client_hello_hybrid_offered
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns b: bool
+  ensures connection_exactly c st0 **
+          pure (b == client_hello_offers_hybrid
+                       st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello)
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  unfold (handshake_messages_exactly
+    c.handshake.messages
+    st0.CS.cs_model.CS.model_handshake);
+  unfold (client_hello_hybrid_offered_exactly
+    c.handshake.messages.client_hello_hybrid_offered
+    st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+  let b = !c.handshake.messages.client_hello_hybrid_offered;
+  fold (client_hello_hybrid_offered_exactly
+    c.handshake.messages.client_hello_hybrid_offered
+    st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+  fold (handshake_messages_exactly
+    c.handshake.messages
+    st0.CS.cs_model.CS.model_handshake);
+  fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
+  b
+}
+
+/// Copy the X25519MLKEM768 share (RFC 10024) of the stored ClientHello into
+/// [out].  Meaningful only when the stored ClientHello carried one.
+fn read_client_hello_hybrid_key_share
+  (c:connection_state)
+  (out:array U8.t)
+  (#st0:erased CS.connection_state)
+  (#pout:erased (Seq.seq U8.t))
+  requires connection_exactly c st0 **
+           pts_to out pout **
+           pure (B.length pout == 1216)
+  ensures exists* (o:Seq.seq U8.t).
+            connection_exactly c st0 **
+            pts_to out o **
+            pure (B.length o == 1216 /\
+                  (match st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
+                   | Some ch ->
+                     (match CS.client_hello_hybrid_key_share ch with
+                      | Some k -> Seq.equal o k
+                      | None -> True)
+                   | None -> True))
+
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  unfold (handshake_messages_exactly c.handshake.messages st0.CS.cs_model.CS.model_handshake);
+  unfold (client_hello_slot_exactly
+    c.handshake.messages.client_hello_present
+    c.handshake.messages.client_hello
+    st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+  with ch_present ch_random ch_session_id ch_server_name ch_key_share ch_p256_key_share
+       ch_cipher_suites ch_signature_schemes ch_hybrid_key_share.
+    assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share ch_hybrid_key_share);
+
+  Arr.pts_to_len out;
+  V.to_array_pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
+  Arr.pts_to_len (V.vec_to_array c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share);
+  Arr.memcpy
+    1216sz
+    (V.vec_to_array c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share)
+    out;
+  V.to_vec_pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
+
+  fold (client_hello_slot_exactly
+    c.handshake.messages.client_hello_present
+    c.handshake.messages.client_hello
+    st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+  fold (handshake_messages_exactly c.handshake.messages st0.CS.cs_model.CS.model_handshake);
+  fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
 }
 
 fn read_client_hello_session_id

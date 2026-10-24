@@ -285,3 +285,5 @@ fn kex_hybrid_client_shared_runtime
 }
 
 let client_offers_hybrid = false
+
+let server_prefers_hybrid = false

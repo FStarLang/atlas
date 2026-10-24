@@ -448,7 +448,7 @@ fn serialize_empty_encrypted_extensions_poc
 noextract
 let poc_sh_mid (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
   : Pure GSH.serverHello_mid
-    (requires Seq.length rnd == 32 /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+    (requires Seq.length rnd == 32 /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
     (ensures fun _ -> True)
   = let kse : GKSE.keyShareEntry = { GKSE.group = g; GKSE.key_exchange = (ks <: GKSE.keyShareEntry_key_exchange) } in
     let ks_ext : GESH.extensionServerHello = GESH.Extension_data_key_share (kse <: GESH.extensionServerHello_extension_data_key_share) in
@@ -462,7 +462,7 @@ let poc_sh_mid (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
 (* ---- forward conv lemma: the canonical mid converts to the canonical record ---- *)
 #push-options "--fuel 8 --ifuel 8 --z3rlimit 120"
 let lemma_sh_conv_fwd (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
           (ensures GSH.serverHello_conv (poc_sh_mid rnd ks sid g cs) == Some (poc_canonical_sh rnd ks sid g cs))
   = GNG.namedGroup_bytesize_eq g;
     LP.serialize_length GNG.namedGroup_serializer g;
@@ -518,7 +518,7 @@ let lemma_sh_conv_fwd (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherS
    compat mode off -- and at secp256r1's 65-byte share it is [123 + |sid|]. ---- *)
 #push-options "--fuel 8 --ifuel 8 --z3rlimit 120"
 let lemma_sh_size (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
           (ensures GHS.handshake_bytesize (GHS.Body_server_hello (poc_canonical_sh rnd ks sid g cs))
                      == 58 + Seq.length ks + Seq.length sid)
   = let sh = poc_canonical_sh rnd ks sid g cs in
@@ -742,7 +742,7 @@ let lemma_u16_to_cipher_suite_matches (w: U16.t) (c: GCS.cipherSuite)
 (* ===================================================================== *)
 #push-options "--fuel 8 --ifuel 8 --z3rlimit 120"
 let lemma_canonical_random (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
           (ensures Sem.serverHello_random (poc_canonical_sh rnd ks sid g cs) == Some (rnd <: Seq.lseq U8.t 32))
   = ()
 
@@ -758,7 +758,7 @@ let lemma_canonical_key_share (rnd ks sid: B.bytes) (cs: GCS.cipherSuite)
    and has never been X25519-specific -- so it, rather than
    [serverHello_key_share_x25519], is what the writer should use. *)
 let lemma_canonical_kex_share (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32 /\ (g == GNG.X25519 \/ g == GNG.Secp256r1) /\ Seq.length ks == CryptoSpec.kex_public_len (Sem.kex_group_of_named_group g))
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32 /\ (g == GNG.X25519 \/ g == GNG.Secp256r1) /\ Seq.length ks == CryptoSpec.kex_public_len (Sem.kex_group_of_named_group g))
           (ensures Sem.serverHello_kex_share (poc_canonical_sh rnd ks sid g cs)
                      == Some (g, (ks <: Sem.offered_share)))
   = (* [sh_find_kex_share] rejects every group outside the two ATLAS offers, and
@@ -768,20 +768,29 @@ let lemma_canonical_kex_share (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS
     | GNG.X25519 -> ()
     | GNG.Secp256r1 -> ()
 
+(* The canonical ServerHello at X25519MLKEM768 (RFC 10024) carries no
+   classical share and exactly the hybrid ciphertext it was built from. *)
+let lemma_canonical_hybrid_share (rnd ks sid: B.bytes) (cs: GCS.cipherSuite)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ Seq.length ks == 1120 /\ Seq.length sid <= 32)
+          (ensures Sem.serverHello_kex_share (poc_canonical_sh rnd ks sid GNG.X25519mlkem768 cs) == None /\
+                   Sem.serverHello_hybrid_share (poc_canonical_sh rnd ks sid GNG.X25519mlkem768 cs)
+                     == Some (ks <: Seq.seq U8.t))
+  = ()
+
 (* The canonical ServerHello echoes [sid] verbatim, which is what
    [is_valid_server_hello] pins the runtime length field against. *)
 let lemma_canonical_session_id (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
           (ensures Seq.equal (Sem.serverHello_session_id_echo (poc_canonical_sh rnd ks sid g cs)) sid)
   = ()
 
 let lemma_canonical_cs (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
           (ensures Sem.serverHello_cipher_suite (poc_canonical_sh rnd ks sid g cs) == Some cs)
   = ()
 
 let lemma_ks_ext_conv (ks: B.bytes) (g: GNG.namedGroup)
-  : Lemma (requires 32 <= Seq.length ks /\ Seq.length ks <= 65)
+  : Lemma (requires 32 <= Seq.length ks /\ Seq.length ks <= 1120)
           (ensures GESH.extensionServerHello_conv
                      (GESH.Extension_data_key_share_mid ((g, ks) <: GESHKS.extensionServerHello_extension_data_key_share_mid))
                    == Some (GESH.Extension_data_key_share
@@ -800,7 +809,7 @@ let lemma_sv_ext_conv ()
   = ()
 
 let lemma_sh_handshake_conv_fwd (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
-  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
           (ensures GHS.handshake_conv (GHS.Body_server_hello_mid (poc_sh_mid rnd ks sid g cs))
                      == Some (GHS.Body_server_hello (poc_canonical_sh rnd ks sid g cs)))
   = lemma_sh_conv_fwd rnd ks sid g cs
@@ -830,6 +839,72 @@ let lemma_sh_named_group_of_kex_inv (g: GNG.namedGroup)
           (ensures sh_named_group_of_kex (Sem.kex_group_of_named_group g) == g)
   = ()
 
+(* The logical key share of a ServerHello mirror, copied out at its exact
+   width: the [ks_len]-byte prefix of the 65-byte classical slot, or the whole
+   1120-byte hybrid slot. *)
+fn alloc_sh_share_copy
+  (is_hybrid: bool)
+  (ks_len: SZ.t)
+  (classical: V.vec U8.t)
+  (hybrid: V.vec U8.t)
+  (#kb: erased B.bytes)
+  (#hb: erased B.bytes)
+  requires V.pts_to classical kb ** V.pts_to hybrid hb **
+           pure (V.is_full_vec classical /\ V.length classical == 65 /\
+                 V.is_full_vec hybrid /\ V.length hybrid == 1120 /\
+                 Seq.length (Ghost.reveal kb) == 65 /\
+                 Seq.length (Ghost.reveal hb) == 1120 /\
+                 (is_hybrid ==> SZ.v ks_len == 1120) /\
+                 (not is_hybrid ==> SZ.v ks_len <= 65))
+  returns dst: V.vec U8.t
+  ensures V.pts_to classical kb ** V.pts_to hybrid hb **
+          (exists* d.
+            V.pts_to dst d **
+            pure (V.is_full_vec dst /\ V.length dst == SZ.v ks_len /\
+                  Seq.equal d (if is_hybrid then Ghost.reveal hb
+                               else if SZ.v ks_len <= Seq.length (Ghost.reveal kb)
+                               then Seq.slice (Ghost.reveal kb) 0 (SZ.v ks_len)
+                               else Seq.empty)))
+{
+  V.pts_to_len classical;
+  V.pts_to_len hybrid;
+  if is_hybrid {
+    let dst = alloc_copy_vec_exact hybrid 1120sz 1120sz;
+    with d. assert (V.pts_to dst d);
+    assert (pure (Seq.equal (Seq.slice (Ghost.reveal hb) 0 1120) (Ghost.reveal hb)));
+    dst
+  } else {
+    alloc_copy_vec_exact classical ks_len 65sz
+  }
+}
+
+let lemma_canonical_share (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ Seq.length sid <= 32 /\
+                    (((g == GNG.X25519 \/ g == GNG.Secp256r1) /\
+                      Seq.length ks == CryptoSpec.kex_public_len (Sem.kex_group_of_named_group g)) \/
+                     (g == GNG.X25519mlkem768 /\ Seq.length ks == 1120)))
+          (ensures (if g = GNG.X25519mlkem768
+                    then Sem.serverHello_kex_share (poc_canonical_sh rnd ks sid g cs) == None /\
+                         Sem.serverHello_hybrid_share (poc_canonical_sh rnd ks sid g cs)
+                           == Some (ks <: Seq.seq U8.t)
+                    else Sem.serverHello_kex_share (poc_canonical_sh rnd ks sid g cs)
+                           == Some (g, (ks <: Sem.offered_share)) /\
+                         sh_named_group_of_kex (Sem.kex_group_of_named_group g) == g))
+  = if g = GNG.X25519mlkem768
+    then lemma_canonical_hybrid_share rnd ks sid cs
+    else (lemma_canonical_kex_share rnd ks sid g cs;
+          lemma_sh_named_group_of_kex_inv g)
+
+let lemma_poc_canonical_sh_hybrid (rnd ks sid: B.bytes) (cs: GCS.cipherSuite)
+  = let sh = poc_canonical_sh rnd ks sid GNG.X25519mlkem768 cs in
+    lemma_canonical_random rnd ks sid GNG.X25519mlkem768 cs;
+    lemma_canonical_hybrid_share rnd ks sid cs;
+    lemma_canonical_cs rnd ks sid GNG.X25519mlkem768 cs;
+    lemma_canonical_session_id rnd ks sid GNG.X25519mlkem768 cs;
+    lemma_sh_size rnd ks sid GNG.X25519mlkem768 cs;
+    GHS.handshake_bytesize_eq (GHS.Body_server_hello sh);
+    Rev.lemma_serialize_handshake_server_hello sh
+
 (* ===================================================================== *)
 (* Main: serialize a canonical ServerHello handshake message             *)
 (* (58 + |key_share| + |legacy_session_id_echo| bytes)                   *)
@@ -851,9 +926,10 @@ fn serialize_server_hello_handshake_poc
                  SZ.v out_len == 58 + Seq.length (reveal ks) + Seq.length (reveal sid) /\
                  Seq.length (reveal rnd) == 32 /\
                  (reveal rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-                 (reveal g == GNG.X25519 \/ reveal g == GNG.Secp256r1) /\
-                 Seq.length (reveal ks) ==
-                   CryptoSpec.kex_public_len (Sem.kex_group_of_named_group (reveal g)) /\
+                 (((reveal g == GNG.X25519 \/ reveal g == GNG.Secp256r1) /\
+                   Seq.length (reveal ks) ==
+                     CryptoSpec.kex_public_len (Sem.kex_group_of_named_group (reveal g))) \/
+                  (reveal g == GNG.X25519mlkem768 /\ Seq.length (reveal ks) == 1120)) /\
                  Seq.length (reveal sid) <= 32 /\
                  Ghost.reveal sh == poc_canonical_sh (reveal rnd) (reveal ks) (reveal sid) (reveal g) (reveal cs))
   returns written: (n:SZ.t{SZ.v n <= SZ.v out_len})
@@ -867,8 +943,10 @@ fn serialize_server_hello_handshake_poc
   with key_share. assert (V.pts_to lsh.L.server_hello_key_share key_share);
   with sid_bytes. assert (V.pts_to lsh.L.server_hello_session_id sid_bytes);
   lemma_canonical_random (reveal rnd) (reveal ks) (reveal sid) (reveal g) (reveal cs);
-  lemma_canonical_kex_share (reveal rnd) (reveal ks) (reveal sid) (reveal g) (reveal cs);
-  lemma_sh_named_group_of_kex_inv (reveal g);
+  with hybrid_share. assert (V.pts_to lsh.L.server_hello_hybrid_share hybrid_share);
+  lemma_canonical_share (reveal rnd) (reveal ks) (reveal sid) (reveal g) (reveal cs);
+  let is_h = lsh.L.server_hello_is_hybrid;
+  assert (pure (is_h <==> reveal g == GNG.X25519mlkem768));
   (* The negotiated suite is read out of the runtime record rather than pinned:
      [is_valid_server_hello] ties the stored U16 wire code to the erased suite of
      the message, and [lemma_canonical_cs] says that suite is [cs]. *)
@@ -879,10 +957,15 @@ fn serialize_server_hello_handshake_poc
   (* The stored share is padded to the 65-byte mirror width; the logical share
      is the [ks_len]-byte prefix, and [ks_len] is a function of the group the
      mirror already carries. *)
-  let ks_len = sh_share_len_sz lsh.L.server_hello_kex_group;
+  let ks_len : SZ.t =
+    (if is_h then 1120sz else sh_share_len_sz lsh.L.server_hello_kex_group);
   assert (pure (SZ.v ks_len == Seq.length (reveal ks)));
-  Seq.lemma_eq_elim key_share (CryptoSpec.pad_share_65 (reveal ks));
-  assert (pure (Seq.equal (Seq.slice key_share 0 (SZ.v ks_len)) (reveal ks)));
+  if (not is_h) {
+    Seq.lemma_eq_elim key_share (CryptoSpec.pad_share_65 (reveal ks));
+    assert (pure (Seq.equal (Seq.slice key_share 0 (SZ.v ks_len)) (reveal ks)))
+  } else {
+    assert (pure (Seq.equal hybrid_share (reveal ks)))
+  };
   (* The stored id is zero-padded to the mirror's 32-byte width; the logical
      id is the [sid_len]-byte prefix (RFC 8446 4.1.3 echo). *)
   Seq.lemma_eq_elim sid_bytes (Sem.pad_session_id_32 (reveal sid));
@@ -891,10 +974,14 @@ fn serialize_server_hello_handshake_poc
   let rnd_vec = alloc_copy_vec_exact lsh.L.server_hello_random 32sz 32sz;
   with rnd_copy. assert (V.pts_to rnd_vec rnd_copy);
   Seq.lemma_eq_elim rnd_copy (reveal rnd);
+  (* The classical share buffer is 65 bytes wide whatever the group, and the
+     logical share is its [ks_len]-byte prefix; a hybrid share is the whole
+     1120-byte hybrid buffer. *)
   V.pts_to_len lsh.L.server_hello_key_share;
-  (* The share buffer is 65 bytes wide whatever the group; the logical share is
-     its [ks_len]-byte prefix. *)
-  let ks_vec = alloc_copy_vec_exact lsh.L.server_hello_key_share ks_len 65sz;
+  V.pts_to_len lsh.L.server_hello_hybrid_share;
+  let ks_vec =
+    alloc_sh_share_copy is_h ks_len
+      lsh.L.server_hello_key_share lsh.L.server_hello_hybrid_share;
   with ks_copy. assert (V.pts_to ks_vec ks_copy);
   Seq.lemma_eq_elim ks_copy (reveal ks);
   V.pts_to_len lsh.L.server_hello_session_id;
@@ -911,7 +998,8 @@ fn serialize_server_hello_handshake_poc
   (* ---- key_share entry vmatch ---- *)
   let ks_lvec : PPBY.lvec U8.t = { PPBY.lvec_vec = ks_vec; PPBY.lvec_len = ks_len };
   rewrite (V.pts_to ks_vec (reveal ks)) as (V.pts_to ks_lvec.PPBY.lvec_vec (reveal ks));
-  let ng = sh_named_group_of_kex lsh.L.server_hello_kex_group;
+  let ng : GNG.namedGroup =
+    (if is_h then GNG.X25519mlkem768 else sh_named_group_of_kex lsh.L.server_hello_kex_group);
   let kse_low : GKSE.keyShareEntry_lowtype = (ng, ks_lvec);
   rewrite (V.pts_to ks_lvec.PPBY.lvec_vec (reveal ks))
       as (V.pts_to (snd kse_low).PPBY.lvec_vec (reveal ks));

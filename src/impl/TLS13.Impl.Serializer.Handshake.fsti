@@ -71,7 +71,7 @@ module WS = TLS13.Wire.Spec
 noextract
 let poc_canonical_sh (rnd ks sid: B.bytes) (g: GNG.namedGroup) (cs: GCS.cipherSuite)
   : Pure GSH.serverHello
-    (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 65 /\ Seq.length sid <= 32)
+    (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\ 32 <= Seq.length ks /\ Seq.length ks <= 1120 /\ Seq.length sid <= 32)
     (ensures fun _ -> True)
   = let ke : GKSE.keyShareEntry_key_exchange = ks in
     let kse : GKSE.keyShareEntry = { GKSE.group = g; GKSE.key_exchange = ke } in
@@ -340,6 +340,20 @@ fn serialize_empty_encrypted_extensions_poc
                 Seq.equal out_bytes
                   (WS.serialize_handshake (M.EncryptedExtensions ([] <: GEE.encryptedExtensions))))
 
+(* The canonical X25519MLKEM768 ServerHello (RFC 10024): every accessor the
+   server state machine reads, and its serialized length. *)
+val lemma_poc_canonical_sh_hybrid (rnd ks sid: B.bytes) (cs: GCS.cipherSuite)
+  : Lemma (requires Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
+                    Seq.length ks == 1120 /\ Seq.length sid <= 32)
+          (ensures (let sh = poc_canonical_sh rnd ks sid GNG.X25519mlkem768 cs in
+                    Sem.serverHello_random sh == Some (rnd <: Seq.lseq U8.t 32) /\
+                    Sem.serverHello_kex_share sh == None /\
+                    Sem.serverHello_hybrid_share sh == Some (ks <: Seq.seq U8.t) /\
+                    Sem.serverHello_cipher_suite sh == Some cs /\
+                    Seq.equal (Sem.serverHello_session_id_echo sh) sid /\
+                    B.length (WS.serialize_handshake (M.ServerHello sh))
+                      == 58 + 1120 + Seq.length sid))
+
 fn serialize_server_hello_handshake_poc
   (#sh: erased GSH.serverHello)
   (#rnd: erased B.bytes)
@@ -356,9 +370,10 @@ fn serialize_server_hello_handshake_poc
                  SZ.v out_len == 58 + Seq.length (reveal ks) + Seq.length (reveal sid) /\
                  Seq.length (reveal rnd) == 32 /\
                  (reveal rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-                 (reveal g == GNG.X25519 \/ reveal g == GNG.Secp256r1) /\
-                 Seq.length (reveal ks) ==
-                   CryptoSpec.kex_public_len (Sem.kex_group_of_named_group (reveal g)) /\
+                 (((reveal g == GNG.X25519 \/ reveal g == GNG.Secp256r1) /\
+                   Seq.length (reveal ks) ==
+                     CryptoSpec.kex_public_len (Sem.kex_group_of_named_group (reveal g))) \/
+                  (reveal g == GNG.X25519mlkem768 /\ Seq.length (reveal ks) == 1120)) /\
                  Seq.length (reveal sid) <= 32 /\
                  Ghost.reveal sh == poc_canonical_sh (reveal rnd) (reveal ks) (reveal sid) (reveal g) (reveal cs))
   returns written: (n:SZ.t{SZ.v n <= SZ.v out_len})

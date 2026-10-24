@@ -573,6 +573,28 @@ fn can_send_server_hello_runtime
             B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 155 <=
               max_transcript_len)
 
+(* The X25519MLKEM768 (RFC 10024) counterpart of [can_send_server_hello_runtime]:
+   no (EC)DH private is required, and the transcript must have room for the
+   1120-byte share. *)
+fn can_send_hybrid_server_hello_runtime
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns ok: bool
+  ensures connection_exactly c st0 **
+          pure (ok ==>
+            st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsClientHelloReceived /\
+            st0.CS.cs_model.CS.model_config.CS.config_role ==
+              CS.ServerEndpoint /\
+            Some?
+              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
+            st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello == None /\
+            Some? st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection /\
+            B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 1210 <=
+              max_transcript_len)
+
+
 fn can_receive_application_data
   (c:connection_state)
   (#st0:erased CS.connection_state)
@@ -1251,6 +1273,38 @@ fn read_client_hello_kex_group
   returns g: CryptoSpec.dh_group
   ensures connection_exactly c st0 **
           pure (g == stored_client_hello_kex_group (Ghost.reveal st0))
+
+/// Whether the stored ClientHello made a well-formed X25519MLKEM768 offer
+/// (RFC 10024), read off the box written at parse time.
+fn read_client_hello_hybrid_offered
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns b: bool
+  ensures connection_exactly c st0 **
+          pure (b == client_hello_offers_hybrid
+                       st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello)
+
+/// Copy the X25519MLKEM768 share (RFC 10024) of the stored ClientHello into
+/// [out].  Meaningful only when the stored ClientHello carried one.
+fn read_client_hello_hybrid_key_share
+  (c:connection_state)
+  (out:array U8.t)
+  (#st0:erased CS.connection_state)
+  (#pout:erased (Seq.seq U8.t))
+  requires connection_exactly c st0 **
+           pts_to out pout **
+           pure (B.length pout == 1216)
+  ensures exists* (o:Seq.seq U8.t).
+            connection_exactly c st0 **
+            pts_to out o **
+            pure (B.length o == 1216 /\
+                  (match st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
+                   | Some ch ->
+                     (match CS.client_hello_hybrid_key_share ch with
+                      | Some k -> Seq.equal o k
+                      | None -> True)
+                   | None -> True))
 
 /// Read the offered legacy_session_id of the stored ClientHello into [out],
 /// zero-padded to the mirror's fixed 32-byte width, and return its true wire

@@ -23,8 +23,22 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H8a+b client offer: `poc_canonical_ch_g` / `client_hello_of_start` with an optional hybrid share, start storage (96-byte seed, 1216-byte share), gated generation behind the abstract `KEX.client_offers_hybrid`; Repr / `valid_start` pins removed | **landed** (`15b5d3f`) |
 | H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | **landed** (`500d9d4`) |
 | H9a server: ClientHello hybrid share (1216 bytes) parsing and storage, `client_hello_hybrid_offered` metadata box | **landed** (`001533b`) |
-| H9b server: driver key-exchange material widened from 64 to 128 bytes | **landed** (this commit) |
-| H9c, H10 | not started |
+| H9b server: driver key-exchange material widened from 64 to 128 bytes | **landed** (`719415e`) |
+| H9c server: hybrid select / encaps / derive (64-byte secret) / ServerHello (1120-byte share) and driver dispatch, gated by `KEX.server_prefers_hybrid` | **landed** (this commit) |
+| H10 | not started |
+
+H9c notes.  The server's hybrid flight lives in
+`BufferedHandshake.select_derive_send_hybrid_server_hello_from_payload_once`:
+copy the random and the 64 bytes of encapsulation randomness from the
+128-byte payload, read the stored 1216-byte client share, encapsulate
+(`KEX.kex_hybrid_server_encaps_runtime`), select with
+`server_hybrid_private = Some r` and the 1120-byte share (D3), derive the
+64-byte secret, then send the ServerHello.  Encapsulation failure ends the
+flight with `ServerFlightDeriveFailed` and an unchanged state.
+`BufferedWorkflow.drive_handshake` takes this path only when
+`KEX.server_prefers_hybrid` holds (false until H10) and the client offered
+the hybrid; otherwise it runs the classical flight.  The supported-profile
+predicate and `server_supported_groups` now include X25519MLKEM768.
 
 H9b notes.  `driver_material_capacity` and every select / ServerHello payload
 length is now 128 bytes, laid out as `[0,32)` server random, `[32,64)` DH

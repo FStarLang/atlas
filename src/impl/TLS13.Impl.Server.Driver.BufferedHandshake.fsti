@@ -448,3 +448,96 @@ fn select_derive_send_server_hello_from_payload_once
         (result == ServerFlightOk ==>
          st1.CS.cs_model.CS.model_control ==
            CS.ControlHandshaking CS.HsServerHelloSent))
+
+(** Whether the stored ClientHello may be answered with X25519MLKEM768
+    (RFC 10024): it made a well-formed hybrid offer and the server's (EC)DH
+    policy reads it as X25519, which is the group the runtime's selection pin
+    records for a hybrid selection. *)
+fn hybrid_server_hello_eligible
+  (d:DS.buffered_driver)
+  requires
+    DS.buffered_driver_exactly
+      d
+      'st0
+      'certificate_chain
+      'credential_identity
+      'buffered
+      'buffered_len
+  returns ok:bool
+  ensures
+    DS.buffered_driver_exactly
+      d
+      'st0
+      'certificate_chain
+      'credential_identity
+      'buffered
+      'buffered_len **
+    pure (ok ==>
+      CR.client_hello_offers_hybrid
+        'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+      CM.stored_client_hello_kex_group 'st0 == CryptoSpec.KexX25519)
+
+(** The X25519MLKEM768 counterpart of
+    [select_derive_send_server_hello_from_payload_once]: the payload's first 32
+    bytes are the server random and bytes [64,128) the encapsulation
+    randomness.  The encapsulation runs before the selection, which must carry
+    its ciphertext; a failed encapsulation aborts with the state unchanged. *)
+fn select_derive_send_hybrid_server_hello_from_payload_once
+  (d:DS.buffered_driver)
+  (payload:array U8.t)
+  (payload_len:SZ.t)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires
+    DS.buffered_driver_exactly
+      d
+      'st0
+      'certificate_chain
+      'credential_identity
+      'buffered
+      'buffered_len **
+    pts_to payload 'payload_bytes **
+    pts_to network_out 'old_network_out **
+    pts_to app_out 'old_app_out **
+    pure (
+      B.length 'payload_bytes == SZ.v payload_len /\
+      SZ.v payload_len == 128 /\
+      B.length 'old_network_out == SZ.v network_out_len /\
+      B.length 'old_app_out == SZ.v app_out_len /\
+      network_out_len == DS.driver_network_out_capacity /\
+      app_out_len == DS.driver_app_out_capacity /\
+      ST.server_local_event_input_ready
+        'st0
+        ST.LocalSelectServerParameters
+        (Ghost.reveal 'payload_bytes) /\
+      (Seq.length
+         (CL.raw_slice (Ghost.reveal 'payload_bytes) 0 32) == 32 ==>
+       (CL.raw_slice
+          (Ghost.reveal 'payload_bytes)
+          0
+          32 <: Seq.lseq U8.t 32) <>
+         GSHbody.serverHello_body_cst) /\
+      CR.client_hello_offers_hybrid
+        'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+      CM.stored_client_hello_kex_group 'st0 == CryptoSpec.KexX25519)
+  returns result:server_flight_result
+  ensures
+    exists* st1 network_out_bytes app_out_bytes.
+      DS.buffered_driver_exactly
+        d
+        st1
+        'certificate_chain
+        'credential_identity
+        'buffered
+        'buffered_len **
+      pts_to payload 'payload_bytes **
+      pts_to network_out network_out_bytes **
+      pts_to app_out app_out_bytes **
+      pure (
+        B.length network_out_bytes == SZ.v network_out_len /\
+        B.length app_out_bytes == SZ.v app_out_len /\
+        (result == ServerFlightOk ==>
+         st1.CS.cs_model.CS.model_control ==
+           CS.ControlHandshaking CS.HsServerHelloSent))

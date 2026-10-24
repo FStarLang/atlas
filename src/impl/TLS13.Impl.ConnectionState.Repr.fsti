@@ -1267,9 +1267,7 @@ let server_selection_private_absent
   : prop =
   (match selection.CS.server_key_share_private with
    | Some _ -> False
-   | None -> True) /\
-  (* The runtime never selects X25519MLKEM768 yet (it has no hybrid storage). *)
-  not (CS.server_selects_hybrid selection)
+   | None -> True)
 
 (**
   The selected group is a purely ghost field of [CS.server_handshake_selection]:
@@ -1299,9 +1297,7 @@ let server_selection_group_pinned
   match selection with
   | Some sel ->
     CS.server_selected_kex_group sel ==
-      client_hello_kex_group_for sel.CS.server_selected_client_hello /\
-    (* The runtime does not select X25519MLKEM768 yet. *)
-    not (CS.server_selects_hybrid sel)
+      client_hello_kex_group_for sel.CS.server_selected_client_hello
   | None -> True
 
 let server_selection_presence_exactly
@@ -1563,8 +1559,9 @@ let server_connection_config
         CS.server_supported_cipher_suites =
           default_connection_config.CS.config_cipher_suites;
         (* G2: the server negotiates whichever of the two groups the peer's
-           accepted key_share offer named, so both must be in the profile. *)
-        CS.server_supported_groups = [T.X25519; T.Secp256r1];
+           accepted key_share offer named, so both must be in the profile.
+           RFC 10024: the buffered driver may also select X25519MLKEM768. *)
+        CS.server_supported_groups = [T.X25519; T.Secp256r1; T.X25519mlkem768];
         CS.server_sni_policy = None;
       };
   }

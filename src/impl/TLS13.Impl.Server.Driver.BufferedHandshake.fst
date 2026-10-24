@@ -36,6 +36,10 @@ module V = Pulse.Lib.Vec
 module W = TLS13.Wire.Spec
 module GSHbody = TLS13.Wire.Generated.ServerHello_body
 module GNG = TLS13.Wire.Generated.NamedGroup
+module KX = TLS13.Crypto.Kex.Spec
+module SK = TLS13.Impl.Server.Keys
+module SerH = TLS13.Impl.Serializer.Handshake
+module H = TLS13.Handshake.Spec
 
 ghost
 fn tcp_history_note_write
@@ -1556,6 +1560,869 @@ fn select_derive_send_server_hello_from_payload_once
           payload_len
           app_out
           app_out_len;
+      ServerFlightOk
+    } else {
+      ServerFlightSendNotReady
+    }
+  } else {
+    ServerFlightDeriveFailed
+  }
+}
+
+
+(* ---------------------------------------------------------------------- *)
+(* RFC 10024: the X25519MLKEM768 ServerHello flight.                       *)
+
+fn hybrid_server_hello_eligible
+  (d:DS.buffered_driver)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len
+  returns ok:bool
+  ensures
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pure (ok ==>
+      CR.client_hello_offers_hybrid
+        'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+      CM.stored_client_hello_kex_group 'st0 == CryptoSpec.KexX25519)
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  rewrite (S.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (CR.connection_exactly d.DS.buffered_driver_server 'st0);
+  let offered = CQ.read_client_hello_hybrid_offered d.DS.buffered_driver_server;
+  let g = CQ.read_client_hello_kex_group d.DS.buffered_driver_server;
+  rewrite (CR.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (S.connection_exactly d.DS.buffered_driver_server 'st0);
+  fold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  fold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  (offered && (g = CryptoSpec.KexX25519))
+}
+
+ghost
+fn hybrid_group_supported
+  (d:DS.buffered_driver)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len
+  ensures
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pure (match 'st0.CS.cs_model.CS.model_config.CS.config_server with
+          | Some cfg ->
+            CS.named_group_offered cfg.CS.server_supported_groups T.X25519mlkem768
+          | None -> False)
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_canonical_progress d 'st0);
+  (Ghost.reveal
+    (DS.buffered_driver_canonical d).SP.canonical_server_supported_profile)
+    'st0.CS.cs_wire_log.TLS13.ConnectionLog.raw_received
+    'st0.CS.cs_wire_log.TLS13.ConnectionLog.raw_sent
+    'st0
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity);
+  fold (DS.buffered_driver_canonical_progress d 'st0);
+  fold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  fold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+}
+
+fn read_hybrid_client_share
+  (d:DS.buffered_driver)
+  (out:array U8.t)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to out 'old_out **
+    pure (B.length 'old_out == 1216)
+  ensures exists* o.
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to out o **
+    pure (B.length o == 1216 /\
+          (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
+           | Some ch ->
+             (match CS.client_hello_hybrid_key_share ch with
+              | Some k -> Seq.equal o k
+              | None -> True)
+           | None -> True))
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  rewrite (S.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (CR.connection_exactly d.DS.buffered_driver_server 'st0);
+  CQ.read_client_hello_hybrid_key_share d.DS.buffered_driver_server out;
+  rewrite (CR.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (S.connection_exactly d.DS.buffered_driver_server 'st0);
+  fold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  fold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+}
+
+fn hybrid_server_hello_ready
+  (d:DS.buffered_driver)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len
+  returns ok:bool
+  ensures
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pure (ok ==>
+      'st0.CS.cs_model.CS.model_control ==
+        CS.ControlHandshaking CS.HsClientHelloReceived /\
+      'st0.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
+      Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
+      'st0.CS.cs_model.CS.model_handshake.CS.hs_server_hello == None /\
+      Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection /\
+      B.length 'st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 1210 <=
+        Bounds.max_transcript_len)
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  rewrite (S.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (CR.connection_exactly d.DS.buffered_driver_server 'st0);
+  let ok = CQ.can_send_hybrid_server_hello_runtime d.DS.buffered_driver_server;
+  rewrite (CR.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (S.connection_exactly d.DS.buffered_driver_server 'st0);
+  fold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  fold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  ok
+}
+
+noextract
+let hybrid_selection_of
+  (st0:CS.connection_state{
+     Some? st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+     Some? st0.CS.cs_model.CS.model_config.CS.config_server})
+  (rnd:B.bytes_of_len 32)
+  (hsk:B.bytes_of_len 64)
+  (share:B.bytes_of_len 1120)
+  : CS.server_handshake_selection
+  = let cfg = Some?.v st0.CS.cs_model.CS.model_config.CS.config_server in
+    {
+      CS.server_selected_client_hello =
+        Some?.v st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello;
+      CS.server_selected_cipher_suite = CM.server_selected_suite st0;
+      CS.server_selected_group = T.X25519mlkem768;
+      CS.server_selected_signature_scheme =
+        CryptoSpec.credential_signature_scheme cfg.CS.server_credential_identity;
+      CS.server_random = rnd;
+      CS.server_key_share_private = None;
+      CS.server_key_share_public = B.zeros 32;
+      CS.server_p256_private = None;
+      CS.server_p256_public = CS.server_p256_absent;
+      CS.server_hybrid_private = Some hsk;
+      CS.server_hybrid_share = share;
+      CS.server_selected_credential = cfg.CS.server_credential_identity;
+    }
+
+let lemma_hybrid_can_select
+  (st0:CS.connection_state)
+  (payload:B.bytes)
+  (rnd:B.bytes_of_len 32)
+  (hsk:B.bytes_of_len 64)
+  (k:B.bytes_of_len 1216)
+  (share:B.bytes_of_len 1120)
+  : Lemma
+      (requires
+        ST.server_local_event_input_ready st0 ST.LocalSelectServerParameters payload /\
+        CR.client_hello_offers_hybrid st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+        (match st0.CS.cs_model.CS.model_config.CS.config_server with
+         | Some cfg ->
+           CS.named_group_offered cfg.CS.server_supported_groups T.X25519mlkem768
+         | None -> False) /\
+        (match st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
+         | Some ch ->
+           (match CS.client_hello_hybrid_key_share ch with
+            | Some kk -> Seq.equal k kk
+            | None -> True)
+         | None -> True) /\
+        Some? (KX.kex_server_share CryptoSpec.KexX25519MLKEM768 hsk k) /\
+        (Some?.v (KX.kex_server_share CryptoSpec.KexX25519MLKEM768 hsk k) <: B.bytes)
+          == share)
+      (ensures
+        Some? st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+        Some? st0.CS.cs_model.CS.model_config.CS.config_server /\
+        (let sel = hybrid_selection_of st0 rnd hsk share in
+         CM.can_select_server_parameters st0 sel /\
+         CS.server_selected_kex_group sel == CryptoSpec.KexX25519 /\
+         CR.server_selection_private_absent sel /\
+         sel.CS.server_selected_signature_scheme ==
+           CryptoSpec.credential_signature_scheme sel.CS.server_selected_credential /\
+         CS.client_hello_hybrid_key_share sel.CS.server_selected_client_hello == Some k))
+=
+  lemma_select_server_parameters_ready_can_select st0 payload;
+  let ch = Some?.v st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello in
+  Seq.lemma_eq_elim k (Some?.v (CS.client_hello_hybrid_key_share ch))
+
+let lemma_hybrid_derive_legal
+  (st0:CS.connection_state)
+  (sel:CS.server_handshake_selection)
+  (hsk:B.bytes_of_len 64)
+  (k:B.bytes_of_len 1216)
+  (ss:CryptoSpec.kex_shared_secret_any)
+  : Lemma
+      (requires
+        CM.can_select_server_parameters st0 sel /\
+        sel.CS.server_key_share_private == None /\
+        CS.server_selects_hybrid sel /\
+        sel.CS.server_hybrid_private == Some hsk /\
+        CS.client_hello_hybrid_key_share sel.CS.server_selected_client_hello == Some k /\
+        KX.kex_server_shared CryptoSpec.KexX25519MLKEM768 hsk k == Some ss)
+      (ensures
+        CS.legal_event
+          (CM.selected_server_parameters_state st0 sel).CS.cs_model
+          (CS.ConnLocalEvent (CS.LocalDeriveSharedSecret ss)))
+=
+  ()
+
+#push-options "--fuel 4 --ifuel 2 --z3rlimit 60"
+let lemma_hybrid_can_send
+  (st:CS.connection_state)
+  (sel:CS.server_handshake_selection)
+  (rnd:B.bytes{Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst})
+  (share:B.bytes{Seq.length share == 1120})
+  : Lemma
+      (requires
+        st.CS.cs_model.CS.model_control ==
+          CS.ControlHandshaking CS.HsClientHelloReceived /\
+        st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
+        Some? st.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
+        st.CS.cs_model.CS.model_handshake.CS.hs_server_hello == None /\
+        st.CS.cs_model.CS.model_handshake.CS.hs_server_selection == Some sel /\
+        B.length st.CS.cs_model.CS.model_handshake.CS.hs_transcript + 1210 <=
+          Bounds.max_transcript_len /\
+        Seq.equal sel.CS.server_random rnd /\
+        CS.server_selects_hybrid sel /\
+        Some? sel.CS.server_hybrid_private /\
+        (sel.CS.server_hybrid_share <: B.bytes) == share /\
+        sel.CS.server_selected_cipher_suite == CM.server_selected_suite st)
+      (ensures
+        (let sh = SS.hybrid_server_hello_witness st rnd share in
+         CM.can_send_server_hello st sh
+           (CS.serialized_cleartext_tls_message
+             (M.TlsHandshake (M.ServerHello sh)))))
+=
+  CM.lemma_server_selected_suite_supported st;
+  SerH.lemma_poc_canonical_sh_hybrid rnd share
+    (CM.stored_client_hello_session_id st) (CM.server_selected_suite st)
+#pop-options
+
+fn hybrid_select_once
+  (d:DS.buffered_driver)
+  (#sel:erased CS.server_handshake_selection)
+  (#payload:erased B.bytes)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to network_out 'old_network_out **
+    pts_to app_out 'old_app_out **
+    pure (
+      B.length 'old_network_out == SZ.v network_out_len /\
+      B.length 'old_app_out == SZ.v app_out_len /\
+      network_out_len == DS.driver_network_out_capacity /\
+      app_out_len == DS.driver_app_out_capacity /\
+      ST.server_local_event_input_ready 'st0 ST.LocalSelectServerParameters payload /\
+      CM.can_select_server_parameters 'st0 sel /\
+      CS.server_selected_kex_group sel == CM.stored_client_hello_kex_group 'st0 /\
+      CR.server_selection_private_absent sel /\
+      sel.CS.server_selected_signature_scheme ==
+        CryptoSpec.credential_signature_scheme sel.CS.server_selected_credential)
+  ensures exists* st1 network_out_bytes app_out_bytes.
+    DS.buffered_driver_exactly
+      d st1 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to network_out network_out_bytes **
+    pts_to app_out app_out_bytes **
+    pure (
+      B.length network_out_bytes == SZ.v network_out_len /\
+      B.length app_out_bytes == SZ.v app_out_len /\
+      st1 == CM.selected_server_parameters_state 'st0 sel)
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  lemma_select_server_parameters_call_ready
+    'st0 payload (Ghost.reveal 'old_network_out) (Ghost.reveal 'old_app_out);
+  let resp =
+    S.process_select_server_parameters
+      d.DS.buffered_driver_server
+      #sel
+      network_out
+      network_out_len
+      app_out
+      app_out_len;
+  with st1 network_out_bytes app_out_bytes.
+    assert (
+      S.connection_exactly d.DS.buffered_driver_server st1 **
+      pts_to network_out network_out_bytes **
+      pts_to app_out app_out_bytes);
+  unfold (DS.buffered_driver_canonical_progress d 'st0);
+  SP.lemma_server_local_event_progress
+    'st0 st1 resp ST.LocalSelectServerParameters B.empty network_out_bytes app_out_bytes;
+  MR.update d.DS.buffered_driver_progress st1;
+  fold (DS.buffered_driver_canonical_progress d st1);
+  assert (pure (st1.CS.cs_model.CS.model_config ==
+    'st0.CS.cs_model.CS.model_config));
+  assert (pure (DS.server_driver_config_matches_credentials
+    st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)));
+  assert (pure (Some?
+    st1.CS.cs_model.CS.model_handshake.CS.hs_server_selection));
+  assert (pure (DS.server_driver_supported_profile_selection
+    st1
+    (Ghost.reveal 'credential_identity)));
+  assert (pure (ST.server_end_to_end_invariant st1));
+  assert (pure (Seq.equal
+    st1.CS.cs_wire_log.CL.raw_received
+    'st0.CS.cs_wire_log.CL.raw_received));
+  assert (pure (Seq.equal
+    st1.CS.cs_wire_log.CL.raw_sent
+    'st0.CS.cs_wire_log.CL.raw_sent));
+  assert (pure (DS.server_driver_wire_logs_match_witness
+    st1 received sent committed (BT.pending model) 'buffered_len));
+  fold (DS.buffered_driver_indexed
+    d st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)
+    (BT.pending model)
+    'buffered_len
+    model received committed sent);
+  rewrite
+    (DS.buffered_driver_indexed
+      d st1
+      (Ghost.reveal 'certificate_chain)
+      (Ghost.reveal 'credential_identity)
+      (BT.pending model)
+      'buffered_len
+      model received committed sent)
+    as
+    (DS.buffered_driver_indexed
+      d st1
+      (Ghost.reveal 'certificate_chain)
+      (Ghost.reveal 'credential_identity)
+      (Ghost.reveal 'buffered)
+      'buffered_len
+      model received committed sent);
+  fold (DS.buffered_driver_exactly
+    d st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)
+    (Ghost.reveal 'buffered)
+    'buffered_len);
+}
+
+fn hybrid_derive_once
+  (d:DS.buffered_driver)
+  (shared_src:array U8.t)
+  (#shared:erased CryptoSpec.kex_shared_secret_any)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to shared_src shared **
+    pts_to network_out 'old_network_out **
+    pts_to app_out 'old_app_out **
+    pure (
+      B.length (Ghost.reveal shared) == 64 /\
+      B.length 'old_network_out == SZ.v network_out_len /\
+      B.length 'old_app_out == SZ.v app_out_len /\
+      CS.legal_event
+        'st0.CS.cs_model
+        (CS.ConnLocalEvent (CS.LocalDeriveSharedSecret (Ghost.reveal shared))))
+  ensures exists* st1 network_out_bytes app_out_bytes.
+    DS.buffered_driver_exactly
+      d st1 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to shared_src shared **
+    pts_to network_out network_out_bytes **
+    pts_to app_out app_out_bytes **
+    pure (
+      B.length network_out_bytes == SZ.v network_out_len /\
+      B.length app_out_bytes == SZ.v app_out_len /\
+      st1 == CM.derived_shared_secret_state 'st0 (Ghost.reveal shared))
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  rewrite (S.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (SK.connection_exactly d.DS.buffered_driver_server 'st0);
+  let resp =
+    SK.process_derive_shared_secret_64
+      d.DS.buffered_driver_server
+      shared_src
+      #shared
+      network_out
+      network_out_len
+      app_out
+      app_out_len;
+  with st1 network_out_bytes app_out_bytes.
+    assert (
+      SK.connection_exactly d.DS.buffered_driver_server st1 **
+      pts_to network_out network_out_bytes **
+      pts_to app_out app_out_bytes);
+  rewrite (SK.connection_exactly d.DS.buffered_driver_server st1)
+    as (S.connection_exactly d.DS.buffered_driver_server st1);
+  unfold (DS.buffered_driver_canonical_progress d 'st0);
+  SP.lemma_server_local_event_progress
+    'st0 st1 resp ST.LocalDeriveSharedSecret (Ghost.reveal shared) network_out_bytes app_out_bytes;
+  MR.update d.DS.buffered_driver_progress st1;
+  fold (DS.buffered_driver_canonical_progress d st1);
+  assert (pure (st1.CS.cs_model.CS.model_config ==
+    'st0.CS.cs_model.CS.model_config));
+  assert (pure (DS.server_driver_config_matches_credentials
+    st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)));
+  assert (pure (
+    st1.CS.cs_model.CS.model_handshake.CS.hs_server_selection ==
+    'st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection));
+  assert (pure (DS.server_driver_supported_profile_selection
+    st1
+    (Ghost.reveal 'credential_identity)));
+  assert (pure (ST.server_end_to_end_invariant st1));
+  assert (pure (Seq.equal
+    st1.CS.cs_wire_log.CL.raw_received
+    'st0.CS.cs_wire_log.CL.raw_received));
+  assert (pure (Seq.equal
+    st1.CS.cs_wire_log.CL.raw_sent
+    'st0.CS.cs_wire_log.CL.raw_sent));
+  assert (pure (DS.server_driver_wire_logs_match_witness
+    st1 received sent committed (BT.pending model) 'buffered_len));
+  fold (DS.buffered_driver_indexed
+    d st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)
+    (BT.pending model)
+    'buffered_len
+    model received committed sent);
+  rewrite
+    (DS.buffered_driver_indexed
+      d st1
+      (Ghost.reveal 'certificate_chain)
+      (Ghost.reveal 'credential_identity)
+      (BT.pending model)
+      'buffered_len
+      model received committed sent)
+    as
+    (DS.buffered_driver_indexed
+      d st1
+      (Ghost.reveal 'certificate_chain)
+      (Ghost.reveal 'credential_identity)
+      (Ghost.reveal 'buffered)
+      'buffered_len
+      model received committed sent);
+  fold (DS.buffered_driver_exactly
+    d st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)
+    (Ghost.reveal 'buffered)
+    'buffered_len);
+}
+
+fn hybrid_send_server_hello_once
+  (d:DS.buffered_driver)
+  (server_random:array U8.t)
+  (hybrid_share:array U8.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to server_random 'rnd **
+    pts_to hybrid_share 'share **
+    pts_to app_out 'old_app_out **
+    pure (
+      B.length 'rnd == 32 /\
+      B.length 'share == 1120 /\
+      B.length 'old_app_out == SZ.v app_out_len /\
+      Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+      (Ghost.reveal 'rnd <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+      (let sh = SS.hybrid_server_hello_witness 'st0 'rnd 'share in
+       CM.can_send_server_hello
+         'st0
+         sh
+         (CS.serialized_cleartext_tls_message
+           (M.TlsHandshake (M.ServerHello sh)))))
+  ensures exists* st1 app_out_bytes.
+    DS.buffered_driver_exactly
+      d st1 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to server_random 'rnd **
+    pts_to hybrid_share 'share **
+    pts_to app_out app_out_bytes **
+    pure (
+      B.length app_out_bytes == SZ.v app_out_len /\
+      st1.CS.cs_model.CS.model_control ==
+        CS.ControlHandshaking CS.HsServerHelloSent)
+{
+  unfold (DS.buffered_driver_exactly
+    d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+  with model received committed sent.
+    assert (DS.buffered_driver_indexed
+      d 'st0 'certificate_chain 'credential_identity
+      'buffered 'buffered_len model received committed sent);
+  unfold (DS.buffered_driver_indexed
+    d 'st0 'certificate_chain 'credential_identity
+    'buffered 'buffered_len model received committed sent);
+  let mut driver_session_id = [| 0uy; 32sz |];
+  rewrite (S.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (CR.connection_exactly d.DS.buffered_driver_server 'st0);
+  let driver_sid_len = CQ.read_client_hello_session_id
+    d.DS.buffered_driver_server driver_session_id;
+  rewrite (CR.connection_exactly d.DS.buffered_driver_server 'st0)
+    as (SS.connection_exactly d.DS.buffered_driver_server 'st0);
+  // The X25519MLKEM768 ServerHello record is 63 + 1120 + |legacy_session_id|.
+  let server_hello_out_len = 1183sz `SZ.add` driver_sid_len;
+  let server_hello_vec = V.alloc 0uy server_hello_out_len;
+  V.to_array_pts_to server_hello_vec;
+  let resp =
+    SS.process_send_hybrid_server_hello_from_arrays
+      d.DS.buffered_driver_server
+      server_random
+      hybrid_share
+      (V.vec_to_array server_hello_vec)
+      server_hello_out_len
+      app_out
+      app_out_len;
+  with st1 network_out_bytes app_out_bytes.
+    assert (
+      SS.connection_exactly d.DS.buffered_driver_server st1 **
+      pts_to (V.vec_to_array server_hello_vec) network_out_bytes **
+      pts_to app_out app_out_bytes);
+  rewrite (SS.connection_exactly d.DS.buffered_driver_server st1)
+    as (S.connection_exactly d.DS.buffered_driver_server st1);
+  assert (pure (st1.CS.cs_model.CS.model_control ==
+    CS.ControlHandshaking CS.HsServerHelloSent));
+  DS.lemma_local_event_wire_lengths
+    'st0
+    st1
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    network_out_bytes
+    app_out_bytes;
+  let written =
+    BT.write
+      d.DS.buffered_driver_channel
+      (V.vec_to_array server_hello_vec)
+      resp.ST.network_out_len;
+  assert (pure (written == resp.ST.network_out_len));
+  let sent_delta =
+    Ghost.hide (ST.response_network_out resp network_out_bytes);
+  assert (pure (Seq.equal
+    (if SZ.v written <= B.length network_out_bytes
+     then Seq.slice network_out_bytes 0 (SZ.v written)
+     else B.empty)
+    (Ghost.reveal sent_delta)));
+  Seq.lemma_eq_elim
+    (if SZ.v written <= B.length network_out_bytes
+     then Seq.slice network_out_bytes 0 (SZ.v written)
+     else B.empty)
+    (Ghost.reveal sent_delta);
+  rewrite
+    (BT.is_buffered
+      d.DS.buffered_driver_channel
+      model
+      received
+      committed
+      (B.append sent
+        (if SZ.v written <= B.length network_out_bytes
+         then Seq.slice network_out_bytes 0 (SZ.v written)
+         else B.empty)))
+    as
+    (BT.is_buffered
+      d.DS.buffered_driver_channel
+      model
+      received
+      committed
+      (B.append sent (Ghost.reveal sent_delta)));
+  tcp_history_note_write
+    d.DS.buffered_driver_tcp_history
+    (Ghost.hide received)
+    (Ghost.hide sent)
+    sent_delta;
+  let sent' = Ghost.hide (B.append sent (Ghost.reveal sent_delta));
+  rewrite
+    (BT.is_buffered
+      d.DS.buffered_driver_channel
+      model
+      received
+      committed
+      (B.append sent (Ghost.reveal sent_delta)))
+    as
+    (BT.is_buffered
+      d.DS.buffered_driver_channel
+      model
+      received
+      committed
+      (Ghost.reveal sent'));
+  rewrite
+    (MR.pts_to
+      d.DS.buffered_driver_tcp_history
+      #1.0R
+      (DS.server_driver_history
+        received
+        (B.append sent (Ghost.reveal sent_delta))))
+    as
+    (MR.pts_to
+      d.DS.buffered_driver_tcp_history
+      #1.0R
+      (DS.server_driver_history received (Ghost.reveal sent')));
+  assert (pure (Seq.equal sent 'st0.CS.cs_wire_log.CL.raw_sent));
+  Seq.lemma_eq_elim sent 'st0.CS.cs_wire_log.CL.raw_sent;
+  assert (pure (Seq.equal
+    st1.CS.cs_wire_log.CL.raw_sent
+    (B.append 'st0.CS.cs_wire_log.CL.raw_sent
+      (Ghost.reveal sent_delta))));
+  assert (pure (Seq.equal
+    st1.CS.cs_wire_log.CL.raw_received
+    'st0.CS.cs_wire_log.CL.raw_received));
+  Seq.lemma_eq_elim
+    st1.CS.cs_wire_log.CL.raw_received
+    'st0.CS.cs_wire_log.CL.raw_received;
+  DS.lemma_server_local_event_received_exact_when_nonfailed
+    'st0
+    st1
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    network_out_bytes
+    app_out_bytes
+    received
+    sent
+    committed
+    (BT.pending model)
+    'buffered_len;
+  assert (pure (DS.server_driver_wire_logs_match_witness
+    st1 received (Ghost.reveal sent') committed
+    (BT.pending model) 'buffered_len));
+  unfold (DS.buffered_driver_canonical_progress d 'st0);
+  SP.lemma_server_local_event_progress
+    'st0
+    st1
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    network_out_bytes
+    app_out_bytes;
+  MR.update d.DS.buffered_driver_progress st1;
+  fold (DS.buffered_driver_canonical_progress d st1);
+  assert (pure (st1.CS.cs_model.CS.model_config ==
+    'st0.CS.cs_model.CS.model_config));
+  assert (pure (DS.server_driver_config_matches_credentials
+    st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)));
+  assert (pure (
+    st1.CS.cs_model.CS.model_handshake.CS.hs_server_selection ==
+    'st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection));
+  assert (pure (DS.server_driver_supported_profile_selection
+    st1
+    (Ghost.reveal 'credential_identity)));
+  fold (DS.buffered_driver_indexed
+    d st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)
+    (BT.pending model)
+    'buffered_len
+    model
+    received
+    committed
+    (Ghost.reveal sent'));
+  rewrite
+    (DS.buffered_driver_indexed
+      d st1
+      (Ghost.reveal 'certificate_chain)
+      (Ghost.reveal 'credential_identity)
+      (BT.pending model)
+      'buffered_len
+      model received committed (Ghost.reveal sent'))
+    as
+    (DS.buffered_driver_indexed
+      d st1
+      (Ghost.reveal 'certificate_chain)
+      (Ghost.reveal 'credential_identity)
+      (Ghost.reveal 'buffered)
+      'buffered_len
+      model received committed (Ghost.reveal sent'));
+  fold (DS.buffered_driver_exactly
+    d st1
+    (Ghost.reveal 'certificate_chain)
+    (Ghost.reveal 'credential_identity)
+    (Ghost.reveal 'buffered)
+    'buffered_len);
+  V.to_vec_pts_to server_hello_vec;
+  V.free server_hello_vec;
+}
+
+fn select_derive_send_hybrid_server_hello_from_payload_once
+  (d:DS.buffered_driver)
+  (payload:array U8.t)
+  (payload_len:SZ.t)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires
+    DS.buffered_driver_exactly
+      d 'st0 'certificate_chain 'credential_identity 'buffered 'buffered_len **
+    pts_to payload 'payload_bytes **
+    pts_to network_out 'old_network_out **
+    pts_to app_out 'old_app_out **
+    pure (
+      B.length 'payload_bytes == SZ.v payload_len /\
+      SZ.v payload_len == 128 /\
+      B.length 'old_network_out == SZ.v network_out_len /\
+      B.length 'old_app_out == SZ.v app_out_len /\
+      network_out_len == DS.driver_network_out_capacity /\
+      app_out_len == DS.driver_app_out_capacity /\
+      ST.server_local_event_input_ready
+        'st0
+        ST.LocalSelectServerParameters
+        (Ghost.reveal 'payload_bytes) /\
+      (Seq.length
+         (CL.raw_slice (Ghost.reveal 'payload_bytes) 0 32) == 32 ==>
+       (CL.raw_slice
+          (Ghost.reveal 'payload_bytes)
+          0
+          32 <: Seq.lseq U8.t 32) <>
+         GSHbody.serverHello_body_cst) /\
+      CR.client_hello_offers_hybrid
+        'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+      CM.stored_client_hello_kex_group 'st0 == CryptoSpec.KexX25519)
+  returns result:server_flight_result
+  ensures
+    exists* st1 network_out_bytes app_out_bytes.
+      DS.buffered_driver_exactly
+        d
+        st1
+        'certificate_chain
+        'credential_identity
+        'buffered
+        'buffered_len **
+      pts_to payload 'payload_bytes **
+      pts_to network_out network_out_bytes **
+      pts_to app_out app_out_bytes **
+      pure (
+        B.length network_out_bytes == SZ.v network_out_len /\
+        B.length app_out_bytes == SZ.v app_out_len /\
+        (result == ServerFlightOk ==>
+         st1.CS.cs_model.CS.model_control ==
+           CS.ControlHandshaking CS.HsServerHelloSent))
+{
+  let mut server_random = [| 0uy; 32sz |];
+  let mut hybrid_private = [| 0uy; 64sz |];
+  Mat.copy_server_random_and_hybrid_private_from_payload
+    payload server_random hybrid_private;
+  let rnd : erased (B.bytes_of_len 32) =
+    Ghost.hide (CL.raw_slice (Ghost.reveal 'payload_bytes) 0 32);
+  let hsk : erased (B.bytes_of_len 64) =
+    Ghost.hide (CL.raw_slice (Ghost.reveal 'payload_bytes) 64 128);
+  let mut client_share = [| 0uy; 1216sz |];
+  read_hybrid_client_share d client_share;
+  with k. assert (pts_to client_share k);
+  let mut hybrid_share = [| 0uy; 1120sz |];
+  let mut shared = [| 0uy; 64sz |];
+  let ok =
+    KEX.kex_hybrid_server_encaps_runtime
+      hybrid_private client_share hybrid_share shared;
+  with share_b ss_b.
+    assert (pts_to hybrid_share share_b ** pts_to shared ss_b);
+  if ok {
+    hybrid_group_supported d;
+    let share : erased (B.bytes_of_len 1120) = Ghost.hide share_b;
+    lemma_hybrid_can_select
+      'st0 (Ghost.reveal 'payload_bytes) rnd hsk k share;
+    let sel : erased CS.server_handshake_selection =
+      Ghost.hide (hybrid_selection_of 'st0 rnd hsk share);
+    let ss : erased CryptoSpec.kex_shared_secret_any = Ghost.hide ss_b;
+    lemma_hybrid_derive_legal 'st0 sel hsk k ss;
+    hybrid_select_once
+      d
+      #sel
+      #(Ghost.reveal 'payload_bytes)
+      network_out
+      network_out_len
+      app_out
+      app_out_len;
+    with st_selected. assert (DS.buffered_driver_exactly
+      d st_selected 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+    rewrite (pts_to shared ss_b) as (pts_to shared (Ghost.reveal ss));
+    hybrid_derive_once
+      d
+      shared
+      #ss
+      network_out
+      network_out_len
+      app_out
+      app_out_len;
+    with st_derived. assert (DS.buffered_driver_exactly
+      d st_derived 'certificate_chain 'credential_identity 'buffered 'buffered_len);
+    let ready = hybrid_server_hello_ready d;
+    if ready {
+      lemma_hybrid_can_send st_derived sel rnd share;
+      hybrid_send_server_hello_once
+        d server_random hybrid_share app_out app_out_len;
       ServerFlightOk
     } else {
       ServerFlightSendNotReady

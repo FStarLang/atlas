@@ -127,6 +127,10 @@ let server_supported_profile_selection
      CS.named_group_offered
        cfg.CS.server_supported_groups
        T.Secp256r1 /\
+     (* RFC 10024: the buffered driver may also select X25519MLKEM768. *)
+     CS.named_group_offered
+       cfg.CS.server_supported_groups
+       T.X25519mlkem768 /\
      CS.signature_scheme_offered
        cfg.CS.server_allowed_signature_schemes
        (CryptoSpec.credential_signature_scheme credential_identity) /\

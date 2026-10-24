@@ -239,3 +239,8 @@ fn kex_hybrid_client_shared_runtime
     Abstract here so that every caller is verified for both values; the
     definition in TLS13.KEX.fst is the build-time choice. *)
 val client_offers_hybrid : bool
+
+(** Whether the server answers a ClientHello that offers X25519MLKEM768 (and
+    whose (EC)DH offer is X25519) with the hybrid rather than the classical
+    group (RFC 10024).  Abstract for the same reason as [client_offers_hybrid]. *)
+val server_prefers_hybrid : bool

@@ -29,6 +29,7 @@ module M = TLS13.Messages
 module O = TLS13.OpenSSL
 module U16 = FStar.UInt16
 module GNG = TLS13.Wire.Generated.NamedGroup
+module KEX = TLS13.KEX
 
 fn control_snapshot
   (d:DS.buffered_driver)
@@ -346,42 +347,81 @@ fn rec drive_handshake
               let differs =
                 SS.server_random_differs_from_cst material_payload;
               if differs {
-                SS.lemma_mk_server_hello_witness_bytesize (CM.stored_client_hello_named_group 'st0)
-                  (TLS13.ConnectionLog.raw_slice material_bytes 0 32)
-                  (CryptoSpec.kex_public_from_private (CM.stored_client_hello_kex_group 'st0)
-                    (TLS13.ConnectionLog.raw_slice material_bytes 32 64))
-                  (CM.stored_client_hello_session_id 'st0)
-                  (CM.server_selected_suite 'st0);
-                let flight =
-                  BH.select_derive_send_server_hello_from_payload_once
-                    d
-                    material_payload
-                    DS.driver_material_capacity
-                    network_out
-                    network_out_len
-                    app_out
-                    app_out_len;
-                match flight {
-                  BH.ServerFlightOk -> {
-                    let next_fuel = SZ.sub fuel 1sz;
-                    assert (pure (SZ.v next_fuel < SZ.v fuel));
-                    drive_handshake
+                // RFC 10024: answer with X25519MLKEM768 when the build prefers
+                // it and the ClientHello offered it; otherwise the classical
+                // (EC)DH group.  Either way there is no HelloRetryRequest.
+                let hybrid_eligible = BH.hybrid_server_hello_eligible d;
+                if (KEX.server_prefers_hybrid && hybrid_eligible) {
+                  let flight =
+                    BH.select_derive_send_hybrid_server_hello_from_payload_once
                       d
-                      empty_payload
                       material_payload
+                      DS.driver_material_capacity
                       network_out
                       network_out_len
                       app_out
-                      app_out_len
-                      buffered_len
-                      local_fuel
-                      next_fuel
+                      app_out_len;
+                  match flight {
+                    BH.ServerFlightOk -> {
+                      let next_fuel = SZ.sub fuel 1sz;
+                      assert (pure (SZ.v next_fuel < SZ.v fuel));
+                      drive_handshake
+                        d
+                        empty_payload
+                        material_payload
+                        network_out
+                        network_out_len
+                        app_out
+                        app_out_len
+                        buffered_len
+                        local_fuel
+                        next_fuel
+                    }
+                    _ -> {
+                      ({
+                        handshake_status = HandshakeStepFailed;
+                        handshake_pending_len = buffered_len;
+                      })
+                    }
                   }
-                  _ -> {
-                    ({
-                      handshake_status = HandshakeStepFailed;
-                      handshake_pending_len = buffered_len;
-                    })
+                } else {
+                  SS.lemma_mk_server_hello_witness_bytesize (CM.stored_client_hello_named_group 'st0)
+                    (TLS13.ConnectionLog.raw_slice material_bytes 0 32)
+                    (CryptoSpec.kex_public_from_private (CM.stored_client_hello_kex_group 'st0)
+                      (TLS13.ConnectionLog.raw_slice material_bytes 32 64))
+                    (CM.stored_client_hello_session_id 'st0)
+                    (CM.server_selected_suite 'st0);
+                  let flight =
+                    BH.select_derive_send_server_hello_from_payload_once
+                      d
+                      material_payload
+                      DS.driver_material_capacity
+                      network_out
+                      network_out_len
+                      app_out
+                      app_out_len;
+                  match flight {
+                    BH.ServerFlightOk -> {
+                      let next_fuel = SZ.sub fuel 1sz;
+                      assert (pure (SZ.v next_fuel < SZ.v fuel));
+                      drive_handshake
+                        d
+                        empty_payload
+                        material_payload
+                        network_out
+                        network_out_len
+                        app_out
+                        app_out_len
+                        buffered_len
+                        local_fuel
+                        next_fuel
+                    }
+                    _ -> {
+                      ({
+                        handshake_status = HandshakeStepFailed;
+                        handshake_pending_len = buffered_len;
+                      })
+                    }
                   }
                 }
               } else {

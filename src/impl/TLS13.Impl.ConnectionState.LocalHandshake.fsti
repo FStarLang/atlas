@@ -123,7 +123,6 @@ fn select_server_parameters
                  // representation; the runtime reads it back off the ClientHello
                  // metadata box.
                  CS.server_selected_kex_group selection == stored_client_hello_kex_group st0 /\
-                 not (CS.server_selects_hybrid selection) /\
                  server_selection_absent
                    st0.CS.cs_model.CS.model_handshake /\
                  server_selection_private_absent selection)
@@ -390,6 +389,34 @@ fn derive_shared_secret_from_bytes
              CS.delta_raw_received = B.empty;
            }
            (derived_shared_secret_state st0 (Ghost.reveal shared)))
+
+(* [derive_shared_secret_from_bytes] at the 64-byte X25519MLKEM768 width. *)
+fn derive_shared_secret_64_from_bytes
+  (c:connection_state)
+  (shared_src:array U8.t)
+  (#shared:erased TLS13.Crypto.Spec.kex_shared_secret_any)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           ArrPts.pts_to shared_src shared **
+           pure (B.length (Ghost.reveal shared) == 64 /\
+                 CS.legal_event
+                   st0.CS.cs_model
+                   (CS.ConnLocalEvent
+                     (CS.LocalDeriveSharedSecret (Ghost.reveal shared))))
+  ensures connection_exactly
+            c
+            (derived_shared_secret_state st0 (Ghost.reveal shared)) **
+          ArrPts.pts_to shared_src shared **
+          pure (CS.legal_connection_delta
+            st0
+            {
+              CS.delta_event =
+                CS.ConnLocalEvent
+                  (CS.LocalDeriveSharedSecret (Ghost.reveal shared));
+              CS.delta_raw_sent = B.empty;
+              CS.delta_raw_received = B.empty;
+            }
+            (derived_shared_secret_state st0 (Ghost.reveal shared)))
 
 fn install_server_handshake_write_traffic_keys_from_material
   (c:connection_state)
