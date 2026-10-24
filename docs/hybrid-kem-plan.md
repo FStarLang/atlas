@@ -30,16 +30,15 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 H10 notes.  Both flags in `KEX.fst` are now `true`.  The `.fsti` keeps them
 abstract, so the flip re-verifies only `TLS13.KEX`.  D6 already reaches the
 flagships (H6), so there was no System change.
-`test/interop/hybrid.sh` (`make test-hybrid-interop`) pins an OpenSSL 3.5
-server to `-groups X25519MLKEM768` for the verified client.  For the verified
+`test/interop/hybrid.sh` (`make test-hybrid-interop`, part of `make test`)
+pins a system OpenSSL (>= 3.5) server to `-groups X25519MLKEM768` for the verified client.  For the verified
 server it uses an OpenSSL 3.5 client sending hybrid and X25519 shares and
-checks that the negotiated group is X25519MLKEM768.  It is skipped when
-`tools/openssl-3.5` is absent.  Known limit: a ClientHello whose *only*
+checks that the negotiated group is X25519MLKEM768.  It fails if the system
+OpenSSL lacks ML-KEM.  Known limit: a ClientHello whose *only*
 share is the hybrid is refused by the server.  The hybrid path requires
 the ClientHello's (EC)DH pick to be X25519, and there is no
 HelloRetryRequest.  OpenSSL 3.5, Chrome and Firefox all send an X25519 share
-alongside the hybrid by default.  The tests that use the system OpenSSL 3.0
-still exercise the classical groups.
+alongside the hybrid by default.
 
 H9c notes.  The server's hybrid flight lives in
 `BufferedHandshake.select_derive_send_hybrid_server_hello_from_payload_once`:
@@ -270,10 +269,9 @@ was removed in H8.)
 
 ## 4. Interop
 
-The system OpenSSL is 3.0.13, which has no ML-KEM.  X25519MLKEM768 interop needs
-OpenSSL ≥ 3.5, so H10 must add an optional OpenSSL 3.5 build, either in
-`setup.sh` or as a separate `scripts/` helper.  Hybrid cells must be skipped,
-not failed, when it is absent.  Sites that enumerate groups:
+X25519MLKEM768 interop needs OpenSSL ≥ 3.5.  The dev container (Ubuntu 26.04)
+ships OpenSSL 3.5 as the system OpenSSL, and the hybrid interop tests use it
+unconditionally.  Sites that enumerate groups:
 
 * `test/unit/test_server_interop_matrix.c:74-80,775,815`
 * `test/openssl_{http,echo}_server.c`

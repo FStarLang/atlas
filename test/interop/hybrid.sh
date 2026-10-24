@@ -12,17 +12,18 @@
 # server picks the hybrid only next to an X25519 share; a ClientHello whose
 # only share is the hybrid is refused, because there is no HelloRetryRequest.
 #
-# The system OpenSSL (3.0) has no ML-KEM.  The test needs the OpenSSL 3.5 CLI
-# from scripts/build-openssl35.sh and is skipped, not failed, when it is absent.
+# The peer is the system OpenSSL (>= 3.5, the first release with ML-KEM);
+# set OPENSSL to use another binary.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root"
-openssl35="${OPENSSL35:-$repo_root/tools/openssl-3.5/bin/openssl}"
+openssl_bin="${OPENSSL:-openssl}"
 
-if [ ! -x "$openssl35" ]; then
-  echo "hybrid interop: SKIPPED (no OpenSSL 3.5 at $openssl35; run scripts/build-openssl35.sh)"
-  exit 0
+if ! "$openssl_bin" list -kem-algorithms 2>/dev/null | grep -qi 'ML-KEM-768'; then
+  echo "hybrid interop: FAILED ($openssl_bin has no ML-KEM-768; OpenSSL >= 3.5 is required)"
+  "$openssl_bin" version 2>&1 || true
+  exit 1
 fi
 
 free_port() {
@@ -39,16 +40,19 @@ trap cleanup EXIT
 
 # Verified client -> OpenSSL 3.5 server.
 port="$(free_port)"
-"$openssl35" s_server -accept "127.0.0.1:$port" -naccept 1 -www -tls1_3 \
+"$openssl_bin" s_server -accept "127.0.0.1:$port" -naccept 1 -www -tls1_3 \
   -groups X25519MLKEM768 \
   -cert test/certs/chain.pem -key test/certs/leaf.key \
   > "$work/s_server.log" 2>&1 &
 pids+=($!)
-result=""
-for _ in $(seq 1 50); do
-  result="$(./test/test_interop_client localhost test/certs/ca.pem "$port" 2>&1 || true)"
-  case "$result" in *"RESULT"*"TCP"*) sleep 0.1 ;; *) break ;; esac
+# Wait for s_server to listen.  A probe connection would use up -naccept 1,
+# and the client reports a refused connection as a handshake failure, so poll
+# for s_server's ACCEPT line instead.
+for _ in $(seq 1 100); do
+  grep -q '^ACCEPT' "$work/s_server.log" && break
+  sleep 0.1
 done
+result="$(./test/test_interop_client localhost test/certs/ca.pem "$port" 2>&1 || true)"
 case "$result" in
   *"RESULT"*"OK"*"200"*)
     echo "hybrid interop: verified client -> OpenSSL 3.5 server (X25519MLKEM768) passed" ;;
@@ -65,7 +69,7 @@ server_pid=$!
 pids+=($server_pid)
 out=""
 for _ in $(seq 1 50); do
-  out="$( (printf 'ping-hybrid\n'; sleep 1) | "$openssl35" s_client \
+  out="$( (printf 'ping-hybrid\n'; sleep 1) | "$openssl_bin" s_client \
       -connect "127.0.0.1:$port" -servername localhost -tls1_3 \
       -groups '*X25519MLKEM768:*X25519' -CAfile test/certs/ca.pem -verify_return_error \
       -ign_eof 2>&1 || true)"

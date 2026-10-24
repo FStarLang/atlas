@@ -1,7 +1,6 @@
 tools/FStar/
 tools/everparse/
 tools/hacl-pulse/
-tools/openssl-3.5/
 _cache/
 _output/
 _extract/

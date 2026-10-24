@@ -25,8 +25,8 @@ cat > "$tmp_dir/check_openssl.c" <<'C'
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#if OPENSSL_VERSION_MAJOR < 3
-#error "OpenSSL 3.x or newer is required"
+#if OPENSSL_VERSION_NUMBER < 0x30500000L
+#error "OpenSSL 3.5 or newer (ML-KEM) is required"
 #endif
 
 int main(void) {
@@ -36,4 +36,4 @@ int main(void) {
 C
 
 cc $cflags "$tmp_dir/check_openssl.c" -o "$tmp_dir/check_openssl" $libs
-echo "OpenSSL 3.x headers and libraries are available"
+echo "OpenSSL 3.5+ headers and libraries are available"

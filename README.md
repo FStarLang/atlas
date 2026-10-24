@@ -86,9 +86,8 @@ The QuackyDucky pipeline can also be driven stage by stage with
 
 `make test-openssl-echo` runs the controlled local OpenSSL TLS 1.3 echo interop
 scenario.  `make test-hybrid-interop` runs both verified endpoints against an
-OpenSSL 3.5 peer using X25519MLKEM768.  The system OpenSSL 3.0 has no ML-KEM,
-so build the 3.5 command-line tool first with `scripts/build-openssl35.sh`.
-Without it the test is skipped. The main test sources live in `test/` and `test/unit/`.
+OpenSSL peer using X25519MLKEM768; it needs the system OpenSSL to be 3.5 or
+newer (the first release with ML-KEM). The main test sources live in `test/` and `test/unit/`.
 
 The verified browser path is documented in `runtime/chromium/README.md`. It
 includes the portable asynchronous adapter demo, a pinned Chromium overlay with

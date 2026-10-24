@@ -83,6 +83,9 @@
  * not, because the server follows the share that was actually sent rather than
  * the client's preference order, so that cell now completes at secp256r1
  * directly.  HelloRetryRequest remains unimplemented and unexercised here.
+ * The exception is the openssl-defaults cells: OpenSSL 3.5's stock offer
+ * carries two KeyShareEntry values, X25519MLKEM768 and X25519, and the server
+ * picks the hybrid.
  *
  * The genuinely multi-KeyShareEntry ClientHello is exercised by
  * test_atlas_loopback, because the verified CLIENT's canonical ClientHello
@@ -100,8 +103,6 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <openssl/err.h>
-#include <openssl/obj_mac.h>
-#include <openssl/objects.h>
 #include <signal.h>
 #include <openssl/ssl.h>
 #include <stdbool.h>
@@ -109,6 +110,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -183,8 +185,9 @@ static const struct case_spec k_cases[] = {
 
     /* --- What a real peer actually offers. ------------------------------ */
     {"openssl-defaults", NULL, NULL, NULL, CRED_RSA, true, FRAMING_NORMAL, OK,
-     "TLS_CHACHA20_POLY1305_SHA256", "X25519",
-     "OpenSSL's stock TLS 1.3 offer; the server must pick chacha out of it", TLS13_ONLY},
+     "TLS_CHACHA20_POLY1305_SHA256", "X25519MLKEM768",
+     "OpenSSL's stock TLS 1.3 offer; the server must pick chacha and the hybrid out of it",
+     TLS13_ONLY},
 
     /* The verified CLIENT's own offer, transcribed.  This is the same shape
        test_atlas_loopback drives through the real client; having it here too
@@ -238,7 +241,7 @@ static const struct case_spec k_cases[] = {
        follows the group the acceptance gate picked. */
     {"p256-only", "TLS_CHACHA20_POLY1305_SHA256", "P-256",
      "rsa_pss_rsae_sha256", CRED_RSA, true, FRAMING_NORMAL, OK,
-     "TLS_CHACHA20_POLY1305_SHA256", "prime256v1",
+     "TLS_CHACHA20_POLY1305_SHA256", "secp256r1",
      "secp256r1-only offer completed at secp256r1", TLS13_ONLY},
     {"x25519-and-p256", "TLS_CHACHA20_POLY1305_SHA256", "X25519:P-256",
      "rsa_pss_rsae_sha256", CRED_RSA, true, FRAMING_NORMAL, OK,
@@ -256,7 +259,7 @@ static const struct case_spec k_cases[] = {
        HelloRetryRequest; now the server simply takes the offered group. */
     {"p256-first-x25519-listed", "TLS_CHACHA20_POLY1305_SHA256",
      "P-256:X25519", "rsa_pss_rsae_sha256", CRED_RSA, true, FRAMING_NORMAL, OK,
-     "TLS_CHACHA20_POLY1305_SHA256", "prime256v1",
+     "TLS_CHACHA20_POLY1305_SHA256", "secp256r1",
      "only a secp256r1 key_share was sent, so secp256r1 is what gets used",
      TLS13_ONLY},
     /* The same case under a different credential.  G2 was a key-exchange gap,
@@ -265,7 +268,7 @@ static const struct case_spec k_cases[] = {
        rather than silently accepted. */
     {"ecdsa-credential-p256-only", "TLS_CHACHA20_POLY1305_SHA256", "P-256",
      "ecdsa_secp256r1_sha256", CRED_ECDSA_P256, true, FRAMING_NORMAL, OK,
-     "TLS_CHACHA20_POLY1305_SHA256", "prime256v1",
+     "TLS_CHACHA20_POLY1305_SHA256", "secp256r1",
      "secp256r1 key exchange is independent of the credential axis", TLS13_ONLY},
 
     /* --- Signature-scheme axis. ----------------------------------------- */
@@ -324,7 +327,7 @@ static const struct case_spec k_cases[] = {
      "TLS_CHACHA20_POLY1305_SHA256", "X25519",
      "ECDSA CertificateVerify driven through the NeedMoreInput retry loop", TLS13_ONLY},
     {"ecdsa-credential-openssl-defaults", NULL, NULL, NULL, CRED_ECDSA_P256,
-     true, FRAMING_NORMAL, OK, "TLS_CHACHA20_POLY1305_SHA256", "X25519",
+     true, FRAMING_NORMAL, OK, "TLS_CHACHA20_POLY1305_SHA256", "X25519MLKEM768",
      "a stock OpenSSL client against an ECDSA-credentialled verified server", TLS13_ONLY},
     /* The credential axis crossed with the remaining two negotiation axes, so
        that "the scheme follows the credential" cannot silently become "the
@@ -812,10 +815,10 @@ static int run_openssl_client(const struct case_spec *spec, uint16_t port,
     }
   }
   if (spec->expect_group != NULL) {
-    /* OpenSSL 3.0 has no SSL_get0_group_name (3.2+), so go through the NID's
-       short name: "X25519" / "prime256v1". */
-    const char *group = OBJ_nid2sn(SSL_get_negotiated_group(ssl));
-    if (group == NULL || strcmp(group, spec->expect_group) != 0) {
+    /* The TLS group name, compared case-insensitively ("x25519", "secp256r1",
+       "X25519MLKEM768"); the hybrid has no NID, so OBJ_nid2sn cannot name it. */
+    const char *group = SSL_get0_group_name(ssl);
+    if (group == NULL || strcasecmp(group, spec->expect_group) != 0) {
       fprintf(stderr, "  %s: negotiated group %s, expected %s\n", spec->name,
               group == NULL ? "(none)" : group, spec->expect_group);
       goto done;
