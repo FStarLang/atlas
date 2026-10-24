@@ -825,7 +825,7 @@ fn mark_received_client_hello
     st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
   with old_client_hello_present old_l_random old_l_session_id old_l_server_name
        old_l_key_share old_l_p256_key_share old_l_cipher_suites
-       old_l_signature_schemes. _;
+       old_l_signature_schemes old_l_hybrid_key_share. _;
   unfold (client_hello_metadata_exactly
     c.handshake.messages.client_hello_has_server_name
     c.handshake.messages.client_hello_server_name_len
@@ -907,6 +907,15 @@ fn mark_received_client_hello
   V.to_vec_pts_to lch.IM.client_hello_signature_schemes;
   V.to_vec_pts_to c.handshake.messages.client_hello.IM.client_hello_signature_schemes;
 
+  V.to_array_pts_to lch.IM.client_hello_hybrid_key_share;
+  V.to_array_pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
+  Arr.memcpy
+    1216sz
+    (V.vec_to_array lch.IM.client_hello_hybrid_key_share)
+    (V.vec_to_array c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share);
+  V.to_vec_pts_to lch.IM.client_hello_hybrid_key_share;
+  V.to_vec_pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
+
   c.handshake.messages.client_hello_present := true;
   c.handshake.messages.client_hello_has_server_name :=
     lch.IM.client_hello_has_server_name;
@@ -948,6 +957,14 @@ fn mark_received_client_hello
     };
   assert (pure (stored_kex_group == client_hello_kex_group_for (Ghost.reveal ch)));
   c.handshake.messages.client_hello_kex_group := stored_kex_group;
+  // RFC 10024: whether the peer made a well-formed X25519MLKEM768 offer.
+  unfold (client_hello_hybrid_offered_exactly
+    c.handshake.messages.client_hello_hybrid_offered
+    st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+  c.handshake.messages.client_hello_hybrid_offered :=
+    lch.IM.client_hello_has_hybrid_key_share;
+  assert (pure (lch.IM.client_hello_has_hybrid_key_share ==
+    client_hello_offers_hybrid (Some (Ghost.reveal ch))));
   lemma_bounded_u16_sizet_of_sizet
     (Seq.length (Sem.clientHello_session_id (Ghost.reveal ch)))
     lch.IM.client_hello_session_id_len;
@@ -958,6 +975,10 @@ fn mark_received_client_hello
   with stored_p256_key_share. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_p256_key_share stored_p256_key_share);
   with stored_cipher_suites. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_cipher_suites stored_cipher_suites);
   with stored_signature_schemes. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_signature_schemes stored_signature_schemes);
+  with stored_hybrid_key_share. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share stored_hybrid_key_share);
+  assert (pure (match CS.client_hello_hybrid_key_share (Ghost.reveal ch) with
+    | Some k -> Seq.equal stored_hybrid_key_share k
+    | None -> True));
 
   assert (pure (Seq.equal stored_random (Sem.clientHello_random (Ghost.reveal ch))));
   assert (pure (IM.optional_byte_prefix_matches
@@ -999,6 +1020,7 @@ fn mark_received_client_hello
   V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_p256_key_share;
   V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_cipher_suites;
   V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_signature_schemes;
+  V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
 
   fold (IM.is_valid_client_hello lch ch);
   fold (client_hello_slot_exactly
@@ -1012,6 +1034,9 @@ fn mark_received_client_hello
     c.handshake.messages.client_hello_signature_schemes_len
     c.handshake.messages.client_hello_session_id_len
     c.handshake.messages.client_hello_kex_group
+    (Some (Ghost.reveal ch)));
+  fold (client_hello_hybrid_offered_exactly
+    c.handshake.messages.client_hello_hybrid_offered
     (Some (Ghost.reveal ch)));
 
   unfold (handshake_buffers_exactly

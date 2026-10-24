@@ -189,6 +189,10 @@ type handshake_message_storage = {
      not recoverable from the stored bytes at all -- an all-zero 32-byte X25519
      slot is a legal share -- so the parse path writes it. *)
   client_hello_kex_group: box CryptoSpec.dh_group;
+  (* Whether the stored ClientHello made a well-formed X25519MLKEM768 offer
+     (RFC 10024), which the server's group policy reads.  A metadata box for
+     the same reason as [client_hello_kex_group]. *)
+  client_hello_hybrid_offered: box bool;
   server_hello: box (option IM.server_hello);
   encrypted_extensions: box (option IM.encrypted_extensions);
   certificate: box (option IM.certificate_msg);
@@ -962,7 +966,7 @@ let client_hello_slot_exactly
   (spec:option GCH.clientHello)
   : slprop =
   exists* present random session_id server_name key_share p256_key_share
-          cipher_suites signature_schemes.
+          cipher_suites signature_schemes hybrid_key_share.
     Box.pts_to present_box present **
     V.pts_to l.IM.client_hello_random random **
     V.pts_to l.IM.client_hello_session_id session_id **
@@ -978,7 +982,11 @@ let client_hello_slot_exactly
     V.pts_to l.IM.client_hello_p256_key_share p256_key_share **
     V.pts_to l.IM.client_hello_cipher_suites cipher_suites **
     V.pts_to l.IM.client_hello_signature_schemes signature_schemes **
-    pure (V.is_full_vec l.IM.client_hello_random /\
+    V.pts_to l.IM.client_hello_hybrid_key_share hybrid_key_share **
+    pure (V.is_full_vec l.IM.client_hello_hybrid_key_share /\
+          V.length l.IM.client_hello_hybrid_key_share == 1216 /\
+          B.length hybrid_key_share == 1216 /\
+          V.is_full_vec l.IM.client_hello_random /\
           V.is_full_vec l.IM.client_hello_session_id /\
           V.is_full_vec l.IM.client_hello_server_name /\
           V.is_full_vec l.IM.client_hello_key_share /\
@@ -1028,6 +1036,10 @@ let client_hello_slot_exactly
                  4.2.8), and places no demand on the mirror. *)
               (match Sem.clientHello_key_share_secp256r1 m with
                | Some k -> B.length k == 65 ==> Seq.equal p256_key_share k
+               | None -> True) /\
+              (* The peer's X25519MLKEM768 offer (RFC 10024), likewise. *)
+              (match CS.client_hello_hybrid_key_share m with
+               | Some k -> Seq.equal hybrid_key_share k
                | None -> True) /\
               IM.cipher_suites_match
                 cipher_suites
@@ -1147,6 +1159,21 @@ let finished_slot_exactly
     pure ((match stored with | None -> true | Some _ -> false) ==
           (match spec with | None -> true | Some _ -> false))
 
+(* Whether a stored ClientHello made a well-formed X25519MLKEM768 offer. *)
+noextract
+let client_hello_offers_hybrid (spec:option GCH.clientHello) : bool =
+  match spec with
+  | Some m -> Some? (CS.client_hello_hybrid_key_share m)
+  | None -> false
+
+let client_hello_hybrid_offered_exactly
+  ([@@@mkey] offered_box:box bool)
+  (spec:option GCH.clientHello)
+  : slprop =
+  exists* offered.
+    Box.pts_to offered_box offered **
+    pure (offered == client_hello_offers_hybrid spec)
+
 let handshake_messages_exactly
   ([@@@mkey] msgs:handshake_message_storage)
   (hs:CS.handshake_state)
@@ -1160,6 +1187,7 @@ let handshake_messages_exactly
     msgs.client_hello_session_id_len
     msgs.client_hello_kex_group
     hs.CS.hs_client_hello **
+  client_hello_hybrid_offered_exactly msgs.client_hello_hybrid_offered hs.CS.hs_client_hello **
   server_hello_slot_exactly msgs.server_hello hs.CS.hs_server_hello **
   encrypted_extensions_slot_exactly msgs.encrypted_extensions hs.CS.hs_encrypted_extensions **
   certificate_slot_exactly msgs.certificate hs.CS.hs_certificate **

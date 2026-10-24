@@ -2734,7 +2734,7 @@ fn try_send_client_hello
       st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
     with old_client_hello_present old_l_random old_l_session_id old_l_server_name
          old_l_key_share old_l_p256_key_share old_l_cipher_suites
-         old_l_signature_schemes. _;
+         old_l_signature_schemes old_l_hybrid_key_share. _;
     unfold (client_hello_metadata_exactly
       c.handshake.messages.client_hello_has_server_name
       c.handshake.messages.client_hello_server_name_len
@@ -2979,6 +2979,21 @@ fn try_send_client_hello
       (Sem.clientHello_session_id (Ghost.reveal ch)) == 32));
     assert (pure (client_hello_session_id_len_for (Ghost.reveal ch) == 32sz));
     c.handshake.messages.client_hello_session_id_len := 32sz;
+    // RFC 10024: the client's own offer carries the hybrid share iff [hy].
+    SerH.lemma_ch_g_accessors hy (Ghost.reveal rnd_g) (Ghost.reveal sni_g)
+      (Ghost.reveal hks_g) (Ghost.reveal ks_g) (Ghost.reveal pks_g)
+      (Ghost.reveal rnd_g) (Ghost.reveal cs_g) (Ghost.reveal sa_g);
+    assert (pure (match CS.client_hello_hybrid_key_share (Ghost.reveal ch) with
+      | Some k -> Seq.equal (Ghost.reveal hks_g) k
+      | None -> True));
+    assert (pure (hy == client_hello_offers_hybrid (Some (Ghost.reveal ch))));
+    unfold (client_hello_hybrid_offered_exactly
+      c.handshake.messages.client_hello_hybrid_offered
+      st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+    c.handshake.messages.client_hello_hybrid_offered := hy;
+    fold (client_hello_hybrid_offered_exactly
+      c.handshake.messages.client_hello_hybrid_offered
+      (Some (Ghost.reveal ch)));
     fold (client_hello_slot_exactly
       c.handshake.messages.client_hello_present
       c.handshake.messages.client_hello

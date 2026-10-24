@@ -21,8 +21,20 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H6 model + proofs: hybrid ServerHello side arm, derive arms, D6 threaded to the System layers and the flagships | **landed** (`5e9a69f`) |
 | H7 KEM-shaped runtime wrappers in `TLS13.KEX`; D4 64-byte shared-secret slot (`Repr.shared_secret_match`) | **landed** (`cf8f45a`) |
 | H8a+b client offer: `poc_canonical_ch_g` / `client_hello_of_start` with an optional hybrid share, start storage (96-byte seed, 1216-byte share), gated generation behind the abstract `KEX.client_offers_hybrid`; Repr / `valid_start` pins removed | **landed** (`15b5d3f`) |
-| H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | **landed** (this commit) |
-| H9, H10 | not started |
+| H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | **landed** (`500d9d4`) |
+| H9a server: ClientHello hybrid share (1216 bytes) parsing and storage, `client_hello_hybrid_offered` metadata box | **landed** (this commit) |
+| H9b, H9c, H10 | not started |
+
+H9a notes.  `Messages.client_hello` gains a 1216-byte
+`client_hello_hybrid_key_share` and a `has_hybrid` flag that
+`is_valid_client_hello` pins to `Some? (CS.client_hello_hybrid_key_share ch)`.
+The parser scans for the X25519MLKEM768 entry (`scan_ch_hybrid_key_share`,
+first match wins); the acceptance gate is unchanged, so a ClientHello still
+needs an X25519 or secp256r1 share.  `Repr.client_hello_slot_exactly` owns the
+new vec and pins it to the offered share; a new metadata box
+`client_hello_hybrid_offered` (conjunct `client_hello_hybrid_offered_exactly`)
+records whether the offer was made, for the H9c group policy.  Both the server
+(Network) and the client (LocalHandshake, via the serializer) fill the slot.
 
 H8 notes.  `KEX.client_offers_hybrid` is a `val` in `KEX.fsti` (`false` in
 `KEX.fst` until H10), so every client module is verified for both values.

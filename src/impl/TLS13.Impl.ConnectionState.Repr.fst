@@ -365,13 +365,14 @@ fn free_client_hello_slot
 {
   with spec. unfold (client_hello_slot_exactly present_box value spec);
   with present random session_id server_name key_share p256_key_share
-       cipher_suites signature_schemes. _;
+       cipher_suites signature_schemes hybrid_key_share. _;
   Box.free present_box;
   V.free value.IM.client_hello_random;
   V.free value.IM.client_hello_session_id;
   V.free value.IM.client_hello_server_name;
   V.free value.IM.client_hello_key_share;
   V.free value.IM.client_hello_p256_key_share;
+  V.free value.IM.client_hello_hybrid_key_share;
   V.free value.IM.client_hello_cipher_suites;
   V.free value.IM.client_hello_signature_schemes;
 }
@@ -604,6 +605,9 @@ fn free_handshake_messages_exactly (messages:handshake_message_storage)
     messages.client_hello_signature_schemes_len
     messages.client_hello_session_id_len
     messages.client_hello_kex_group;
+  unfold (client_hello_hybrid_offered_exactly
+    messages.client_hello_hybrid_offered spec.CS.hs_client_hello);
+  Box.free messages.client_hello_hybrid_offered;
   free_server_hello_slot messages.server_hello;
   free_encrypted_extensions_slot messages.encrypted_extensions;
   free_certificate_slot messages.certificate;
@@ -1669,6 +1673,7 @@ fn alloc_client_hello_slot_empty ()
   let client_hello_server_name = V.alloc 0uy (max_hostname_len_sz);
   let client_hello_key_share = V.alloc 0uy 32sz;
   let client_hello_p256_key_share = V.alloc 0uy 65sz;
+  let client_hello_hybrid_key_share = V.alloc 0uy 1216sz;
   let client_hello_cipher_suites = V.alloc 0us (max_cipher_suites_sz);
   let client_hello_signature_schemes = V.alloc 0us (max_signature_schemes_sz);
   let l = {
@@ -1682,6 +1687,8 @@ fn alloc_client_hello_slot_empty ()
     IM.client_hello_has_x25519_key_share = false;
     IM.client_hello_p256_key_share;
     IM.client_hello_has_p256_key_share = false;
+    IM.client_hello_hybrid_key_share;
+    IM.client_hello_has_hybrid_key_share = false;
     IM.client_hello_cipher_suites;
     IM.client_hello_cipher_suites_len = 0sz;
     IM.client_hello_signature_schemes;
@@ -1697,6 +1704,8 @@ fn alloc_client_hello_slot_empty ()
     (V.pts_to l.IM.client_hello_key_share (Seq.create 32 0uy));
   rewrite (V.pts_to client_hello_p256_key_share (Seq.create 65 0uy)) as
     (V.pts_to l.IM.client_hello_p256_key_share (Seq.create 65 0uy));
+  rewrite (V.pts_to client_hello_hybrid_key_share (Seq.create 1216 0uy)) as
+    (V.pts_to l.IM.client_hello_hybrid_key_share (Seq.create 1216 0uy));
   rewrite (V.pts_to client_hello_cipher_suites (Seq.create max_cipher_suites 0us)) as
     (V.pts_to l.IM.client_hello_cipher_suites (Seq.create max_cipher_suites 0us));
   rewrite (V.pts_to client_hello_signature_schemes (Seq.create max_signature_schemes 0us)) as
@@ -1728,6 +1737,7 @@ fn alloc_handshake_messages_empty ()
   let client_hello_session_id_len : box SZ.t = Box.alloc 0sz;
   let client_hello_kex_group : box CryptoSpec.dh_group =
     Box.alloc (CryptoSpec.KexX25519 <: CryptoSpec.dh_group);
+  let client_hello_hybrid_offered : box bool = Box.alloc false;
   rewrite (client_hello_slot_exactly client_hello_slot.ch_present client_hello_slot.ch_value None) as
     (client_hello_slot_exactly client_hello_present client_hello None);
   let server_hello : box (option IM.server_hello) = Box.alloc (None #IM.server_hello);
@@ -1748,6 +1758,7 @@ fn alloc_handshake_messages_empty ()
     client_hello_signature_schemes_len;
     client_hello_session_id_len;
     client_hello_kex_group;
+    client_hello_hybrid_offered;
     server_hello;
     encrypted_extensions;
     certificate;
@@ -1793,6 +1804,10 @@ fn alloc_handshake_messages_empty ()
       msgs.client_hello_session_id_len
       msgs.client_hello_kex_group
       CS.empty_handshake_state.CS.hs_client_hello);
+  rewrite (Box.pts_to client_hello_hybrid_offered false) as
+    (Box.pts_to msgs.client_hello_hybrid_offered false);
+  fold (client_hello_hybrid_offered_exactly msgs.client_hello_hybrid_offered
+    CS.empty_handshake_state.CS.hs_client_hello);
   rewrite (Box.pts_to server_hello None) as (Box.pts_to msgs.server_hello None);
   rewrite (Box.pts_to encrypted_extensions None) as
     (Box.pts_to msgs.encrypted_extensions None);

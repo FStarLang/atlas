@@ -1817,7 +1817,7 @@ fn serialize_client_hello_from_start
                   cipher_suites cipher_suites_len
                   signature_schemes signature_schemes_len
                   old_present old_l_random old_l_session_id old_l_server_name old_l_key_share
-                  old_l_p256_key_share
+                  old_l_p256_key_share old_l_hybrid_key_share
                   old_l_cipher_suites old_l_signature_schemes
                   old_client_hello_bytes_len old_client_hello_bytes old_network_out.
           V.pts_to start_random random **
@@ -1836,6 +1836,7 @@ fn serialize_client_hello_from_start
           V.pts_to l.L.client_hello_server_name old_l_server_name **
           V.pts_to l.L.client_hello_key_share old_l_key_share **
           V.pts_to l.L.client_hello_p256_key_share old_l_p256_key_share **
+          V.pts_to l.L.client_hello_hybrid_key_share old_l_hybrid_key_share **
           V.pts_to l.L.client_hello_cipher_suites old_l_cipher_suites **
           V.pts_to l.L.client_hello_signature_schemes old_l_signature_schemes **
           V.pts_to client_hello_bytes old_client_hello_bytes **
@@ -1855,6 +1856,8 @@ fn serialize_client_hello_from_start
                 V.is_full_vec l.L.client_hello_server_name /\
                 V.is_full_vec l.L.client_hello_key_share /\
                 V.is_full_vec l.L.client_hello_p256_key_share /\
+                V.is_full_vec l.L.client_hello_hybrid_key_share /\
+                V.length l.L.client_hello_hybrid_key_share == 1216 /\
                 V.is_full_vec l.L.client_hello_cipher_suites /\
                 V.is_full_vec l.L.client_hello_signature_schemes /\
                 V.is_full_vec client_hello_bytes /\
@@ -1882,6 +1885,7 @@ fn serialize_client_hello_from_start
                 B.length old_l_server_name == L.max_server_name_len /\
                 B.length old_l_key_share == 32 /\
                 B.length old_l_p256_key_share == 65 /\
+                B.length old_l_hybrid_key_share == 1216 /\
                 Seq.length old_l_cipher_suites == L.max_cipher_suites /\
                 Seq.length old_l_signature_schemes == L.max_signature_schemes /\
                 B.length old_client_hello_bytes == 8192 /\
@@ -1936,6 +1940,7 @@ fn serialize_client_hello_from_start
           V.pts_to l.L.client_hello_server_name server_name **
           V.pts_to l.L.client_hello_key_share key_share **
           V.pts_to l.L.client_hello_p256_key_share (Ghost.reveal pks) **
+          V.pts_to l.L.client_hello_hybrid_key_share (Ghost.reveal hks) **
           V.pts_to l.L.client_hello_cipher_suites cipher_suites **
           V.pts_to l.L.client_hello_signature_schemes signature_schemes **
           V.pts_to client_hello_bytes handshake_bytes **
@@ -1954,6 +1959,8 @@ fn serialize_client_hello_from_start
                V.is_full_vec l.L.client_hello_server_name /\
                V.is_full_vec l.L.client_hello_key_share /\
                V.is_full_vec l.L.client_hello_p256_key_share /\
+               V.is_full_vec l.L.client_hello_hybrid_key_share /\
+               V.length l.L.client_hello_hybrid_key_share == 1216 /\
                V.is_full_vec l.L.client_hello_cipher_suites /\
                V.is_full_vec l.L.client_hello_signature_schemes /\
                V.is_full_vec client_hello_bytes /\
@@ -2131,6 +2138,8 @@ fn serialize_client_hello_from_start
      real share.  It is filled from the client's own P-256 public exactly as the
      X25519 slot is filled from start_key_share. *)
   copy_vec_to_vec_u8 start_p256_key_share l.L.client_hello_p256_key_share 65sz;
+  (* Likewise the X25519MLKEM768 slot (RFC 10024) when the hybrid is offered. *)
+  copy_vec_to_vec_u8 start_hybrid_key_share l.L.client_hello_hybrid_key_share 1216sz;
   (* build canonical-pinned structure sharing l's vecs (only scalars differ) *)
   let l_poc : L.client_hello = {
     L.client_hello_random = l.L.client_hello_random;
@@ -2143,6 +2152,8 @@ fn serialize_client_hello_from_start
     L.client_hello_has_x25519_key_share = true;
     L.client_hello_p256_key_share = l.L.client_hello_p256_key_share;
     L.client_hello_has_p256_key_share = true;
+    L.client_hello_hybrid_key_share = l.L.client_hello_hybrid_key_share;
+    L.client_hello_has_hybrid_key_share = hy;
     L.client_hello_cipher_suites = l.L.client_hello_cipher_suites;
     L.client_hello_cipher_suites_len = cipher_suites_len_runtime;
     L.client_hello_signature_schemes = l.L.client_hello_signature_schemes;
@@ -2164,6 +2175,8 @@ fn serialize_client_hello_from_start
        as (V.pts_to l_poc.L.client_hello_key_share key_share);
   rewrite (V.pts_to l.L.client_hello_p256_key_share (Ghost.reveal pks))
        as (V.pts_to l_poc.L.client_hello_p256_key_share (Ghost.reveal pks));
+  rewrite (V.pts_to l.L.client_hello_hybrid_key_share (Ghost.reveal hks))
+       as (V.pts_to l_poc.L.client_hello_hybrid_key_share (Ghost.reveal hks));
   rewrite (V.pts_to l.L.client_hello_cipher_suites cipher_suites)
        as (V.pts_to l_poc.L.client_hello_cipher_suites cipher_suites);
   rewrite (V.pts_to l.L.client_hello_signature_schemes signature_schemes)
@@ -2213,6 +2226,9 @@ fn serialize_client_hello_from_start
   with w_p256. assert (V.pts_to l_poc.L.client_hello_p256_key_share w_p256);
   rewrite (V.pts_to l_poc.L.client_hello_p256_key_share w_p256)
        as (V.pts_to l.L.client_hello_p256_key_share w_p256);
+  with w_hyb. assert (V.pts_to l_poc.L.client_hello_hybrid_key_share w_hyb);
+  rewrite (V.pts_to l_poc.L.client_hello_hybrid_key_share w_hyb)
+       as (V.pts_to l.L.client_hello_hybrid_key_share w_hyb);
   with w_rnd. assert (V.pts_to l_poc.L.client_hello_random w_rnd);
   rewrite (V.pts_to l_poc.L.client_hello_random w_rnd)
        as (V.pts_to l.L.client_hello_random w_rnd);
@@ -2242,6 +2258,7 @@ fn serialize_client_hello_from_start
   copy_vec_to_vec_u8 start_key_share l.L.client_hello_key_share 32sz;
   copy_vec_to_vec_u16 start_cipher_suites l.L.client_hello_cipher_suites 64sz;
   copy_vec_to_vec_u16 start_signature_schemes l.L.client_hello_signature_schemes 32sz;
+  copy_vec_to_vec_u8 start_hybrid_key_share l.L.client_hello_hybrid_key_share 1216sz;
 
   client_hello_bytes_len := handshake_len;
   client_hello_present := true;
