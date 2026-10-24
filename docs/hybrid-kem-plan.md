@@ -19,8 +19,17 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H5a D4 as a type change: `ks_shared_secret : kex_shared_secret_any`, `optional_shared_secret_exactly` slot | **landed** (`bd04d41`) |
 | H5b D1 fields, hybrid consistency clauses (D3), one key family per selection, `kex_group_of_named_group_full` | **landed** (`b7e9321`) |
 | H6 model + proofs: hybrid ServerHello side arm, derive arms, D6 threaded to the System layers and the flagships | **landed** (`5e9a69f`) |
-| H7 KEM-shaped runtime wrappers in `TLS13.KEX`; D4 64-byte shared-secret slot (`Repr.shared_secret_match`) | **landed** (this commit) |
-| H8 … H10 | not started |
+| H7 KEM-shaped runtime wrappers in `TLS13.KEX`; D4 64-byte shared-secret slot (`Repr.shared_secret_match`) | **landed** (`cf8f45a`) |
+| H8a+b client offer: `poc_canonical_ch_g` / `client_hello_of_start` with an optional hybrid share, start storage (96-byte seed, 1216-byte share), gated generation behind the abstract `KEX.client_offers_hybrid`; Repr / `valid_start` pins removed | **landed** (this commit) |
+| H8c client: hybrid ServerHello (1120-byte share) parsing and storage, decaps / derive arm | not started |
+| H9, H10 | not started |
+
+H8 notes.  `KEX.client_offers_hybrid` is a `val` in `KEX.fsti` (`false` in
+`KEX.fst` until H10), so every client module is verified for both values.
+With the hybrid offered, the ClientHello grows by 1222 bytes (2 in
+`supported_groups`, 2 + 2 + 1216 for the KeyShareEntry): the handshake message
+is at most 1761 bytes and the record 1766, so the `network_out_len` bound on
+`LocalSendClientHello` goes from 544 to 1766 (the driver buffer is 20000).
 
 Re-staging made in H7: the hybrid start buffers (96-byte seed, 1216-byte
 share) and the 1216/1120-byte hello slots (D5) are added with their first
@@ -167,10 +176,11 @@ to FACT 3: FACT 3 is inductive and D6 is not provable.  Instead:
 `dh_group` typing.  A hybrid ServerHello is read by separate accessors
 (`serverHello_hybrid_share`, `server_hello_hybrid_share`, exclusive with
 `server_hello_kex` by SMTPat lemmas), and a hybrid selection has `None` DH
-privates.  This avoided re-typing every DH proof site.  Until H8/H9 the impl
-pins the runtime to non-hybrid: `Repr.handshake_start_fields_exactly` carries
-`None? start_client_hybrid_private`, and `Repr.server_selection_private_absent`
-carries `not (server_selects_hybrid selection)`.
+privates.  This avoided re-typing every DH proof site.  Until H9 the impl
+pins the server runtime to non-hybrid: `Repr.server_selection_private_absent`
+carries `not (server_selects_hybrid selection)`.  (The client pin,
+`None? start_client_hybrid_private` in `Repr.handshake_start_fields_exactly`,
+was removed in H8.)
 
 ## 3. Stages (each one green; the capability flips only in H10)
 

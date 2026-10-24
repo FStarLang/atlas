@@ -17,6 +17,7 @@ module H = TLS13.Handshake.Spec
 module IM = TLS13.Impl.Messages
 module K = TLS13.Keys
 module KEX = TLS13.KEX
+module KX = TLS13.Crypto.Kex.Spec
 module KS = TLS13.KeySchedule
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
@@ -59,6 +60,28 @@ open TLS13.Impl.ConnectionState.Bounds
 open TLS13.Impl.ConnectionState.Model
 open TLS13.Impl.ConnectionState.Queries
 open TLS13.Impl.ConnectionState.Repr
+
+(* The X25519MLKEM768 offer (RFC 10024): when [KEX.client_offers_hybrid] is
+   set, draw a 96-byte seed and derive its 1216-byte share; otherwise leave both
+   buffers untouched and report success. *)
+fn client_hybrid_offer_runtime (seed: array U8.t) (pub: array U8.t)
+  requires ArrPts.pts_to seed 'seed0 ** ArrPts.pts_to pub 'pub0 **
+           pure (B.length 'seed0 == 96 /\ B.length 'pub0 == 1216)
+  returns ok: bool
+  ensures exists* s p.
+          ArrPts.pts_to seed s ** ArrPts.pts_to pub p **
+          pure (B.length s == 96 /\ B.length p == 1216 /\
+                (KEX.client_offers_hybrid ==>
+                  p == KX.kex_client_public CryptoSpec.KexX25519MLKEM768 s))
+{
+  if KEX.client_offers_hybrid {
+    let ok = Crypto.random_bytes seed 96sz;
+    KEX.kex_hybrid_client_public_runtime seed pub;
+    ok
+  } else {
+    true
+  }
+}
 
 fn try_start_handshake
   (c:connection_state)
@@ -144,7 +167,12 @@ fn try_start_handshake
     with p256_private_key_bytes. assert (ArrPts.pts_to p256_private_key p256_private_key_bytes);
     assert (pure (B.length p256_private_key_bytes == 32));
 
-    let entropy_ok = random_ok && private_ok && p256_private_ok;
+    let mut hybrid_seed = [| 0uy; 96sz |];
+    let mut hybrid_public = [| 0uy; 1216sz |];
+    let hybrid_ok = client_hybrid_offer_runtime hybrid_seed hybrid_public;
+    with hybrid_seed_bytes hybrid_public_bytes. _;
+
+    let entropy_ok = random_ok && private_ok && p256_private_ok && hybrid_ok;
     if entropy_ok {
     assert (pure random_ok);
     assert (pure private_ok);
@@ -172,8 +200,11 @@ fn try_start_handshake
       CS.start_client_key_share_public = public_key_bytes;
       CS.start_client_p256_private = Some p256_private_key_bytes;
       CS.start_client_p256_public = p256_public_key_bytes;
-      CS.start_client_hybrid_private = None;
-      CS.start_client_hybrid_public = CS.start_hybrid_absent;
+      CS.start_client_hybrid_private =
+        (if KEX.client_offers_hybrid
+         then Some (hybrid_seed_bytes <: B.bytes_of_len 96)
+         else None);
+      CS.start_client_hybrid_public = (hybrid_public_bytes <: B.bytes_of_len 1216);
       CS.start_cipher_suites =
         st0.CS.cs_model.CS.model_config.CS.config_cipher_suites;
       CS.start_signature_schemes =
@@ -254,6 +285,34 @@ fn try_start_handshake
       c.handshake.start.client_p256_public
       65
       p256_public_key_bytes);
+    unfold (optional_fixed_bytes_exactly
+      c.handshake.start.client_hybrid_private
+      96
+      None);
+    with old_hybrid_present old_hybrid_storage. _;
+    copy_fixed_array_to_vec
+      96sz
+      hybrid_seed
+      c.handshake.start.client_hybrid_private.bytes;
+    c.handshake.start.client_hybrid_private.present := KEX.client_offers_hybrid;
+    assert (pure (optional_fixed_bytes_match
+      KEX.client_offers_hybrid
+      hybrid_seed_bytes
+      96
+      (Ghost.reveal start).CS.start_client_hybrid_private));
+    fold (optional_fixed_bytes_exactly
+      c.handshake.start.client_hybrid_private
+      96
+      (Ghost.reveal start).CS.start_client_hybrid_private);
+    unfold (fixed_bytes_allocated c.handshake.start.client_hybrid_public 1216);
+    copy_fixed_array_to_vec
+      1216sz
+      hybrid_public
+      c.handshake.start.client_hybrid_public;
+    fold (fixed_bytes_exactly
+      c.handshake.start.client_hybrid_public
+      1216
+      hybrid_public_bytes);
     copy_cipher_suite_list_storage
       c.config.cipher_suites
       c.handshake.start.cipher_suites
@@ -2392,9 +2451,11 @@ let lemma_client_hello_of_start_eq_poc
               (sa <: list GSS.signatureScheme) == start.CS.start_signature_schemes)
     (ensures
       client_hello_of_start start ==
-        SerH.poc_canonical_ch
+        SerH.poc_canonical_ch_g
+          (Some? start.CS.start_client_hybrid_private)
           start.CS.start_client_random
           start.CS.start_server_name
+          start.CS.start_client_hybrid_public
           start.CS.start_client_key_share_public
           start.CS.start_client_p256_public
           start.CS.start_client_random
@@ -2614,7 +2675,7 @@ fn try_send_client_hello
     assert (pure (st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello == None));
     assert (pure (B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript
       <= max_transcript_len - max_client_hello_len));
-    assert (pure (544 <= SZ.v network_out_len));
+    assert (pure (1766 <= SZ.v network_out_len));
 
     let valid_nonempty = client_hello_start_nonempty_runtime c;
     if valid_nonempty {
@@ -2674,6 +2735,21 @@ fn try_send_client_hello
       65
       start_spec.CS.start_client_p256_public);
     with old_start_p256_key_share. _;
+    unfold (fixed_bytes_exactly
+      c.handshake.start.client_hybrid_public
+      1216
+      start_spec.CS.start_client_hybrid_public);
+    unfold (optional_fixed_bytes_exactly
+      c.handshake.start.client_hybrid_private
+      96
+      start_spec.CS.start_client_hybrid_private);
+    with hybrid_present hybrid_storage. _;
+    let hy = !c.handshake.start.client_hybrid_private.present;
+    assert (pure (hy == Some? start_spec.CS.start_client_hybrid_private));
+    fold (optional_fixed_bytes_exactly
+      c.handshake.start.client_hybrid_private
+      96
+      start_spec.CS.start_client_hybrid_private);
     unfold (cipher_suite_list_exactly
       c.handshake.start.cipher_suites
       max_cipher_suites
@@ -2733,6 +2809,7 @@ fn try_send_client_hello
     let sni_g : Ghost.erased B.bytes = Ghost.hide start_spec.CS.start_server_name;
     let ks_g : Ghost.erased B.bytes = Ghost.hide start_spec.CS.start_client_key_share_public;
     let pks_g : Ghost.erased B.bytes = Ghost.hide start_spec.CS.start_client_p256_public;
+    let hks_g : Ghost.erased B.bytes = Ghost.hide start_spec.CS.start_client_hybrid_public;
     let cs_g : Ghost.erased GCH.clientHello_cipher_suites =
       Ghost.hide (start_spec.CS.start_cipher_suites <: GCH.clientHello_cipher_suites);
     let sa_g : Ghost.erased GECH.extensionClientHello_extension_data_signature_algorithms =
@@ -2747,6 +2824,7 @@ fn try_send_client_hello
         #ch
         #rnd_g
         #sni_g
+        #hks_g
         #ks_g
         #pks_g
         #cs_g
@@ -2756,6 +2834,8 @@ fn try_send_client_hello
         c.handshake.start.server_name.len
         c.handshake.start.client_key_share_public
         c.handshake.start.client_p256_public
+        hy
+        c.handshake.start.client_hybrid_public
         c.handshake.start.cipher_suites.items
         c.handshake.start.cipher_suites.len
         c.handshake.start.signature_schemes.items
@@ -2846,6 +2926,10 @@ fn try_send_client_hello
       c.handshake.start.client_p256_public
       65
       start_spec.CS.start_client_p256_public);
+    fold (fixed_bytes_exactly
+      c.handshake.start.client_hybrid_public
+      1216
+      start_spec.CS.start_client_hybrid_public);
     fold (cipher_suite_list_exactly
       c.handshake.start.cipher_suites
       max_cipher_suites

@@ -463,6 +463,7 @@ fn serialize_client_hello_from_start
   (#ch: erased GCH.clientHello)
   (#rnd: erased B.bytes)
   (#sni: erased B.bytes)
+  (#hks: erased B.bytes)
   (#ks: erased B.bytes)
   (#pks: erased B.bytes)
   (#cs: erased GCH.clientHello_cipher_suites)
@@ -472,6 +473,8 @@ fn serialize_client_hello_from_start
   (start_server_name_len: box SZ.t)
   (start_key_share: V.vec U8.t)
   (start_p256_key_share: V.vec U8.t)
+  (hy: bool)
+  (start_hybrid_key_share: V.vec U8.t)
   (start_cipher_suites: V.vec U16.t)
   (start_cipher_suites_len: box SZ.t)
   (start_signature_schemes: V.vec U16.t)
@@ -494,6 +497,7 @@ fn serialize_client_hello_from_start
           Box.pts_to start_server_name_len server_name_len **
           V.pts_to start_key_share key_share **
           V.pts_to start_p256_key_share (Ghost.reveal pks) **
+          V.pts_to start_hybrid_key_share (Ghost.reveal hks) **
           V.pts_to start_cipher_suites cipher_suites **
           Box.pts_to start_cipher_suites_len cipher_suites_len **
           V.pts_to start_signature_schemes signature_schemes **
@@ -514,6 +518,8 @@ fn serialize_client_hello_from_start
                 V.is_full_vec start_server_name /\
                 V.is_full_vec start_key_share /\
                 V.is_full_vec start_p256_key_share /\
+                V.is_full_vec start_hybrid_key_share /\
+                V.length start_hybrid_key_share == 1216 /\
                 V.is_full_vec start_cipher_suites /\
                 V.is_full_vec start_signature_schemes /\
                 V.is_full_vec l.L.client_hello_random /\
@@ -552,7 +558,7 @@ fn serialize_client_hello_from_start
                 Seq.length old_l_signature_schemes == L.max_signature_schemes /\
                 B.length old_client_hello_bytes == 8192 /\
                 B.length old_network_out == SZ.v network_out_len /\
-                544 <= SZ.v network_out_len /\
+                1766 <= SZ.v network_out_len /\
                 SZ.v server_name_len <= B.length server_name /\
                 SZ.v cipher_suites_len <= Seq.length cipher_suites /\
                 SZ.v signature_schemes_len <= Seq.length signature_schemes /\
@@ -571,6 +577,7 @@ fn serialize_client_hello_from_start
                   (Ghost.reveal start).CS.start_signature_schemes /\
                 CS.client_hello_matches_start (Ghost.reveal start) (Ghost.reveal ch) /\
                 Seq.length (Ghost.reveal rnd) == 32 /\
+                Seq.length (Ghost.reveal hks) == 1216 /\
                 Seq.length (Ghost.reveal ks) == 32 /\
                 Seq.length (Ghost.reveal pks) == 65 /\
                 1 <= Seq.length (Ghost.reveal sni) /\
@@ -578,7 +585,7 @@ fn serialize_client_hello_from_start
                 FStar.List.Tot.length (Ghost.reveal cs) <= 16 /\
                 FStar.List.Tot.length (Ghost.reveal sa) <= 16 /\
                 Ghost.reveal ch ==
-                  SerH.poc_canonical_ch (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks)
+                  SerH.poc_canonical_ch_g hy (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal hks) (Ghost.reveal ks)
                     (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa))
   returns written: (n:SZ.t{SZ.v n <= SZ.v network_out_len})
   ensures exists* random server_name server_name_len key_share
@@ -590,6 +597,7 @@ fn serialize_client_hello_from_start
           Box.pts_to start_server_name_len server_name_len **
           V.pts_to start_key_share key_share **
           V.pts_to start_p256_key_share (Ghost.reveal pks) **
+          V.pts_to start_hybrid_key_share (Ghost.reveal hks) **
           V.pts_to start_cipher_suites cipher_suites **
           Box.pts_to start_cipher_suites_len cipher_suites_len **
           V.pts_to start_signature_schemes signature_schemes **
@@ -609,6 +617,8 @@ fn serialize_client_hello_from_start
                V.is_full_vec start_server_name /\
                V.is_full_vec start_key_share /\
                V.is_full_vec start_p256_key_share /\
+               V.is_full_vec start_hybrid_key_share /\
+               V.length start_hybrid_key_share == 1216 /\
                V.is_full_vec start_cipher_suites /\
                V.is_full_vec start_signature_schemes /\
                V.is_full_vec l.L.client_hello_random /\

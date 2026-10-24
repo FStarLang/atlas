@@ -234,3 +234,8 @@ fn kex_hybrid_client_shared_runtime
                 (ok ==>
                   (Some?.v (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes) <: B.bytes)
                     == ss))
+
+(** Whether the client offers X25519MLKEM768 (RFC 10024) in its ClientHello.
+    Abstract here so that every caller is verified for both values; the
+    definition in TLS13.KEX.fst is the build-time choice. *)
+val client_offers_hybrid : bool

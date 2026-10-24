@@ -403,9 +403,7 @@ let valid_start (start:CS.handshake_start) : prop =
   1 <= LL.length start.CS.start_cipher_suites /\
   LL.length start.CS.start_cipher_suites <= 16 /\
   1 <= LL.length start.CS.start_signature_schemes /\
-  LL.length start.CS.start_signature_schemes <= 16 /\
-  (* The canonical ClientHello does not yet carry an X25519MLKEM768 share. *)
-  None? start.CS.start_client_hybrid_private
+  LL.length start.CS.start_signature_schemes <= 16
 
 // ---- clamps (identity under valid_start) ----
 noextract
@@ -474,6 +472,51 @@ let cho_ks_ext (ks: B.bytes { Seq.length ks == 32 }) (pks: B.bytes { Seq.length 
     GKSE.keyShareEntry_key_exchange_bytesize_eqn pke;
     GECH.Extension_data_key_share ([kse; pkse] <: GECH.extensionClientHello_extension_data_key_share)
 
+(* RFC 10024: when the start holds a hybrid seed, the X25519MLKEM768 group is
+   offered first, in supported_groups and in key_share (ahead of the two ECDH
+   shares).  These mirror Serializer.Handshake.ch_sg_high_hy / ch_ks_high_hy. *)
+#push-options "--fuel 8 --ifuel 8 --z3rlimit 120"
+noextract
+let cho_sg_ext_hy : GECH.extensionClientHello
+  = GECH.Extension_data_supported_groups
+      ([GNG.X25519mlkem768; GNG.X25519; GNG.Secp256r1] <: GECH.extensionClientHello_extension_data_supported_groups)
+
+noextract
+let cho_ks_ext_hy (hks: B.bytes { Seq.length hks == 1216 })
+  (ks: B.bytes { Seq.length ks == 32 }) (pks: B.bytes { Seq.length pks == 65 })
+  : GECH.extensionClientHello
+  = let hke : GKSE.keyShareEntry_key_exchange = hks in
+    let hkse : GKSE.keyShareEntry = { GKSE.group = GNG.X25519mlkem768; GKSE.key_exchange = hke } in
+    let ke : GKSE.keyShareEntry_key_exchange = ks in
+    let kse : GKSE.keyShareEntry = { GKSE.group = GNG.X25519; GKSE.key_exchange = ke } in
+    let pke : GKSE.keyShareEntry_key_exchange = pks in
+    let pkse : GKSE.keyShareEntry = { GKSE.group = GNG.Secp256r1; GKSE.key_exchange = pke } in
+    GKSCH.keyShareClientHello_list_bytesize_nil;
+    GKSCH.keyShareClientHello_list_bytesize_cons pkse [];
+    GKSCH.keyShareClientHello_list_bytesize_cons kse [pkse];
+    GKSCH.keyShareClientHello_list_bytesize_cons hkse [kse; pkse];
+    GKSE.keyShareEntry_bytesize_eqn hkse;
+    GKSE.keyShareEntry_bytesize_eqn kse;
+    GKSE.keyShareEntry_bytesize_eqn pkse;
+    GNG.namedGroup_bytesize_eq GNG.X25519mlkem768;
+    GNG.namedGroup_bytesize_eq GNG.X25519;
+    GNG.namedGroup_bytesize_eq GNG.Secp256r1;
+    GKSE.keyShareEntry_key_exchange_bytesize_eqn hke;
+    GKSE.keyShareEntry_key_exchange_bytesize_eqn ke;
+    GKSE.keyShareEntry_key_exchange_bytesize_eqn pke;
+    GECH.Extension_data_key_share ([hkse; kse; pkse] <: GECH.extensionClientHello_extension_data_key_share)
+#pop-options
+
+noextract
+let cho_sg_ext_g (hy: bool) : GECH.extensionClientHello
+  = if hy then cho_sg_ext_hy else cho_sg_ext
+
+noextract
+let cho_ks_ext_g (hy: bool) (hks: B.bytes { Seq.length hks == 1216 })
+  (ks: B.bytes { Seq.length ks == 32 }) (pks: B.bytes { Seq.length pks == 65 })
+  : GECH.extensionClientHello
+  = if hy then cho_ks_ext_hy hks ks pks else cho_ks_ext ks pks
+
 noextract
 let cho_sv_ext : GECH.extensionClientHello
   = GECH.Extension_data_supported_versions ([GOV.Offered_TLS_1p3] <: GECH.extensionClientHello_extension_data_supported_versions)
@@ -486,10 +529,12 @@ let client_hello_of_start (start:CS.handshake_start) : GCH.clientHello
     let r32 : Seq.lseq U8.t 32 = start.CS.start_client_random in
     let ks = start.CS.start_client_key_share_public in
     let pks = start.CS.start_client_p256_public in
+    let hy = Some? start.CS.start_client_hybrid_private in
+    let hks = start.CS.start_client_hybrid_public in
     let sn_ext = cho_sn_ext sni in
-    let sg_ext = cho_sg_ext in
+    let sg_ext = cho_sg_ext_g hy in
     let sa_ext = cho_sa_ext sa in
-    let ks_ext = cho_ks_ext ks pks in
+    let ks_ext = cho_ks_ext_g hy hks ks pks in
     let sv_ext = cho_sv_ext in
     GCH.clientHello_extensions_list_bytesize_nil;
     GCH.clientHello_extensions_list_bytesize_cons sv_ext [];

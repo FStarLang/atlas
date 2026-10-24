@@ -332,6 +332,8 @@ fn free_handshake_start_exactly (start:handshake_start_storage)
       free_fixed_bytes_exactly start.client_key_share_public;
       free_optional_fixed_bytes_exactly start.client_p256_private;
       free_fixed_bytes_exactly start.client_p256_public;
+      free_optional_fixed_bytes_exactly start.client_hybrid_private;
+      free_fixed_bytes_exactly start.client_hybrid_public;
       free_cipher_suite_list_exactly start.cipher_suites;
       free_signature_scheme_list_exactly start.signature_schemes;
       Box.free start.present;
@@ -345,6 +347,8 @@ fn free_handshake_start_exactly (start:handshake_start_storage)
       free_fixed_bytes_allocated start.client_key_share_public;
       free_optional_fixed_bytes_exactly start.client_p256_private;
       free_fixed_bytes_allocated start.client_p256_public;
+      free_optional_fixed_bytes_exactly start.client_hybrid_private;
+      free_fixed_bytes_allocated start.client_hybrid_public;
       free_cipher_suite_list_allocated start.cipher_suites;
       free_signature_scheme_list_allocated start.signature_schemes;
       Box.free start.present;
@@ -965,6 +969,23 @@ fn alloc_empty_optional_fixed32 ()
   slot
 }
 
+fn alloc_empty_optional_fixed96 ()
+  requires emp
+  returns slot:optional_fixed_bytes
+  ensures optional_fixed_bytes_exactly slot 96 None
+{
+  let present = Box.alloc false;
+  let bytes = V.alloc 0uy 96sz;
+  let slot = { present; bytes };
+  rewrite (Box.pts_to present false) as (Box.pts_to slot.present false);
+  rewrite (V.pts_to bytes (Seq.create 96 0uy)) as
+    (V.pts_to slot.bytes (Seq.create 96 0uy));
+  assert (pure (B.length (Seq.create 96 0uy) == 96));
+  assert_norm (optional_fixed_bytes_match false (Seq.create 96 0uy) 96 None);
+  fold (optional_fixed_bytes_exactly slot 96 None);
+  slot
+}
+
 fn alloc_empty_secret ()
   requires emp
   returns slot:optional_secret_storage
@@ -1558,6 +1579,8 @@ fn alloc_handshake_start_empty ()
   let client_key_share_public = V.alloc 0uy 32sz;
   let client_p256_private = alloc_empty_optional_fixed32 ();
   let client_p256_public = V.alloc 0uy 65sz;
+  let client_hybrid_private = alloc_empty_optional_fixed96 ();
+  let client_hybrid_public = V.alloc 0uy 1216sz;
   let cipher_suites_items = V.alloc 0us (max_cipher_suites_sz);
   let cipher_suites_len = Box.alloc 0sz;
   let cipher_suites = { items = cipher_suites_items; len = cipher_suites_len };
@@ -1572,6 +1595,8 @@ fn alloc_handshake_start_empty ()
     client_key_share_public;
     client_p256_private;
     client_p256_public;
+    client_hybrid_private;
+    client_hybrid_public;
     cipher_suites;
     signature_schemes;
   };
@@ -1593,6 +1618,10 @@ fn alloc_handshake_start_empty ()
     (optional_fixed_bytes_exactly start.client_p256_private 32 None);
   rewrite (V.pts_to client_p256_public (Seq.create 65 0uy)) as
     (V.pts_to start.client_p256_public (Seq.create 65 0uy));
+  rewrite (optional_fixed_bytes_exactly client_hybrid_private 96 None) as
+    (optional_fixed_bytes_exactly start.client_hybrid_private 96 None);
+  rewrite (V.pts_to client_hybrid_public (Seq.create 1216 0uy)) as
+    (V.pts_to start.client_hybrid_public (Seq.create 1216 0uy));
   rewrite (V.pts_to cipher_suites_items (Seq.create max_cipher_suites 0us)) as
     (V.pts_to start.cipher_suites.items (Seq.create max_cipher_suites 0us));
   rewrite (Box.pts_to cipher_suites_len 0sz) as
@@ -1607,6 +1636,7 @@ fn alloc_handshake_start_empty ()
   fold (fixed_bytes_allocated start.client_random 32);
   fold (fixed_bytes_allocated start.client_key_share_public 32);
   fold (fixed_bytes_allocated start.client_p256_public 65);
+  fold (fixed_bytes_allocated start.client_hybrid_public 1216);
   fold (cipher_suite_list_allocated start.cipher_suites max_cipher_suites);
   fold (signature_scheme_list_allocated start.signature_schemes max_signature_schemes);
   fold (handshake_start_fields_allocated start);
@@ -2643,6 +2673,31 @@ fn copy_fixed65_array_to_vec
   V.pts_to_len dst;
   V.to_array_pts_to dst;
   Arr.memcpy 65sz src (V.vec_to_array dst);
+  V.to_vec_pts_to dst;
+  with stored. assert (V.pts_to dst stored);
+  assert (pure (stored == Ghost.reveal 'src_bytes))
+}
+
+(* Width-generic form of the fixed copies above, used for the 96-byte hybrid
+   seed and the 1216-byte hybrid share. *)
+fn copy_fixed_array_to_vec
+  (n:SZ.t)
+  (src:array U8.t)
+  (dst:V.vec U8.t)
+  requires ArrPts.pts_to src 'src_bytes **
+           V.pts_to dst 'old_dst **
+           pure (B.length 'src_bytes == SZ.v n /\
+                 V.is_full_vec dst /\
+                 V.length dst == SZ.v n /\
+                 B.length 'old_dst == SZ.v n)
+  ensures ArrPts.pts_to src 'src_bytes **
+          V.pts_to dst 'src_bytes **
+          pure (V.is_full_vec dst /\ V.length dst == SZ.v n)
+{
+  ArrPts.pts_to_len src;
+  V.pts_to_len dst;
+  V.to_array_pts_to dst;
+  Arr.memcpy n src (V.vec_to_array dst);
   V.to_vec_pts_to dst;
   with stored. assert (V.pts_to dst stored);
   assert (pure (stored == Ghost.reveal 'src_bytes))

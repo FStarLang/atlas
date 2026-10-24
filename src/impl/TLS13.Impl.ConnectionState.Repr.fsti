@@ -152,6 +152,10 @@ type handshake_start_storage = {
      is a 65-byte SEC1 uncompressed point. *)
   client_p256_private: optional_fixed_bytes;
   client_p256_public: V.vec U8.t;
+  (* The X25519MLKEM768 offer (RFC 10024): the 96-byte seed, present exactly
+     when the hybrid is offered, and its 1216-byte public share. *)
+  client_hybrid_private: optional_fixed_bytes;
+  client_hybrid_public: V.vec U8.t;
   cipher_suites: u16_list_storage;
   signature_schemes: u16_list_storage;
 }
@@ -908,6 +912,8 @@ let handshake_start_fields_allocated
   fixed_bytes_allocated start.client_key_share_public 32 **
   optional_fixed_bytes_exactly start.client_p256_private 32 None **
   fixed_bytes_allocated start.client_p256_public 65 **
+  optional_fixed_bytes_exactly start.client_hybrid_private 96 None **
+  fixed_bytes_allocated start.client_hybrid_public 1216 **
   cipher_suite_list_allocated start.cipher_suites max_cipher_suites **
   signature_scheme_list_allocated start.signature_schemes max_signature_schemes
 
@@ -921,11 +927,11 @@ let handshake_start_fields_exactly
   fixed_bytes_exactly start.client_key_share_public 32 spec.CS.start_client_key_share_public **
   optional_fixed_bytes_exactly start.client_p256_private 32 spec.CS.start_client_p256_private **
   fixed_bytes_exactly start.client_p256_public 65 spec.CS.start_client_p256_public **
+  optional_fixed_bytes_exactly start.client_hybrid_private 96 spec.CS.start_client_hybrid_private **
+  fixed_bytes_exactly start.client_hybrid_public 1216 spec.CS.start_client_hybrid_public **
   cipher_suite_list_exactly start.cipher_suites max_cipher_suites spec.CS.start_cipher_suites **
   signature_scheme_list_exactly start.signature_schemes max_signature_schemes spec.CS.start_signature_schemes **
-  (* The runtime does not yet store a hybrid (X25519MLKEM768) client share. *)
-  pure (CS.handshake_start_key_share_consistent spec /\
-        None? spec.CS.start_client_hybrid_private)
+  pure (CS.handshake_start_key_share_consistent spec)
 
 let handshake_start_payload_exactly
   ([@@@mkey] start:handshake_start_storage)
@@ -1930,6 +1936,22 @@ fn copy_fixed65_array_to_vec
   ensures ArrPts.pts_to src 'src_bytes **
           V.pts_to dst 'src_bytes **
           pure (V.is_full_vec dst /\ V.length dst == 65)
+
+(* Width-generic form of the fixed copies above, used for the 96-byte hybrid
+   seed and the 1216-byte hybrid share. *)
+fn copy_fixed_array_to_vec
+  (n:SZ.t)
+  (src:array U8.t)
+  (dst:V.vec U8.t)
+  requires ArrPts.pts_to src 'src_bytes **
+           V.pts_to dst 'old_dst **
+           pure (B.length 'src_bytes == SZ.v n /\
+                 V.is_full_vec dst /\
+                 V.length dst == SZ.v n /\
+                 B.length 'old_dst == SZ.v n)
+  ensures ArrPts.pts_to src 'src_bytes **
+          V.pts_to dst 'src_bytes **
+          pure (V.is_full_vec dst /\ V.length dst == SZ.v n)
 
 (* Copy a 32-byte X25519 share into the front of a 65-byte, zero-initialised
    destination: the runtime image of [CryptoSpec.pad_share_65] for the narrow

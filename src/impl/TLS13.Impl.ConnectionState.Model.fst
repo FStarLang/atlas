@@ -477,15 +477,18 @@ let lemma_client_hello_of_start_matches
   // Reveal serialize_handshake to the generated serializer and compute the
   // exact bytesize of the canonical 5-extension ClientHello: it equals
   //   220 + |sni| + 2*|cipher_suites| + 2*|signature_schemes|
-  // which under valid_start is at most 220 + 255 + 32 + 32 = 539 <= 16640.
+  // which under valid_start is at most 220 + 255 + 32 + 32 = 539 <= 16640
+  // (1222 more, 1761, when the X25519MLKEM768 share is offered).
   let sni = cho_sni start in
   let sa = cho_sa_data (cho_sa_list start) in
   let ks = start.CS.start_client_key_share_public in
   let pks = start.CS.start_client_p256_public in
+  let hy = Some? start.CS.start_client_hybrid_private in
+  let hks = start.CS.start_client_hybrid_public in
   let sn_ext = cho_sn_ext sni in
-  let sg_ext = cho_sg_ext in
+  let sg_ext = cho_sg_ext_g hy in
   let sa_ext = cho_sa_ext sa in
-  let ks_ext = cho_ks_ext ks pks in
+  let ks_ext = cho_ks_ext_g hy hks ks pks in
   let sv_ext = cho_sv_ext in
   let ch = client_hello_of_start start in
   Rev.lemma_serialize_handshake_client_hello ch;
