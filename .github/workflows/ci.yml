@@ -45,6 +45,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          df -h /
+
       - name: Look up cached dev container image
         id: cache
         uses: actions/cache/restore@v4

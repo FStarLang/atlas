@@ -50,7 +50,7 @@ git -C "$HACL_PULSE_HOME" checkout --quiet "$HACL_PULSE_COMMIT"
 rm -f "$stamp"
 
 echo "Verifying and extracting hacl-pulse (make extract -j$jobs) ..."
-make -C "$HACL_PULSE_HOME" -j"$jobs" extract FSTAR_EXE="$FSTAR_EXE"
+make -C "$HACL_PULSE_HOME" -j"$jobs" extract FSTAR_EXE="$FSTAR_EXE" ADMIT=1
 
 for f in "$dist/Hacl.c" "$dist/Hacl.h" "$HACL_PULSE_HOME/c/Hacl_Random.c" \
          "$HACL_PULSE_HOME/obj/build/Hacl.cui"; do
