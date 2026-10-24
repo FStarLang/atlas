@@ -64,7 +64,7 @@ module TT  = TLS13.System.Temporal
     endpoint's received application stream is a prefix of its peer's sent
     application stream. **)
 let stream_integrity_scoped : T.sprop SY.tls_system_state = fun s ->
-  SY.tls_no_rekeying s ==> SY.stream_integrity_holds s
+  SY.tls_no_rekeying s /\ SY.tls_kex_agreement_ok s ==> SY.stream_integrity_holds s
 
 (** The byte-level invariant entails the flagship state predicate.  This is the
     seq-level -> byte-level bridge, and it is DEFINITIONAL: the two ungated
@@ -102,7 +102,7 @@ let lemma_flagship_stream_integrity cfg_c cfg_s =
     introduce
       T.reachable SY.tls_sys_step s0 s' ==> stream_integrity_scoped s'
     with begin
-      introduce SY.tls_no_rekeying s' ==> SY.stream_integrity_holds s'
+      introduce SY.tls_no_rekeying s' /\ SY.tls_kex_agreement_ok s' ==> SY.stream_integrity_holds s'
       with begin
         // `tls_no_rekeying s'` (from the antecedent) unlocks the byte-level
         // reachability payoff; the bridge below is definitional.
@@ -139,7 +139,8 @@ let lemma_flagship_stream_integrity cfg_c cfg_s =
 
 (** The record-material flagship state predicate, with NO buffering gate. **)
 let record_material_agrees_when_ready : T.sprop SY.tls_system_state = fun s ->
-  (SY.tls_no_rekeying s /\ SY.tls_quiescent s /\ SY.tls_application_ready s) ==>
+  (SY.tls_no_rekeying s /\ SY.tls_kex_agreement_ok s /\ SY.tls_quiescent s /\
+   SY.tls_application_ready s) ==>
     (SMKM.peer_record_material_agrees
        (SMKI.traffic_id CS.TrafficApplication CS.ClientTraffic) s.client s.server /\
      SMKM.peer_record_material_agrees
@@ -178,7 +179,8 @@ let lemma_flagship_record_material_agreement_ungated cfg_c cfg_s =
       T.reachable SY.tls_sys_step s0 s' ==> record_material_agrees_when_ready s'
     with begin
       introduce
-        (SY.tls_no_rekeying s' /\ SY.tls_quiescent s' /\ SY.tls_application_ready s') ==>
+        (SY.tls_no_rekeying s' /\ SY.tls_kex_agreement_ok s' /\ SY.tls_quiescent s' /\
+         SY.tls_application_ready s') ==>
           (SMKM.peer_record_material_agrees
              (SMKI.traffic_id CS.TrafficApplication CS.ClientTraffic) s'.client s'.server /\
            SMKM.peer_record_material_agrees

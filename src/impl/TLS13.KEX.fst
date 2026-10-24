@@ -12,14 +12,16 @@ module Crypto = TLS13.Crypto
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
+module KX = TLS13.Crypto.Kex.Spec
+module Hy = TLS13.Crypto.Hybrid
 
-let kex_group_eq (a b:C.kex_group) : r:bool{r <==> a == b} =
+let kex_group_eq (a b:C.dh_group) : r:bool{r <==> a == b} =
   match a, b with
   | C.KexX25519, C.KexX25519 -> true
   | C.KexP256, C.KexP256 -> true
   | _, _ -> false
 
-let kex_public_len_sz (g:C.kex_group) : n:SZ.t{SZ.v n == C.kex_public_len g} =
+let kex_public_len_sz (g:C.dh_group) : n:SZ.t{SZ.v n == C.kex_public_len g} =
   match g with
   | C.KexX25519 -> 32sz
   | C.KexP256 -> 65sz
@@ -75,7 +77,7 @@ let lemma_pad_share_65_from_zeroed_prefix_copy
       (fun _ -> lemma_pad_share_65_zeroed_tail old out pub)
 
 fn kex_shared_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk65: array U8.t)
   (out: array U8.t)
@@ -123,7 +125,7 @@ fn kex_shared_runtime
 }
 
 fn kex_shared_split_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk32: array U8.t)
   (pk65: array U8.t)
@@ -167,7 +169,7 @@ fn kex_shared_split_runtime
 }
 
 fn kex_public_from_private_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (out65: array U8.t)
   requires pts_to sk 'sk_bytes **
@@ -215,3 +217,73 @@ fn kex_public_from_private_runtime
     }
   }
 }
+
+fn kex_hybrid_client_public_runtime (sk: array U8.t) (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to out 'old **
+           pure (B.length 'sk_bytes == 96 /\ B.length 'old == 1216)
+  ensures pts_to sk 'sk_bytes **
+          pts_to out (KX.kex_client_public C.KexX25519MLKEM768 'sk_bytes)
+{
+  Hy.x25519mlkem768_client_public sk out
+}
+
+fn kex_hybrid_server_encaps_runtime
+  (sk: array U8.t)
+  (client_share: array U8.t)
+  (share_out: array U8.t)
+  (ss_out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to client_share 'cs_bytes **
+           pts_to share_out 'old_share **
+           pts_to ss_out 'old_ss **
+           pure (B.length 'sk_bytes == 64 /\
+                 B.length 'cs_bytes == 1216 /\
+                 B.length 'old_share == 1120 /\
+                 B.length 'old_ss == 64)
+  returns ok: bool
+  ensures exists* share ss.
+          pts_to sk 'sk_bytes **
+          pts_to client_share 'cs_bytes **
+          pts_to share_out share **
+          pts_to ss_out ss **
+          pure (B.length share == 1120 /\
+                B.length ss == 64 /\
+                (ok <==> Some? (KX.kex_server_shared C.KexX25519MLKEM768 'sk_bytes 'cs_bytes)) /\
+                (ok ==>
+                  Some? (KX.kex_server_share C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) /\
+                  (Some?.v (KX.kex_server_share C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) <: B.bytes)
+                    == share /\
+                  (Some?.v (KX.kex_server_shared C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) <: B.bytes)
+                    == ss))
+{
+  Hy.x25519mlkem768_server_encaps sk client_share share_out ss_out
+}
+
+fn kex_hybrid_client_shared_runtime
+  (sk: array U8.t)
+  (server_share: array U8.t)
+  (ss_out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to server_share 'ss_bytes **
+           pts_to ss_out 'old **
+           pure (B.length 'sk_bytes == 96 /\
+                 B.length 'ss_bytes == 1120 /\
+                 B.length 'old == 64)
+  returns ok: bool
+  ensures exists* ss.
+          pts_to sk 'sk_bytes **
+          pts_to server_share 'ss_bytes **
+          pts_to ss_out ss **
+          pure (B.length ss == 64 /\
+                (ok <==> Some? (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes)) /\
+                (ok ==>
+                  (Some?.v (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes) <: B.bytes)
+                    == ss))
+{
+  Hy.x25519mlkem768_client_shared sk server_share ss_out
+}
+
+let client_offers_hybrid = true
+
+let server_prefers_hybrid = true

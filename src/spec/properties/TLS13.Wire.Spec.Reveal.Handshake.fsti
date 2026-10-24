@@ -178,6 +178,34 @@ val lemma_reveal_ch_find_key_share_secp256r1_cons_other
           (ensures TLS13.Wire.Semantics.ch_find_key_share_secp256r1 (e :: tl) ==
                    TLS13.Wire.Semantics.ch_find_key_share_secp256r1 tl)
 
+val lemma_reveal_kse_list_find_x25519mlkem768_nil (_:unit)
+  : Lemma (TLS13.Wire.Semantics.kse_list_find_x25519mlkem768 [] == None)
+
+val lemma_reveal_kse_list_find_x25519mlkem768_cons
+  (e:GKSE.keyShareEntry)
+  (tl:list GKSE.keyShareEntry)
+  : Lemma (TLS13.Wire.Semantics.kse_list_find_x25519mlkem768 (e :: tl) ==
+           (if GNG.X25519mlkem768? e.GKSE.group
+            then Some (e.GKSE.key_exchange <: Seq.seq U8.t)
+            else TLS13.Wire.Semantics.kse_list_find_x25519mlkem768 tl))
+
+val lemma_reveal_ch_find_key_share_x25519mlkem768_nil (_:unit)
+  : Lemma (TLS13.Wire.Semantics.ch_find_key_share_x25519mlkem768 [] == None)
+
+val lemma_reveal_ch_find_key_share_x25519mlkem768_cons_ks
+  (ks:GECH.extensionClientHello_extension_data_key_share)
+  (tl:list GECH.extensionClientHello)
+  : Lemma (TLS13.Wire.Semantics.ch_find_key_share_x25519mlkem768
+             (GECH.Extension_data_key_share ks :: tl) ==
+           TLS13.Wire.Semantics.kse_list_find_x25519mlkem768 (ks <: list GKSE.keyShareEntry))
+
+val lemma_reveal_ch_find_key_share_x25519mlkem768_cons_other
+  (e:GECH.extensionClientHello)
+  (tl:list GECH.extensionClientHello)
+  : Lemma (requires ~(GECH.Extension_data_key_share? e))
+          (ensures TLS13.Wire.Semantics.ch_find_key_share_x25519mlkem768 (e :: tl) ==
+                   TLS13.Wire.Semantics.ch_find_key_share_x25519mlkem768 tl)
+
 val lemma_reveal_ch_extensions_nil
   (sn:option T.hostname) (ks:option WS.ch_key_share_offer) (sv:bool) (ss:list T.signature_scheme)
   : Lemma (reveal_ch_extensions [] sn ks sv ss == (if sv then Some (sn, ks, sv, ss) else None))

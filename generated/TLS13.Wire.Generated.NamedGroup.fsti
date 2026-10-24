@@ -34,33 +34,38 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 let namedGroup_repr = U16.t
 inline_for_extraction let namedGroup_repr_eq (x1 x2: namedGroup_repr) : Tot bool = (x1 = x2)
-let known_namedGroup_repr (v:U16.t) : bool = v `namedGroup_repr_eq` 23us || (v `namedGroup_repr_eq` 29us || (false))
+let known_namedGroup_repr (v:U16.t) : bool = v `namedGroup_repr_eq` 23us || (v `namedGroup_repr_eq` 29us || (v `namedGroup_repr_eq` 4588us || (false)))
 
 type namedGroup =
   | Secp256r1
   | X25519
+  | X25519mlkem768
   | Unknown_namedGroup of (v:U16.t{not (known_namedGroup_repr v)})
 
 let string_of_namedGroup = function
   | Secp256r1 -> "secp256r1"
   | X25519 -> "x25519"
+  | X25519mlkem768 -> "x25519mlkem768"
   | Unknown_namedGroup _ -> "Unknown_namedGroup"
 
 [@LT.Norm] inline_for_extraction noextract let namedGroup_enum : LP.enum namedGroup U16.t =
   [@inline_let] let e = [
     Secp256r1, 23us;
     X25519, 29us;
+    X25519mlkem768, 4588us;
   ] in
   [@inline_let] let _ =
     assert_norm (L.noRepeats (LP.list_map fst [
     Secp256r1, 23us;
     X25519, 29us;
+    X25519mlkem768, 4588us;
   ]))
   in
   [@inline_let] let _ = 
     assert_norm (L.noRepeats (LP.list_map snd [
     Secp256r1, 23us;
     X25519, 29us;
+    X25519mlkem768, 4588us;
   ]))
   in e
 

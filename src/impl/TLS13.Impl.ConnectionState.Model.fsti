@@ -151,7 +151,7 @@ let client_hello_session_id_len_for (m:GCH.clientHello) : SZ.t =
    message with no X25519 offer necessarily carried a well-formed secp256r1
    one. *)
 noextract
-let client_hello_kex_group_for (m:GCH.clientHello) : CryptoSpec.kex_group =
+let client_hello_kex_group_for (m:GCH.clientHello) : CryptoSpec.dh_group =
   if Some? (Sem.clientHello_key_share_x25519 m)
   then CryptoSpec.KexX25519
   else CryptoSpec.KexP256
@@ -472,6 +472,51 @@ let cho_ks_ext (ks: B.bytes { Seq.length ks == 32 }) (pks: B.bytes { Seq.length 
     GKSE.keyShareEntry_key_exchange_bytesize_eqn pke;
     GECH.Extension_data_key_share ([kse; pkse] <: GECH.extensionClientHello_extension_data_key_share)
 
+(* RFC 10024: when the start holds a hybrid seed, the X25519MLKEM768 group is
+   offered first, in supported_groups and in key_share (ahead of the two ECDH
+   shares).  These mirror Serializer.Handshake.ch_sg_high_hy / ch_ks_high_hy. *)
+#push-options "--fuel 8 --ifuel 8 --z3rlimit 120"
+noextract
+let cho_sg_ext_hy : GECH.extensionClientHello
+  = GECH.Extension_data_supported_groups
+      ([GNG.X25519mlkem768; GNG.X25519; GNG.Secp256r1] <: GECH.extensionClientHello_extension_data_supported_groups)
+
+noextract
+let cho_ks_ext_hy (hks: B.bytes { Seq.length hks == 1216 })
+  (ks: B.bytes { Seq.length ks == 32 }) (pks: B.bytes { Seq.length pks == 65 })
+  : GECH.extensionClientHello
+  = let hke : GKSE.keyShareEntry_key_exchange = hks in
+    let hkse : GKSE.keyShareEntry = { GKSE.group = GNG.X25519mlkem768; GKSE.key_exchange = hke } in
+    let ke : GKSE.keyShareEntry_key_exchange = ks in
+    let kse : GKSE.keyShareEntry = { GKSE.group = GNG.X25519; GKSE.key_exchange = ke } in
+    let pke : GKSE.keyShareEntry_key_exchange = pks in
+    let pkse : GKSE.keyShareEntry = { GKSE.group = GNG.Secp256r1; GKSE.key_exchange = pke } in
+    GKSCH.keyShareClientHello_list_bytesize_nil;
+    GKSCH.keyShareClientHello_list_bytesize_cons pkse [];
+    GKSCH.keyShareClientHello_list_bytesize_cons kse [pkse];
+    GKSCH.keyShareClientHello_list_bytesize_cons hkse [kse; pkse];
+    GKSE.keyShareEntry_bytesize_eqn hkse;
+    GKSE.keyShareEntry_bytesize_eqn kse;
+    GKSE.keyShareEntry_bytesize_eqn pkse;
+    GNG.namedGroup_bytesize_eq GNG.X25519mlkem768;
+    GNG.namedGroup_bytesize_eq GNG.X25519;
+    GNG.namedGroup_bytesize_eq GNG.Secp256r1;
+    GKSE.keyShareEntry_key_exchange_bytesize_eqn hke;
+    GKSE.keyShareEntry_key_exchange_bytesize_eqn ke;
+    GKSE.keyShareEntry_key_exchange_bytesize_eqn pke;
+    GECH.Extension_data_key_share ([hkse; kse; pkse] <: GECH.extensionClientHello_extension_data_key_share)
+#pop-options
+
+noextract
+let cho_sg_ext_g (hy: bool) : GECH.extensionClientHello
+  = if hy then cho_sg_ext_hy else cho_sg_ext
+
+noextract
+let cho_ks_ext_g (hy: bool) (hks: B.bytes { Seq.length hks == 1216 })
+  (ks: B.bytes { Seq.length ks == 32 }) (pks: B.bytes { Seq.length pks == 65 })
+  : GECH.extensionClientHello
+  = if hy then cho_ks_ext_hy hks ks pks else cho_ks_ext ks pks
+
 noextract
 let cho_sv_ext : GECH.extensionClientHello
   = GECH.Extension_data_supported_versions ([GOV.Offered_TLS_1p3] <: GECH.extensionClientHello_extension_data_supported_versions)
@@ -484,10 +529,12 @@ let client_hello_of_start (start:CS.handshake_start) : GCH.clientHello
     let r32 : Seq.lseq U8.t 32 = start.CS.start_client_random in
     let ks = start.CS.start_client_key_share_public in
     let pks = start.CS.start_client_p256_public in
+    let hy = Some? start.CS.start_client_hybrid_private in
+    let hks = start.CS.start_client_hybrid_public in
     let sn_ext = cho_sn_ext sni in
-    let sg_ext = cho_sg_ext in
+    let sg_ext = cho_sg_ext_g hy in
     let sa_ext = cho_sa_ext sa in
-    let ks_ext = cho_ks_ext ks pks in
+    let ks_ext = cho_ks_ext_g hy hks ks pks in
     let sv_ext = cho_sv_ext in
     GCH.clientHello_extensions_list_bytesize_nil;
     GCH.clientHello_extensions_list_bytesize_cons sv_ext [];
@@ -536,7 +583,9 @@ let client_hello_of_start (start:CS.handshake_start) : GCH.clientHello
 // 58 + kex_public_len (server_selected_kex_group sel) + |sid|.
 let valid_selection (sel:CS.server_handshake_selection) : prop =
   (sel.CS.server_random <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-  H.is_supported_cipher_suite sel.CS.server_selected_cipher_suite
+  H.is_supported_cipher_suite sel.CS.server_selected_cipher_suite /\
+  (* The canonical ServerHello does not yet carry an X25519MLKEM768 share. *)
+  not (CS.server_selects_hybrid sel)
 
 // clamp: a 32-byte server random differing from the HRR sentinel (identity under
 // valid_selection).  The all-zero fallback differs from serverHello_body_cst at
@@ -627,7 +676,7 @@ let stored_client_hello_session_id (st:CS.connection_state)
    stored ClientHello is exactly what
    [Repr.client_hello_metadata_exactly] holds in that case. *)
 noextract
-let stored_client_hello_kex_group (st:CS.connection_state) : CryptoSpec.kex_group
+let stored_client_hello_kex_group (st:CS.connection_state) : CryptoSpec.dh_group
   = match st.CS.cs_model.CS.model_handshake.CS.hs_client_hello with
     | Some ch -> client_hello_kex_group_for ch
     | None -> CryptoSpec.KexX25519
@@ -637,12 +686,12 @@ let stored_client_hello_kex_group (st:CS.connection_state) : CryptoSpec.kex_grou
    the TLS13.Crypto.Spec design law the group is an explicit tag throughout, so
    this conversion is total in both directions and never inspects a share. *)
 noextract
-let named_group_of_kex_group (g:CryptoSpec.kex_group) : GNG.namedGroup
+let named_group_of_kex_group (g:CryptoSpec.dh_group) : GNG.namedGroup
   = match g with
     | CryptoSpec.KexX25519 -> GNG.X25519
     | CryptoSpec.KexP256 -> GNG.Secp256r1
 
-let lemma_kex_group_of_named_group_inv (g:CryptoSpec.kex_group)
+let lemma_kex_group_of_named_group_inv (g:CryptoSpec.dh_group)
   : Lemma (ensures Sem.kex_group_of_named_group (named_group_of_kex_group g) == g)
           [SMTPat (named_group_of_kex_group g)]
   = ()
@@ -958,7 +1007,7 @@ val lemma_client_hello_len_helpers_from_start
 noextract
 let derived_shared_secret_state
   (st:CS.connection_state)
-  (shared:TLS13.Crypto.Spec.x25519_shared_secret)
+  (shared:TLS13.Crypto.Spec.kex_shared_secret_any)
   : GTot CS.connection_state =
   let model0 = st.CS.cs_model in
   let hs0 = model0.CS.model_handshake in
@@ -2805,7 +2854,7 @@ val lemma_sent_client_hello_state_evolves
 
 val lemma_derived_shared_secret_state_evolves
   (st:CS.connection_state)
-  (shared:TLS13.Crypto.Spec.x25519_shared_secret)
+  (shared:TLS13.Crypto.Spec.kex_shared_secret_any)
   : Lemma
       (requires TLS13.Spec.StateMachine.Reachability.connection_state_consistent st /\
                 CS.legal_event

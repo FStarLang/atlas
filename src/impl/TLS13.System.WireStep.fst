@@ -50,14 +50,17 @@ module INJ = TLS13.Wire.Spec.Reveal.Injective
 module LP  = LowParse.Spec
 
 (** Hello-field stability predicate: the cleartext-hello fields plus `hs_start`
-    are monotone across a step. **)
+    and `hs_server_selection` are monotone across a step. **)
 let hs_hellos_stable (m0 m1:CS.connection_model) : prop =
   (Some? m0.CS.model_handshake.CS.hs_client_hello ==>
      m1.CS.model_handshake.CS.hs_client_hello == m0.CS.model_handshake.CS.hs_client_hello) /\
   (Some? m0.CS.model_handshake.CS.hs_server_hello ==>
      m1.CS.model_handshake.CS.hs_server_hello == m0.CS.model_handshake.CS.hs_server_hello) /\
   (Some? m0.CS.model_handshake.CS.hs_start ==>
-     m1.CS.model_handshake.CS.hs_start == m0.CS.model_handshake.CS.hs_start)
+     m1.CS.model_handshake.CS.hs_start == m0.CS.model_handshake.CS.hs_start) /\
+  (Some? m0.CS.model_handshake.CS.hs_server_selection ==>
+     m1.CS.model_handshake.CS.hs_server_selection ==
+       m0.CS.model_handshake.CS.hs_server_selection)
 
 (** A single legal step preserves the two cleartext-hello fields.
 

@@ -413,6 +413,8 @@ fn process_select_default_server_parameters_from_arrays
                     CS.server_key_share_public = Ghost.reveal 'server_key_share_bytes;
                     CS.server_p256_private = None;
                     CS.server_p256_public = CS.server_p256_absent;
+                    CS.server_hybrid_private = None;
+                    CS.server_hybrid_share = CS.server_hybrid_absent;
                     CS.server_selected_credential =
                       cfg.CS.server_credential_identity;
                   } in
@@ -444,6 +446,8 @@ fn process_select_default_server_parameters_from_arrays
                       CS.server_key_share_public = Ghost.reveal 'server_key_share_bytes;
                       CS.server_p256_private = None;
                       CS.server_p256_public = CS.server_p256_absent;
+                      CS.server_hybrid_private = None;
+                      CS.server_hybrid_share = CS.server_hybrid_absent;
                       CS.server_selected_credential =
                         cfg.CS.server_credential_identity;
                     } in
@@ -521,6 +525,8 @@ fn process_select_default_server_parameters_with_private_from_arrays
                     CS.server_p256_private = Some (Ghost.reveal 'server_private_key_bytes);
                     CS.server_p256_public =
                       CryptoSpec.p256_public_from_private (Ghost.reveal 'server_private_key_bytes);
+                    CS.server_hybrid_private = None;
+                    CS.server_hybrid_share = CS.server_hybrid_absent;
                     CS.server_selected_credential =
                       cfg.CS.server_credential_identity;
                   } in
@@ -556,6 +562,8 @@ fn process_select_default_server_parameters_with_private_from_arrays
                       CS.server_p256_private = Some (Ghost.reveal 'server_private_key_bytes);
                       CS.server_p256_public =
                         CryptoSpec.p256_public_from_private (Ghost.reveal 'server_private_key_bytes);
+                      CS.server_hybrid_private = None;
+                      CS.server_hybrid_share = CS.server_hybrid_absent;
                       CS.server_selected_credential =
                         cfg.CS.server_credential_identity;
                     } in
@@ -634,6 +642,8 @@ fn process_select_default_server_parameters_with_derived_public_from_private_arr
                    CS.server_p256_private = Some (Ghost.reveal 'server_private_key_bytes);
                    CS.server_p256_public =
                      CryptoSpec.p256_public_from_private (Ghost.reveal 'server_private_key_bytes);
+                   CS.server_hybrid_private = None;
+                   CS.server_hybrid_share = CS.server_hybrid_absent;
                    CS.server_selected_credential =
                      cfg.CS.server_credential_identity;
                   } in
@@ -669,6 +679,8 @@ fn process_select_default_server_parameters_with_derived_public_from_private_arr
                      CS.server_p256_private = Some (Ghost.reveal 'server_private_key_bytes);
                      CS.server_p256_public =
                        CryptoSpec.p256_public_from_private (Ghost.reveal 'server_private_key_bytes);
+                     CS.server_hybrid_private = None;
+                     CS.server_hybrid_share = CS.server_hybrid_absent;
                      CS.server_selected_credential =
                        cfg.CS.server_credential_identity;
                    } in
@@ -784,7 +796,7 @@ fn process_send_server_hello
 fn process_send_server_hello_serialized
   (s:server)
   (lsh:IM.server_hello)
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (sid_len:SZ.t)
   (#sh:erased GSH.serverHello)
   (#server_random_bytes: erased B.bytes)
@@ -1626,7 +1638,7 @@ fn process_derive_shared_secret_from_private_array
                   network_out_bytes
                   app_out_bytes /\
                 (resp.ST.status == ST.StepOk ==>
-                  (exists shared.
+                  (exists (shared:TLS13.Crypto.Spec.x25519_shared_secret).
                     st1 == CM.derived_shared_secret_state 'st0 shared /\
                     (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_server_selection with
                      | Some selection ->
@@ -2799,7 +2811,7 @@ fn process_local_event
       resp
     }
     ST.LocalSelectServerParameters -> {
-      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 64));
+      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 128));
       let mut server_random = [| 0uy; 32sz |];
       let mut server_private_key = [| 0uy; 32sz |];
       SMat.copy_server_random_and_private_from_payload
@@ -2918,7 +2930,7 @@ fn process_local_event
       })
     }
     ST.LocalSendServerHello -> {
-      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 64));
+      assert (pure (B.length (Ghost.reveal 'payload_bytes) == 128));
       let mut dispatch_session_id = [| 0uy; 32sz |];
       unfold (connection_exactly s 'st0);
       let dispatch_sid_len = CQ.read_client_hello_session_id s dispatch_session_id;

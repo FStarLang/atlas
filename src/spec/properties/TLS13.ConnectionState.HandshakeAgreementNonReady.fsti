@@ -45,6 +45,7 @@ val lemma_handshake_client_traffic_key_schedule_material_agrees_nonready
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? client.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic /\
         Some? server.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic)
@@ -66,6 +67,7 @@ val lemma_handshake_client_traffic_peer_record_material_agrees_nonready
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? (record_direction_material client.cs_model.model_record.record_write) /\
         Some? (record_direction_material server.cs_model.model_record.record_read))
@@ -93,6 +95,7 @@ val lemma_handshake_client_traffic_key_schedule_material_agrees_nonready_cf
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? client.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic /\
         Some? server.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic)
@@ -129,6 +132,7 @@ val lemma_handshake_server_traffic_key_schedule_material_agrees_nonready_cf
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? client.cs_model.model_handshake.hs_keys.ks_server_handshake_traffic /\
         Some? server.cs_model.model_handshake.hs_keys.ks_server_handshake_traffic)

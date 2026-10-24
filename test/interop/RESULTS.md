@@ -7,14 +7,20 @@ entries of the Tranco top-1m that negotiate TLS 1.3, in rank order, plus
 
 ## ATLAS's offer
 
-ATLAS currently offers two groups, two cipher suites and two signature
+ATLAS currently offers three groups, two cipher suites and two signature
 schemes:
 
 | Parameter | Value |
 |---|---|
-| Groups | `X25519` (`0x001d`), `secp256r1` (`0x0017`) |
+| Groups | `X25519MLKEM768` (`0x11ec`, RFC 10024), `X25519` (`0x001d`), `secp256r1` (`0x0017`) |
 | Cipher suites | `TLS_CHACHA20_POLY1305_SHA256` (`0x1303`), `TLS_AES_128_GCM_SHA256` (`0x1301`) |
 | Signature schemes | `rsa_pss_rsae_sha256` (`0x0804`), `ecdsa_secp256r1_sha256` (`0x0403`) |
+
+The sweep tables below were recorded before the X25519MLKEM768 offer was
+added (H10 of `docs/hybrid-kem-plan.md`), when the offer was X25519 and
+secp256r1 only.  The hybrid share makes the ClientHello about 1.2 KB larger
+and has not been swept against this catalog yet.  Locally,
+`make test-hybrid-interop` checks it against OpenSSL 3.5.
 
 The **oracle** column is OpenSSL constrained to *exactly* that offer, with
 hostname verification on.  A host that the oracle cannot reach is out of reach

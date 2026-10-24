@@ -137,7 +137,11 @@ val lemma_connection_state_consistent_server_pre_server_hello_shape
         (match st.cs_model.model_handshake.hs_server_selection with
          | Some selection ->
            server_selection_key_share_consistent selection /\
-           Some? selection.server_key_share_private /\
+           (* An (EC)DH selection holds its DH private; the X25519MLKEM768
+              one holds its hybrid randomness instead. *)
+           (if server_selects_hybrid selection
+            then Some? selection.server_hybrid_private
+            else Some? selection.server_key_share_private) /\
            (* G2 stage S6.8d: the selection was made from the stored
               ClientHello.  Needed by the ServerHello writer, which reads the
               negotiated group off the stored ClientHello's metadata and has to
@@ -367,7 +371,9 @@ val lemma_paired_x25519_key_shares_shared_secret_agree
   (client:connection_state)
   (server:connection_state)
   : Lemma
-      (requires paired_x25519_key_shares client server)
+      (requires
+        paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server)
       (ensures shared_secret_material_agrees client server)
 
 val lemma_paired_x25519_key_shares_base_secret_agree
@@ -377,6 +383,7 @@ val lemma_paired_x25519_key_shares_base_secret_agree
   : Lemma
       (requires
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server)
       (ensures base_secret_inputs_agree base_id client server)
@@ -389,6 +396,7 @@ val lemma_paired_x25519_key_shares_derived_key_agrees
       (requires
         first_milestone_derived_key_id key_id /\
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server /\
         derivation_checkpoint_inputs_agree key_id client server)
@@ -419,6 +427,7 @@ val lemma_paired_supported_profile_all_derived_key_material_agrees
   : Lemma
       (requires
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server /\
         paired_key_derivation_checkpoints client server)

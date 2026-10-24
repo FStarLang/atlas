@@ -28,21 +28,22 @@ module C = TLS13.Crypto.Spec
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
+module KX = TLS13.Crypto.Kex.Spec
 
 (** Runtime equality on groups.  Written out rather than relying on structural
     equality so that extraction produces a plain comparison. *)
 inline_for_extraction
-val kex_group_eq (a b:C.kex_group) : r:bool{r <==> a == b}
+val kex_group_eq (a b:C.dh_group) : r:bool{r <==> a == b}
 
 (** The runtime public length of a group, as a machine integer. *)
 inline_for_extraction
-val kex_public_len_sz (g:C.kex_group) : n:SZ.t{SZ.v n == C.kex_public_len g}
+val kex_public_len_sz (g:C.dh_group) : n:SZ.t{SZ.v n == C.kex_public_len g}
 
 (** The abstract "the binding was called and returned [ok]" predicate, agile
     over the group.  Its only consumer is [lemma_kex_shared_call_success]. *)
 noextract
 val kex_shared_call
-  (g:C.kex_group)
+  (g:C.dh_group)
   (sk:B.bytes)
   (pk:B.bytes)
   (shared:B.bytes)
@@ -51,7 +52,7 @@ val kex_shared_call
 
 noextract
 val lemma_kex_shared_call_success
-  (g:C.kex_group)
+  (g:C.dh_group)
   (sk:B.bytes)
   (pk:B.bytes)
   (shared:B.bytes)
@@ -68,13 +69,13 @@ val lemma_kex_shared_call_success
     share is the group's [kex_public_len]-byte prefix, recovered through the
     explicit group tag. *)
 (** The share a peer offering *both* groups contributes to the ECDH at [g]. *)
-let kex_split_share (g:C.kex_group) (x25519_bytes p256_bytes:B.bytes) : B.bytes =
+let kex_split_share (g:C.dh_group) (x25519_bytes p256_bytes:B.bytes) : B.bytes =
   match g with
   | C.KexX25519 -> x25519_bytes
   | C.KexP256 -> p256_bytes
 
 fn kex_shared_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk65: array U8.t)
   (out: array U8.t)
@@ -108,7 +109,7 @@ fn kex_shared_runtime
     Both arms therefore go straight to the raw binding, which already takes
     exactly the width its group requires. *)
 fn kex_shared_split_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (pk32: array U8.t)
   (pk65: array U8.t)
@@ -149,7 +150,7 @@ fn kex_shared_split_runtime
     untouched, and at P-256 the share fills the buffer so padding is the
     identity. *)
 fn kex_public_from_private_runtime
-  (g: C.kex_group)
+  (g: C.dh_group)
   (sk: array U8.t)
   (out65: array U8.t)
   requires pts_to sk 'sk_bytes **
@@ -168,3 +169,78 @@ fn kex_public_from_private_runtime
                  Seq.equal
                    out_bytes
                    (C.pad_share_65 (C.kex_public_from_private g 'sk_bytes))))
+
+(** ── X25519MLKEM768 (RFC 10024) ─────────────────────────────────────────
+    The hybrid group is a KEM, not a DH group, so it does not fit the
+    [C.dh_group]-indexed functions above: the two sides run different
+    algorithms (keygen / encaps / decaps) on different widths.  These three
+    wrappers restate the exact-width [TLS13.Crypto.Hybrid] bindings against
+    the group-agile model [TLS13.Crypto.Kex.Spec] at [C.KexX25519MLKEM768],
+    which is the vocabulary the state machine uses. *)
+
+fn kex_hybrid_client_public_runtime (sk: array U8.t) (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to out 'old **
+           pure (B.length 'sk_bytes == 96 /\ B.length 'old == 1216)
+  ensures pts_to sk 'sk_bytes **
+          pts_to out (KX.kex_client_public C.KexX25519MLKEM768 'sk_bytes)
+
+fn kex_hybrid_server_encaps_runtime
+  (sk: array U8.t)
+  (client_share: array U8.t)
+  (share_out: array U8.t)
+  (ss_out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to client_share 'cs_bytes **
+           pts_to share_out 'old_share **
+           pts_to ss_out 'old_ss **
+           pure (B.length 'sk_bytes == 64 /\
+                 B.length 'cs_bytes == 1216 /\
+                 B.length 'old_share == 1120 /\
+                 B.length 'old_ss == 64)
+  returns ok: bool
+  ensures exists* share ss.
+          pts_to sk 'sk_bytes **
+          pts_to client_share 'cs_bytes **
+          pts_to share_out share **
+          pts_to ss_out ss **
+          pure (B.length share == 1120 /\
+                B.length ss == 64 /\
+                (ok <==> Some? (KX.kex_server_shared C.KexX25519MLKEM768 'sk_bytes 'cs_bytes)) /\
+                (ok ==>
+                  Some? (KX.kex_server_share C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) /\
+                  (Some?.v (KX.kex_server_share C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) <: B.bytes)
+                    == share /\
+                  (Some?.v (KX.kex_server_shared C.KexX25519MLKEM768 'sk_bytes 'cs_bytes) <: B.bytes)
+                    == ss))
+
+fn kex_hybrid_client_shared_runtime
+  (sk: array U8.t)
+  (server_share: array U8.t)
+  (ss_out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to server_share 'ss_bytes **
+           pts_to ss_out 'old **
+           pure (B.length 'sk_bytes == 96 /\
+                 B.length 'ss_bytes == 1120 /\
+                 B.length 'old == 64)
+  returns ok: bool
+  ensures exists* ss.
+          pts_to sk 'sk_bytes **
+          pts_to server_share 'ss_bytes **
+          pts_to ss_out ss **
+          pure (B.length ss == 64 /\
+                (ok <==> Some? (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes)) /\
+                (ok ==>
+                  (Some?.v (KX.kex_client_shared C.KexX25519MLKEM768 'sk_bytes 'ss_bytes) <: B.bytes)
+                    == ss))
+
+(** Whether the client offers X25519MLKEM768 (RFC 10024) in its ClientHello.
+    Abstract here so that every caller is verified for both values; the
+    definition in TLS13.KEX.fst is the build-time choice. *)
+val client_offers_hybrid : bool
+
+(** Whether the server answers a ClientHello that offers X25519MLKEM768 (and
+    whose (EC)DH offer is X25519) with the hybrid rather than the classical
+    group (RFC 10024).  Abstract for the same reason as [client_offers_hybrid]. *)
+val server_prefers_hybrid : bool

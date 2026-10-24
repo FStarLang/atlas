@@ -95,6 +95,11 @@ type client_hello = {
      bytes are meaningful. *)
   client_hello_p256_key_share: V.vec U8.t;
   client_hello_has_p256_key_share: bool;
+  (* 1216 bytes: the peer's X25519MLKEM768 offer (RFC 10024), in its own slot
+     like the secp256r1 one; [client_hello_has_hybrid_key_share] says whether
+     the peer made a well-formed (1216-byte) offer. *)
+  client_hello_hybrid_key_share: V.vec U8.t;
+  client_hello_has_hybrid_key_share: bool;
   client_hello_cipher_suites: V.vec U16.t;
   client_hello_cipher_suites_len: SZ.t;
   client_hello_signature_schemes: V.vec U16.t;
@@ -113,7 +118,13 @@ type server_hello = {
      `KeyShareEntry` and says which prefix is the logical share; it is never
      recovered from the buffer's length. *)
   server_hello_key_share: V.vec U8.t;
-  server_hello_kex_group: CryptoSpec.kex_group;
+  server_hello_kex_group: CryptoSpec.dh_group;
+  (* RFC 10024: the 1120-byte X25519MLKEM768 ciphertext share.  Exactly one of
+     the two share slots is meaningful, and [server_hello_is_hybrid] says which:
+     when it is set, [server_hello_key_share] / [server_hello_kex_group] carry
+     nothing. *)
+  server_hello_hybrid_share: V.vec U8.t;
+  server_hello_is_hybrid: bool;
   server_hello_cipher_suite: U16.t;
 }
 
@@ -503,7 +514,8 @@ let rec certificate_chain_matches
   else False
 
 let is_valid_client_hello ([@@@mkey] l:client_hello) (m:GCH.clientHello) : slprop =
-  exists* random session_id server_name key_share p256_key_share cipher_suites signature_schemes.
+  exists* random session_id server_name key_share p256_key_share cipher_suites signature_schemes
+          hybrid_key_share.
     V.pts_to l.client_hello_random random **
     V.pts_to l.client_hello_session_id session_id **
     V.pts_to l.client_hello_server_name server_name **
@@ -511,7 +523,18 @@ let is_valid_client_hello ([@@@mkey] l:client_hello) (m:GCH.clientHello) : slpro
     V.pts_to l.client_hello_p256_key_share p256_key_share **
     V.pts_to l.client_hello_cipher_suites cipher_suites **
     V.pts_to l.client_hello_signature_schemes signature_schemes **
+    V.pts_to l.client_hello_hybrid_key_share hybrid_key_share **
     pure (
+      V.is_full_vec l.client_hello_hybrid_key_share /\
+      V.length l.client_hello_hybrid_key_share == 1216 /\
+      B.length hybrid_key_share == 1216 /\
+      (* The X25519MLKEM768 offer, an iff exactly like the secp256r1 one: an
+         entry at any other length is no offer at all. *)
+      (match Sem.clientHello_key_share_x25519mlkem768 m with
+       | Some k ->
+         l.client_hello_has_hybrid_key_share == (B.length k = 1216) /\
+         (B.length k == 1216 ==> Seq.equal hybrid_key_share k)
+       | None -> l.client_hello_has_hybrid_key_share == false) /\
       V.is_full_vec l.client_hello_random /\
       V.is_full_vec l.client_hello_session_id /\
       V.length l.client_hello_session_id == 32 /\
@@ -583,11 +606,14 @@ let is_valid_client_hello ([@@@mkey] l:client_hello) (m:GCH.clientHello) : slpro
        | None -> False))
 
 let is_valid_server_hello ([@@@mkey] l:server_hello) (m:GSH.serverHello) : slprop =
-  exists* random session_id key_share.
+  exists* random session_id key_share hybrid_share.
     V.pts_to l.server_hello_random random **
     V.pts_to l.server_hello_session_id session_id **
     V.pts_to l.server_hello_key_share key_share **
+    V.pts_to l.server_hello_hybrid_share hybrid_share **
     pure (
+      V.is_full_vec l.server_hello_hybrid_share /\
+      V.length l.server_hello_hybrid_share == 1120 /\
       V.is_full_vec l.server_hello_random /\
       V.is_full_vec l.server_hello_session_id /\
       V.length l.server_hello_session_id == 32 /\
@@ -604,8 +630,14 @@ let is_valid_server_hello ([@@@mkey] l:server_hello) (m:GSH.serverHello) : slpro
        | Some (g, k) ->
          Seq.equal key_share (CryptoSpec.pad_share_65 k) /\
          l.server_hello_kex_group == Sem.kex_group_of_named_group g /\
-         B.length k == CryptoSpec.kex_public_len l.server_hello_kex_group
-       | None -> False) /\
+         B.length k == CryptoSpec.kex_public_len l.server_hello_kex_group /\
+         l.server_hello_is_hybrid == false
+       | None ->
+         (match Sem.serverHello_hybrid_share m with
+          | Some k ->
+            l.server_hello_is_hybrid == true /\
+            Seq.equal hybrid_share k
+          | None -> False)) /\
       (match Sem.serverHello_cipher_suite m with
        | Some cs ->
          cipher_suite_matches l.server_hello_cipher_suite cs /\
@@ -752,12 +784,13 @@ fn free_client_hello
 {
   with m. unfold (is_valid_client_hello l m);
   with random session_id server_name key_share p256_key_share
-       cipher_suites signature_schemes. _;
+       cipher_suites signature_schemes hybrid_key_share. _;
   V.free l.client_hello_random;
   V.free l.client_hello_session_id;
   V.free l.client_hello_server_name;
   V.free l.client_hello_key_share;
   V.free l.client_hello_p256_key_share;
+  V.free l.client_hello_hybrid_key_share;
   V.free l.client_hello_cipher_suites;
   V.free l.client_hello_signature_schemes;
 }
@@ -768,10 +801,11 @@ fn free_server_hello
   ensures emp
 {
   with m. unfold (is_valid_server_hello l m);
-  with random session_id key_share. _;
+  with random session_id key_share hybrid_share. _;
   V.free l.server_hello_random;
   V.free l.server_hello_session_id;
   V.free l.server_hello_key_share;
+  V.free l.server_hello_hybrid_share;
 }
 
 fn free_encrypted_extensions

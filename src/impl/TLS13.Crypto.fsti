@@ -178,7 +178,7 @@ fn x25519_shared_runtime (sk: array U8.t) (pk: array U8.t) (out: array U8.t)
 
 (**
   secp256r1 bindings.  There is one binding per group rather than a single
-  length-dispatched one: the caller knows the negotiated `C.kex_group` and picks
+  length-dispatched one: the caller knows the negotiated `C.dh_group` and picks
   the primitive from it.  The public value is 65 bytes (uncompressed SEC1) and
   the shared secret is the 32-byte X coordinate.
 **)

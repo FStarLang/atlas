@@ -524,7 +524,7 @@ let server_prefix_transcript (ch:GCH.clientHello) (sh:GSH.serverHello) : GTot B.
 let lemma_server_prefix_model
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -722,7 +722,7 @@ let rec lemma_region_preserves_protected_buffer_empty_received
 let lemma_client_prefix_model
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -851,7 +851,7 @@ let app_empty_l (a b:B.bytes)
 let lemma_server_prefix_sent_bytes
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -955,7 +955,7 @@ let lemma_server_prefix_sent_bytes
 let lemma_server_prefix_received_bytes
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1046,7 +1046,7 @@ let lemma_server_prefix_received_bytes
 let lemma_client_prefix_sent_bytes
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1135,7 +1135,7 @@ let lemma_client_prefix_sent_bytes
 let lemma_client_prefix_received_bytes
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (ps pr:B.bytes) (p:CS.connection_model)
   : Lemma
       (requires
@@ -1308,7 +1308,7 @@ let server_flight_result
 let lemma_server_flight
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
   (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
   (region:list CS.conn_event) (tail:list CS.conn_event)
@@ -1403,7 +1403,7 @@ let lemma_server_flight
 let lemma_server_received_ch
   (cfg:CS.connection_config)
   (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-  (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+  (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
   (suffix:list CS.conn_event)
   (rs rr:B.bytes) (final:CS.connection_model)
   : Lemma
@@ -1535,7 +1535,7 @@ let client_flight_result
 let lemma_client_flight
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (region raw_flight:list CS.conn_event)
   (cs cr:B.bytes) (final:CS.connection_model)
   : Lemma
@@ -1626,7 +1626,7 @@ let lemma_client_flight
 let lemma_client_sent_ch
   (cfg:CS.connection_config)
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (suffix:list CS.conn_event)
   (cs cr:B.bytes) (final:CS.connection_model)
   : Lemma
@@ -1765,7 +1765,7 @@ let server_side_exists (s:sysp) : prop =
    named (the body of `SCShape.lemma_server_canonical_appdata_exact_spine`). *)
 let server_appdata_spine (s:sysp)
     (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-    (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+    (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
     (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
     (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
     (region:list CS.conn_event) (tail:list CS.conn_event) : prop =
@@ -1788,7 +1788,7 @@ let server_appdata_spine (s:sysp)
 #push-options "--fuel 2 --ifuel 2 --z3rlimit 100"
 let lemma_server_side_of_spine (s:sysp)
     (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-    (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+    (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
     (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
     (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
     (region:list CS.conn_event) (tail:list CS.conn_event)
@@ -1845,7 +1845,7 @@ let lemma_server_side_of_spine (s:sysp)
 let lemma_server_side_of_spine_exists (s:sysp)
   : Lemma (requires server_flight_bridge_inputs s.client s.server /\
                     (exists (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-                       (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+                       (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
                        (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
                        (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
                        (region:list CS.conn_event) (tail:list CS.conn_event).
@@ -1864,7 +1864,7 @@ let lemma_server_side_of_spine_exists (s:sysp)
                tail))))
           (ensures server_side_exists s)
   = introduce forall (ch:GCH.clientHello) (selection:CS.server_handshake_selection)
-                     (server_shared:C.x25519_shared_secret) (sh:GSH.serverHello)
+                     (server_shared:C.kex_shared_secret_any) (sh:GSH.serverHello)
                    (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
                    (cv_local:CS.local_event) (cv:GCV.certificateVerify) (sf:GFin.finished)
                    (region:list CS.conn_event) (tail:list CS.conn_event).
@@ -1910,7 +1910,7 @@ let client_raw_prefix_package
   (s:sysp) (ch:GCH.clientHello) (sh:GSH.serverHello)
   (raw_flight:list CS.conn_event) : prop =
   exists (start:CS.handshake_start)
-         (client_shared:C.x25519_shared_secret)
+         (client_shared:C.kex_shared_secret_any)
          (region:list CS.conn_event).
     (forall (e:CS.conn_event).
       L.memP e region ==> CCShape.is_client_hs_install e == true) /\
@@ -1989,7 +1989,7 @@ let client_side_exists (s:sysp) : prop =
 #push-options "--fuel 2 --ifuel 2 --z3rlimit 100"
 let lemma_client_side_of_spine (s:sysp)
     (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-    (client_shared:C.x25519_shared_secret)
+    (client_shared:C.kex_shared_secret_any)
     (region:list CS.conn_event)
     (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
     (cv_validate:CS.local_event) (cv:GCV.certificateVerify)
@@ -2079,7 +2079,7 @@ let lemma_client_side_of_spine (s:sysp)
 let lemma_client_side_of_spine_exists (s:sysp)
   : Lemma (requires server_flight_bridge_inputs s.client s.server /\
                     (exists (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-                       (client_shared:C.x25519_shared_secret)
+                       (client_shared:C.kex_shared_secret_any)
                        (region:list CS.conn_event)
                        (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
                        (cv_validate:CS.local_event) (cv:GCV.certificateVerify)
@@ -2106,7 +2106,7 @@ let lemma_client_side_of_spine_exists (s:sysp)
                               tail))))
           (ensures client_side_exists s)
   = introduce forall (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-                     (client_shared:C.x25519_shared_secret)
+                     (client_shared:C.kex_shared_secret_any)
                      (region:list CS.conn_event)
                      (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
                      (cv_validate:CS.local_event) (cv:GCV.certificateVerify)
@@ -3275,7 +3275,7 @@ let lemma_normalized_client_spine_from_raw
     client_normalized_appdata_exact_spine;
   eliminate exists
     (start:CS.handshake_start)
-    (client_shared:C.x25519_shared_secret)
+    (client_shared:C.kex_shared_secret_any)
     (region:list CS.conn_event).
       (forall (e:CS.conn_event).
         L.memP e region ==> CCShape.is_client_hs_install e == true) /\
@@ -3295,7 +3295,7 @@ let lemma_normalized_client_spine_from_raw
     introduce exists
       (start0:CS.handshake_start)
       (ch0:GCH.clientHello) (sh0:GSH.serverHello)
-      (client_shared0:C.x25519_shared_secret)
+      (client_shared0:C.kex_shared_secret_any)
       (region0:list CS.conn_event)
       (ee0:GEE.encryptedExtensions) (cert0:GCert.certificate)
       (cv_validate0:CS.local_event)

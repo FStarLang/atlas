@@ -2,6 +2,7 @@ module TLS13.ConnectionState.ServerHelloSelectionLink
 
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
+module KX = TLS13.Crypto.Kex.Spec
 module CL = TLS13.ConnectionLog
 module ID = FStar.IndefiniteDescription
 module M = TLS13.Messages
@@ -340,10 +341,27 @@ let lemma_server_x25519_key_share_projection_of_hello_present (server:connection
                 | Some ch_ks ->
                   assert (C.kex_public_from_private g server_sk ==
                     server_kex_public selection g);
-                  assert (C.kex_shared g server_sk ch_ks == Some shared)
+                  assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
                 | None -> assert False)
              | None -> assert False)
-          | None -> assert False)
+          | None ->
+            // the X25519MLKEM768 side arm: the selection names the hybrid, so
+            // it holds no DH private and the pre-projection took its hybrid arm
+            assert (server_selects_hybrid selection);
+            assert (server_selection_key_share_consistent selection);
+            assert (server_kex_private selection (server_selected_kex_group selection) == None);
+            (match
+               server_hello_hybrid_share sh,
+               selection.server_hybrid_private,
+               client_hello_hybrid_key_share ch
+             with
+             | Some sh_ks, Some server_sk, Some ch_ks ->
+               assert (sh_ks == selection.server_hybrid_share);
+               assert (selection.server_selected_client_hello == ch);
+               assert (KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks ==
+                       Some selection.server_hybrid_share);
+               assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some shared)
+             | _, _, _ -> assert False))
        | _, _, _, _ -> assert False);
       assert (server_x25519_key_share_projection server)
       end

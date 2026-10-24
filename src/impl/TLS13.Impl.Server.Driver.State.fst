@@ -32,7 +32,7 @@ module SP = TLS13.Impl.Server.CanonicalProtocol
 let driver_network_out_capacity : SZ.t = SZ.uint_to_t 20000
 let driver_app_out_capacity : SZ.t = SZ.uint_to_t 16640
 let driver_rx_capacity : SZ.t = SZ.uint_to_t 65535
-let driver_material_capacity : SZ.t = 64sz
+let driver_material_capacity : SZ.t = 128sz
 let driver_certificate_verify_input_capacity : SZ.t = SZ.uint_to_t 256
 let driver_signature_capacity : SZ.t = SZ.uint_to_t 4096
 

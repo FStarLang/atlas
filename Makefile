@@ -175,6 +175,8 @@ ROOT_FILES = \
   src/impl/TLS13.Impl.Client.Driver.fst \
   src/impl/TLS13.Impl.Server.Driver.fst \
   src/spec/properties/TLS13.Spec.InternalEvent.Baseline.fst \
+  src/spec/assumptions/TLS13.Crypto.Kex.Spec.fst \
+  src/impl/TLS13.Crypto.Hybrid.fst \
   common/Common.ProtocolDriver.fst
 
 # ── TLS wire parsers/serializers: QuackyDucky → F* → KaRaMeL pipeline ──────
@@ -694,7 +696,8 @@ $(TLS13_ENGINE_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefil
 
 $(TLS13_CRYPTO_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefile | verify
 	$(call custard_extract_c,$(TLS13_CRYPTO_DIR),\
-	  --custard_entry_module TLS13.Crypto)
+	  --custard_entry_module TLS13.Crypto \
+	  --custard_entry_module TLS13.Crypto.Hybrid)
 
 extract-tls13-bundle extract-c: $(TLS13_BUNDLE_STAMP)
 
@@ -1525,6 +1528,36 @@ test-server-matrix: test/test_server_interop_matrix \
   test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
   test/certs/ec-leaf.key test/certs/ec-leaf.der
 	./test/test_server_interop_matrix
+
+# ── X25519MLKEM768 (RFC 10024) interop with OpenSSL 3.5 ────────────
+# Both verified endpoints against an OpenSSL 3.5 peer pinned to the hybrid
+# group.  Skipped (not failed) without tools/openssl-3.5; build it with
+# scripts/build-openssl35.sh.  See test/interop/hybrid.sh.
+test/test_hybrid_server_peer: \
+  test/unit/test_hybrid_server_peer.c $(TLS13_BUNDLE_OBJS_STAMP) \
+  runtime/tls13_server_driver.c runtime/tls13_server_driver.h \
+  $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
+  $(HACL_TEST_OBJECTS) | check-deps
+	$(CC) $(CFLAGS_COMMON) \
+	  $(TLS13_BUNDLE_INCLUDES) \
+	  $(TLS13_BUNDLE_OBJ_DIR)/*.o \
+	  $(HACL_TEST_OBJECTS) \
+	  c_stubs/atlas_trace.c \
+	  c_stubs/tls13_crypto_external.c \
+	  runtime/common_memmove.c \
+	  runtime/tls13_server_driver.c \
+	  c_stubs/common_tcp_custard.c \
+	  c_stubs/common_tcp_stubs.c \
+	  c_stubs/tls13_openssl_custard.c \
+	  c_stubs/tls13_openssl_stubs.c \
+	  test/unit/test_hybrid_server_peer.c \
+	  $(HACL_RANDOM_SOURCES) \
+	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
+
+.PHONY: test-hybrid-interop
+test-hybrid-interop: test/test_interop_client test/test_hybrid_server_peer \
+  test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der
+	./test/interop/hybrid.sh
 
 # ── Dependency Checks ──────────────────────────────────────────────
 check-toolchain:

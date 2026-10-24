@@ -1963,7 +1963,7 @@ let lemma_fdac_deliver_to_client (a b:SY.tls_system_state)
            arms. *)
         client_hs_seq_exact a /\
         SY.tls_step_deliver_to_client a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.finished_delivered_appread_coupling b)
   = SY.lemma_deliver_to_client_shape a b;
     assert (ASP.finished_delivered_appread_coupling a);
@@ -2208,7 +2208,7 @@ let lemma_fdac_deliver_to_server (a b:SY.tls_system_state)
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         HSP.hs_seq_pairing a /\ HSP.hs_channel_seal_ok a /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.finished_delivered_appread_coupling b)
   = SY.lemma_deliver_to_server_shape a b;
     assert (ASP.finished_delivered_appread_coupling a);
@@ -2750,7 +2750,7 @@ let lemma_awc_client_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.appdata_write_coupling a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.appdata_write_coupling b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -2779,7 +2779,7 @@ let lemma_awc_server_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.appdata_write_coupling a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.appdata_write_coupling b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -2822,7 +2822,7 @@ let lemma_awc_deliver_to_client (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.appdata_write_coupling a /\
         SY.tls_step_deliver_to_client a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.appdata_write_coupling b)
   = SY.lemma_deliver_to_client_shape a b;
     eliminate exists (wire:CW.wire_message) (c':CS.connection_state)
@@ -2916,7 +2916,7 @@ let lemma_awc_deliver_to_server (a b:SY.tls_system_state)
         SY.tls_system_inv a /\ ASP.app_extras a /\
         HSP.hs_seq_pairing a /\ HSP.hs_channel_seal_ok a /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.appdata_write_coupling b)
   = SY.lemma_deliver_to_server_shape a b;
     assert (ASP.appdata_write_coupling a);
@@ -3057,7 +3057,7 @@ let lemma_sfif_client_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ sf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures sf_inflight_finished b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -3076,7 +3076,7 @@ let lemma_sfif_deliver_to_client (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ sf_inflight_finished a /\
         SY.tls_step_deliver_to_client a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures sf_inflight_finished b)
   = SY.lemma_deliver_to_client_shape a b;
     eliminate exists (wire:CW.wire_message) (c':CS.connection_state)
@@ -3095,7 +3095,7 @@ let lemma_sfif_deliver_to_server (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ sf_inflight_finished a /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures sf_inflight_finished b)
   = SY.lemma_deliver_to_server_shape a b;
     eliminate exists (wire:CW.wire_message) (s':CS.connection_state)
@@ -3114,7 +3114,7 @@ let lemma_sfif_client_local (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ sf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures sf_inflight_finished b)
   = eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -3130,7 +3130,7 @@ let lemma_sfif_server_local (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ sf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures sf_inflight_finished b)
   = eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -3156,7 +3156,7 @@ let lemma_sfif_server_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ sf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures sf_inflight_finished b)
   = SY.lemma_server_send_shape a b;
     assert (ASP.finished_delivered_appread_coupling a);
@@ -3199,7 +3199,7 @@ let lemma_cfif_server_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures cf_inflight_finished b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -3218,7 +3218,7 @@ let lemma_cfif_deliver_to_client (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         SY.tls_step_deliver_to_client a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures cf_inflight_finished b)
   = SY.lemma_deliver_to_client_shape a b;
     eliminate exists (wire:CW.wire_message) (c':CS.connection_state)
@@ -3237,7 +3237,7 @@ let lemma_cfif_deliver_to_server (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures cf_inflight_finished b)
   = SY.lemma_deliver_to_server_shape a b;
     eliminate exists (wire:CW.wire_message) (s':CS.connection_state)
@@ -3256,7 +3256,7 @@ let lemma_cfif_client_local (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures cf_inflight_finished b)
   = eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -3272,7 +3272,7 @@ let lemma_cfif_server_local (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures cf_inflight_finished b)
   = eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -3290,7 +3290,7 @@ let lemma_cfif_client_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ cf_inflight_finished a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures cf_inflight_finished b)
   = SY.lemma_client_send_shape a b;
     assert (ASP.finished_delivered_appread_coupling a);
@@ -3577,7 +3577,7 @@ let lemma_cso_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\
-        MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\ SY.tls_no_rekeying b)
+        MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures ASP.channel_seal_ok b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -3640,7 +3640,7 @@ let lemma_cso_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\
-        MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\ SY.tls_no_rekeying b)
+        MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures ASP.channel_seal_ok b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -3766,7 +3766,7 @@ let lemma_ae_client_send (a b:SY.tls_system_state)
         sf_inflight_finished a /\ cf_inflight_finished a /\
         HSP.hs_seq_pairing a /\ HSP.hs_channel_seal_ok a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = ASP.lemma_asp_client_send a b;
     AMF.lemma_ama_client_send a b;
@@ -3790,7 +3790,7 @@ let lemma_ae_server_send (a b:SY.tls_system_state)
         sf_inflight_finished a /\ cf_inflight_finished a /\
         HSP.hs_seq_pairing a /\ HSP.hs_channel_seal_ok a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = SY.lemma_server_send_shape a b;
     ASP.lemma_asp_server_send a b;
@@ -3819,7 +3819,7 @@ let lemma_ae_client_local (a b:SY.tls_system_state)
         CS.protected_handshake_buffer_empty a.client.CS.cs_model /\
         CCS.no_buffering_steps a.client.CS.cs_event_log /\
         MP.Quiet? a.channel /\ SY.tls_step_client_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = assert (MP.Quiet? b.channel);
     ASP.lemma_asp_client_local a b;
@@ -3846,7 +3846,7 @@ let lemma_ae_server_local (a b:SY.tls_system_state)
         sf_inflight_finished a /\ cf_inflight_finished a /\
         HSP.hs_seq_pairing a /\ HSP.hs_channel_seal_ok a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = assert (MP.Quiet? b.channel);
     ASP.lemma_asp_server_local a b;
@@ -3881,7 +3881,7 @@ let lemma_ae_deliver_to_client (a b:SY.tls_system_state)
         CCS.no_buffering_steps a.client.CS.cs_event_log /\
         client_hs_seq_exact a /\
         SY.tls_step_deliver_to_client a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = SY.lemma_deliver_to_client_shape a b;
     lemma_deliver_to_client_all3 a b;
@@ -3928,7 +3928,7 @@ let lemma_ae_deliver_to_server (a b:SY.tls_system_state)
            `stream2_extras a`. *)
         CCS.no_buffering_steps a.client.CS.cs_event_log /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = SY.lemma_deliver_to_server_shape a b;
     eliminate exists (wire:CW.wire_message) (s':CS.connection_state)
@@ -3982,7 +3982,7 @@ let lemma_app_extras_preserved (a b:SY.tls_system_state)
         client_hs_seq_exact a /\
         SY.server_config_valid_e2e a.server /\
         SY.tls_sys_step a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_extras b)
   = MP.lemma_step_channel_cases SY.tls_machine_iface a b;
     FStar.Classical.move_requires_2 lemma_ae_client_send a b;
@@ -4042,7 +4042,7 @@ let lemma_s2_client_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ stream2_extras a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = lemma_ae_client_send a b;
     lemma_sfif_client_send a b;
@@ -4079,7 +4079,7 @@ let lemma_s2_server_send (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ stream2_extras a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_send a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = lemma_ae_server_send a b;
     lemma_sfif_server_send a b;
@@ -4129,7 +4129,7 @@ let lemma_s2_client_local (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ stream2_extras a /\
         MP.Quiet? a.channel /\ SY.tls_step_client_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = lemma_ae_client_local a b;
     lemma_sfif_client_local a b;
@@ -4148,7 +4148,7 @@ let lemma_s2_server_local (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ stream2_extras a /\
         MP.Quiet? a.channel /\ SY.tls_step_server_local a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = lemma_ae_server_local a b;
     lemma_sfif_server_local a b;
@@ -4176,7 +4176,7 @@ let lemma_s2_deliver_to_client (a b:SY.tls_system_state)
         SY.tls_system_inv a /\ stream2_extras a /\
         SY.server_config_valid_e2e a.server /\
         SY.tls_step_deliver_to_client a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = lemma_ae_deliver_to_client a b;
     lemma_sfif_deliver_to_client a b;
@@ -4210,7 +4210,7 @@ let lemma_hsp_deliver_to_server_step (a b:SY.tls_system_state)
         SY.tls_system_inv a /\ stream2_extras a /\
         SY.server_config_valid_e2e a.server /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures HSP.hs_seq_pairing b /\ HSP.hs_channel_seal_ok b /\ client_hs_buffer_empty b)
   = SY.lemma_deliver_to_server_shape a b;
     eliminate exists (wire:CW.wire_message) (s':CS.connection_state)
@@ -4240,7 +4240,7 @@ let lemma_s2_deliver_to_server (a b:SY.tls_system_state)
         SY.tls_system_inv a /\ stream2_extras a /\
         SY.server_config_valid_e2e a.server /\
         SY.tls_step_deliver_to_server a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = lemma_ae_deliver_to_server a b;
     lemma_sfif_deliver_to_server a b;
@@ -4258,7 +4258,7 @@ let lemma_stream2_extras_preserved (a b:SY.tls_system_state)
         SY.tls_system_inv a /\ stream2_extras a /\
         SY.server_config_valid_e2e a.server /\
         SY.tls_sys_step a b /\
-        SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures stream2_extras b)
   = MP.lemma_step_channel_cases SY.tls_machine_iface a b;
     FStar.Classical.move_requires_2 lemma_s2_client_send a b;
@@ -4297,20 +4297,21 @@ let lemma_initial_stream2_extras (cfg_c cfg_s:CS.connection_config)
     to be non-rekeyed. **)
 let stream2_combined_inv (s:SY.tls_system_state) : prop =
   SY.stream_combined_inv s /\
-  (SY.tls_no_rekeying s ==> stream2_extras s)
+  (SY.tls_no_rekeying s /\ SY.tls_kex_agreement_ok s ==> stream2_extras s)
 
 #push-options "--fuel 1 --ifuel 2 --z3rlimit 60"
 let lemma_stream2_combined_inv_preserved (x y:SY.tls_system_state)
   : Lemma (requires stream2_combined_inv x /\ SY.tls_sys_step x y)
           (ensures stream2_combined_inv y)
   = SY.lemma_stream_combined_inv_preserved x y;
-    introduce SY.tls_no_rekeying y ==> stream2_extras y
+    introduce SY.tls_no_rekeying y /\ SY.tls_kex_agreement_ok y ==> stream2_extras y
     with
     (
       // The gate travels backwards along the step, unlocking `combined_inv x`'s
       // structural invariant AND `stream2_extras x`.
       SY.lemma_no_key_update_backward x y;
       assert (SY.tls_system_inv x);
+      SY.lemma_kex_agreement_backward x y;
       assert (stream2_extras x);
       // `server_config_valid_e2e` is carried UNGATED by `SY.stream_combined_inv`,
       // which is exactly why `lemma_stream2_extras_preserved` can demand it.
@@ -4348,7 +4349,7 @@ val lemma_reachable_stream2_inv (cfg_c cfg_s:CS.connection_config) (s:SY.tls_sys
                     cfg_s.CS.config_role == CS.ServerEndpoint /\
                     WFL.supported_client_config_wire_profile cfg_c /\
                     SY.server_config_valid_e2e (CS.initial cfg_s) /\
-                    SY.tls_no_rekeying s /\
+                    SY.tls_no_rekeying s /\ SY.tls_kex_agreement_ok s /\
                     RTC.closure SY.tls_sys_step (SY.initial_tls_system cfg_c cfg_s) s)
           (ensures SY.tls_stream_inv s /\ stream2_extras s)
 let lemma_reachable_stream2_inv cfg_c cfg_s s =

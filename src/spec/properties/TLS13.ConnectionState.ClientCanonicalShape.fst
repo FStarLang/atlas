@@ -43,7 +43,7 @@ let ev_recv_sh (sh:GSH.serverHello) : CS.conn_event =
     CL.message_value = M.TlsHandshake (M.ServerHello sh);
   })
 
-let ev_derive (shared:C.x25519_shared_secret) : CS.conn_event =
+let ev_derive (shared:C.kex_shared_secret_any) : CS.conn_event =
   CS.ConnLocalEvent (CS.LocalDeriveSharedSecret shared)
 
 let ev_recv_ee (ee:GEE.encryptedExtensions) : CS.conn_event =
@@ -97,18 +97,18 @@ let lemma_client_hs_install_canonical (ev:CS.conn_event)
 
 (* The fixed cleartext prefix, as a pure list (matches PWSeg's definition). *)
 let prefix (start:CS.handshake_start) (ch:GCH.clientHello)
-           (sh:GSH.serverHello) (shared:C.x25519_shared_secret)
+           (sh:GSH.serverHello) (shared:C.kex_shared_secret_any)
   : list CS.conn_event =
   PWSeg.client_cleartext_handshake_prefix_events start ch sh shared
 
 let prefix_unfold (start:CS.handshake_start) (ch:GCH.clientHello)
-                  (sh:GSH.serverHello) (shared:C.x25519_shared_secret)
+                  (sh:GSH.serverHello) (shared:C.kex_shared_secret_any)
   : Lemma (prefix start ch sh shared ==
            [ ev_start start; ev_sent_ch ch; ev_recv_sh sh; ev_derive shared ])
   = ()
 
 let lemma_prefix_canonical (start:CS.handshake_start) (ch:GCH.clientHello)
-                           (sh:GSH.serverHello) (shared:C.x25519_shared_secret)
+                           (sh:GSH.serverHello) (shared:C.kex_shared_secret_any)
   : Lemma
       (ensures canonical_log (prefix start ch sh shared) ==
                prefix start ch sh shared)
@@ -291,7 +291,7 @@ let lemma_canonical_flight_raw_spine
 #push-options "--fuel 1 --ifuel 1 --z3rlimit 30"
 let lemma_client_raw_suffix_flight_spine
   (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-  (client_shared:C.x25519_shared_secret)
+  (client_shared:C.kex_shared_secret_any)
   (region raw_suffix log:list CS.conn_event)
   (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
   (cv_validate:CS.local_event)
@@ -1599,7 +1599,7 @@ let lemma_client_canonical_appdata_exact_spine
        no_buffering_steps s.CS.cs_event_log)
     (ensures
        (exists (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-          (client_shared:C.x25519_shared_secret)
+          (client_shared:C.kex_shared_secret_any)
           (region:list CS.conn_event)
           (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
           (cv_validate:CS.local_event)
@@ -1653,7 +1653,7 @@ let lemma_client_canonical_appdata_exact_spine
         let cv = Some?.v hs.CS.hs_certificate_verify in
         let sf = Some?.v hs.CS.hs_server_finished in
         introduce exists (start:CS.handshake_start) (ch:GCH.clientHello) (sh:GSH.serverHello)
-            (client_shared:C.x25519_shared_secret)
+            (client_shared:C.kex_shared_secret_any)
             (region:list CS.conn_event)
             (ee:GEE.encryptedExtensions) (cert:GCert.certificate)
             (cv_validate:CS.local_event)

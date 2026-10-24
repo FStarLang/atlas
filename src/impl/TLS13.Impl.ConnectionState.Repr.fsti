@@ -74,12 +74,15 @@ type optional_fixed_bytes = {
    [group] records which group the server named in its `KeyShareEntry`.  The
    group is a tag carried alongside the bytes, never recovered from them: field
    names match [optional_fixed_bytes] so the presence/bytes accessors read the
-   same. *)
+   same.  [hybrid_share] holds the 1120-byte X25519MLKEM768 ciphertext share
+   (RFC 10024) instead, when that is what the server answered with; at most one
+   of the two is present. *)
 noeq
 type kex_share_storage = {
   present: box bool;
   bytes: V.vec U8.t;
-  group: box CryptoSpec.kex_group;
+  group: box CryptoSpec.dh_group;
+  hybrid_share: optional_fixed_bytes;
 }
 
 noeq
@@ -152,6 +155,10 @@ type handshake_start_storage = {
      is a 65-byte SEC1 uncompressed point. *)
   client_p256_private: optional_fixed_bytes;
   client_p256_public: V.vec U8.t;
+  (* The X25519MLKEM768 offer (RFC 10024): the 96-byte seed, present exactly
+     when the hybrid is offered, and its 1216-byte public share. *)
+  client_hybrid_private: optional_fixed_bytes;
+  client_hybrid_public: V.vec U8.t;
   cipher_suites: u16_list_storage;
   signature_schemes: u16_list_storage;
 }
@@ -181,7 +188,11 @@ type handshake_message_storage = {
      and its scalars cannot be rewritten.  Unlike the other metadata this one is
      not recoverable from the stored bytes at all -- an all-zero 32-byte X25519
      slot is a legal share -- so the parse path writes it. *)
-  client_hello_kex_group: box CryptoSpec.kex_group;
+  client_hello_kex_group: box CryptoSpec.dh_group;
+  (* Whether the stored ClientHello made a well-formed X25519MLKEM768 offer
+     (RFC 10024), which the server's group policy reads.  A metadata box for
+     the same reason as [client_hello_kex_group]. *)
+  client_hello_hybrid_offered: box bool;
   server_hello: box (option IM.server_hello);
   encrypted_extensions: box (option IM.encrypted_extensions);
   certificate: box (option IM.certificate_msg);
@@ -807,12 +818,51 @@ let lemma_traffic_key_material_match_present_iff
   | false, Some m -> ()
   | false, None -> ()
 
+(* The (EC)DHE / KEM shared-secret slot (docs/hybrid-kem-plan.md D4).  The
+   model carries the secret at [kex_shared_secret_any] (32 bytes for X25519 /
+   P-256, 64 for X25519MLKEM768); the runtime keeps it in a 64-byte buffer
+   whose prefix of the secret's width holds it.  The width itself is ghost:
+   the runtime only ever reads the slot's presence bit, and the derivation
+   that consumes the secret runs on the caller's exact-width buffer. *)
+let shared_secret_slot_len : n:nat{n == 64} = 64
+
+let shared_secret_match
+  (present:bool)
+  (stored:B.bytes)
+  (spec:option TLS13.Crypto.Spec.kex_shared_secret_any)
+  : prop =
+  B.length stored == shared_secret_slot_len /\
+  (match spec with
+   | Some secret ->
+     present == true /\
+     Seq.equal (Seq.slice stored 0 (B.length secret)) secret
+   | None -> present == false)
+
+let lemma_shared_secret_match_present_iff
+  (present:bool)
+  (stored:B.bytes)
+  (spec:option TLS13.Crypto.Spec.kex_shared_secret_any)
+  : Lemma (requires shared_secret_match present stored spec)
+          (ensures present == Some? spec)
+  = ()
+
+let optional_shared_secret_exactly
+  ([@@@mkey] slot:optional_secret_storage)
+  (spec:option TLS13.Crypto.Spec.kex_shared_secret_any)
+  : slprop =
+  exists* present secret.
+    Box.pts_to slot.present present **
+    V.pts_to slot.secret secret **
+    pure (V.is_full_vec slot.secret /\
+          V.length slot.secret == shared_secret_slot_len /\
+          shared_secret_match present secret spec)
+
 let key_schedule_exactly
   ([@@@mkey] keys:key_schedule_storage)
   (spec:CS.key_schedule_state)
   : slprop =
   optional_secret_exactly keys.early_secret spec.CS.ks_early_secret **
-  optional_secret_exactly keys.shared_secret spec.CS.ks_shared_secret **
+  optional_shared_secret_exactly keys.shared_secret spec.CS.ks_shared_secret **
   optional_secret_exactly keys.handshake_secret spec.CS.ks_handshake_secret **
   optional_secret_exactly keys.master_secret spec.CS.ks_master_secret **
   traffic_key_material_exactly keys.client_handshake_traffic spec.CS.ks_client_handshake_traffic **
@@ -829,6 +879,18 @@ fn store_optional_secret
   requires (exists* prev. optional_secret_exactly slot prev) **
            ArrPts.pts_to src src_secret
   ensures optional_secret_exactly slot (Some (Ghost.reveal src_secret)) **
+          ArrPts.pts_to src src_secret
+
+fn store_optional_shared_secret
+  (slot:optional_secret_storage)
+  (src:array U8.t)
+  (src_len:SZ.t)
+  (#src_secret:erased TLS13.Crypto.Spec.kex_shared_secret_any)
+  requires (exists* prev. optional_shared_secret_exactly slot prev) **
+           ArrPts.pts_to src src_secret **
+           pure (SZ.v src_len == B.length src_secret)
+  ensures optional_shared_secret_exactly slot
+            (Some (Ghost.reveal src_secret <: TLS13.Crypto.Spec.kex_shared_secret_any)) **
           ArrPts.pts_to src src_secret
 
 fn store_traffic_key_material
@@ -857,6 +919,8 @@ let handshake_start_fields_allocated
   fixed_bytes_allocated start.client_key_share_public 32 **
   optional_fixed_bytes_exactly start.client_p256_private 32 None **
   fixed_bytes_allocated start.client_p256_public 65 **
+  optional_fixed_bytes_exactly start.client_hybrid_private 96 None **
+  fixed_bytes_allocated start.client_hybrid_public 1216 **
   cipher_suite_list_allocated start.cipher_suites max_cipher_suites **
   signature_scheme_list_allocated start.signature_schemes max_signature_schemes
 
@@ -870,6 +934,8 @@ let handshake_start_fields_exactly
   fixed_bytes_exactly start.client_key_share_public 32 spec.CS.start_client_key_share_public **
   optional_fixed_bytes_exactly start.client_p256_private 32 spec.CS.start_client_p256_private **
   fixed_bytes_exactly start.client_p256_public 65 spec.CS.start_client_p256_public **
+  optional_fixed_bytes_exactly start.client_hybrid_private 96 spec.CS.start_client_hybrid_private **
+  fixed_bytes_exactly start.client_hybrid_public 1216 spec.CS.start_client_hybrid_public **
   cipher_suite_list_exactly start.cipher_suites max_cipher_suites spec.CS.start_cipher_suites **
   signature_scheme_list_exactly start.signature_schemes max_signature_schemes spec.CS.start_signature_schemes **
   pure (CS.handshake_start_key_share_consistent spec)
@@ -900,7 +966,7 @@ let client_hello_slot_exactly
   (spec:option GCH.clientHello)
   : slprop =
   exists* present random session_id server_name key_share p256_key_share
-          cipher_suites signature_schemes.
+          cipher_suites signature_schemes hybrid_key_share.
     Box.pts_to present_box present **
     V.pts_to l.IM.client_hello_random random **
     V.pts_to l.IM.client_hello_session_id session_id **
@@ -916,7 +982,11 @@ let client_hello_slot_exactly
     V.pts_to l.IM.client_hello_p256_key_share p256_key_share **
     V.pts_to l.IM.client_hello_cipher_suites cipher_suites **
     V.pts_to l.IM.client_hello_signature_schemes signature_schemes **
-    pure (V.is_full_vec l.IM.client_hello_random /\
+    V.pts_to l.IM.client_hello_hybrid_key_share hybrid_key_share **
+    pure (V.is_full_vec l.IM.client_hello_hybrid_key_share /\
+          V.length l.IM.client_hello_hybrid_key_share == 1216 /\
+          B.length hybrid_key_share == 1216 /\
+          V.is_full_vec l.IM.client_hello_random /\
           V.is_full_vec l.IM.client_hello_session_id /\
           V.is_full_vec l.IM.client_hello_server_name /\
           V.is_full_vec l.IM.client_hello_key_share /\
@@ -967,6 +1037,10 @@ let client_hello_slot_exactly
               (match Sem.clientHello_key_share_secp256r1 m with
                | Some k -> B.length k == 65 ==> Seq.equal p256_key_share k
                | None -> True) /\
+              (* The peer's X25519MLKEM768 offer (RFC 10024), likewise. *)
+              (match CS.client_hello_hybrid_key_share m with
+               | Some k -> Seq.equal hybrid_key_share k
+               | None -> True) /\
               IM.cipher_suites_match
                 cipher_suites
                 (SZ.v (client_hello_cipher_suites_len_for m))
@@ -993,7 +1067,7 @@ let client_hello_metadata_exactly
   (cipher_suites_len_box:box SZ.t)
   (signature_schemes_len_box:box SZ.t)
   (session_id_len_box:box SZ.t)
-  (kex_group_box:box CryptoSpec.kex_group)
+  (kex_group_box:box CryptoSpec.dh_group)
   (spec:option GCH.clientHello)
   : slprop =
   exists* has_server_name server_name_len cipher_suites_len signature_schemes_len
@@ -1085,6 +1159,21 @@ let finished_slot_exactly
     pure ((match stored with | None -> true | Some _ -> false) ==
           (match spec with | None -> true | Some _ -> false))
 
+(* Whether a stored ClientHello made a well-formed X25519MLKEM768 offer. *)
+noextract
+let client_hello_offers_hybrid (spec:option GCH.clientHello) : bool =
+  match spec with
+  | Some m -> Some? (CS.client_hello_hybrid_key_share m)
+  | None -> false
+
+let client_hello_hybrid_offered_exactly
+  ([@@@mkey] offered_box:box bool)
+  (spec:option GCH.clientHello)
+  : slprop =
+  exists* offered.
+    Box.pts_to offered_box offered **
+    pure (offered == client_hello_offers_hybrid spec)
+
 let handshake_messages_exactly
   ([@@@mkey] msgs:handshake_message_storage)
   (hs:CS.handshake_state)
@@ -1098,6 +1187,7 @@ let handshake_messages_exactly
     msgs.client_hello_session_id_len
     msgs.client_hello_kex_group
     hs.CS.hs_client_hello **
+  client_hello_hybrid_offered_exactly msgs.client_hello_hybrid_offered hs.CS.hs_client_hello **
   server_hello_slot_exactly msgs.server_hello hs.CS.hs_server_hello **
   encrypted_extensions_slot_exactly msgs.encrypted_extensions hs.CS.hs_encrypted_extensions **
   certificate_slot_exactly msgs.certificate hs.CS.hs_certificate **
@@ -1113,7 +1203,7 @@ let handshake_messages_exactly
 // (GSH.serverHello, ...) into the C bundle as undefined struct members.
 noextract
 let server_kex (hs:CS.handshake_state)
-  : option (g:CryptoSpec.kex_group & CryptoSpec.kex_public g) =
+  : option (g:CryptoSpec.dh_group & CryptoSpec.kex_public g) =
   match hs.CS.hs_server_hello with
   | Some sh -> CS.server_hello_kex sh
   | None -> None
@@ -1123,6 +1213,14 @@ let server_kex_bytes (hs:CS.handshake_state)
   : option (B.bytes_of_len 65) =
   match server_kex hs with
   | Some (| _, k |) -> Some (CryptoSpec.pad_share_65 k)
+  | None -> None
+
+(* The server's X25519MLKEM768 ciphertext share, as stored. *)
+noextract
+let server_hybrid_bytes (hs:CS.handshake_state)
+  : option (B.bytes_of_len 1120) =
+  match hs.CS.hs_server_hello with
+  | Some sh -> CS.server_hello_hybrid_share sh
   | None -> None
 
 let server_key_share_exactly
@@ -1135,6 +1233,7 @@ let server_key_share_exactly
       ({ present = slot.present; bytes = slot.bytes })
       65
       (server_kex_bytes hs) **
+    optional_fixed_bytes_exactly slot.hybrid_share 1120 (server_hybrid_bytes hs) **
     pure (match server_kex hs with
           | Some (| g', _ |) -> g == g'
           | None -> True)
@@ -1166,9 +1265,9 @@ let server_selection_absent
 let server_selection_private_absent
   (selection:CS.server_handshake_selection)
   : prop =
-  match selection.CS.server_key_share_private with
-  | Some _ -> False
-  | None -> True
+  (match selection.CS.server_key_share_private with
+   | Some _ -> False
+   | None -> True)
 
 (**
   The selected group is a purely ghost field of [CS.server_handshake_selection]:
@@ -1460,8 +1559,9 @@ let server_connection_config
         CS.server_supported_cipher_suites =
           default_connection_config.CS.config_cipher_suites;
         (* G2: the server negotiates whichever of the two groups the peer's
-           accepted key_share offer named, so both must be in the profile. *)
-        CS.server_supported_groups = [T.X25519; T.Secp256r1];
+           accepted key_share offer named, so both must be in the profile.
+           RFC 10024: the buffered driver may also select X25519MLKEM768. *)
+        CS.server_supported_groups = [T.X25519; T.Secp256r1; T.X25519mlkem768];
         CS.server_sni_policy = None;
       };
   }
@@ -1874,6 +1974,22 @@ fn copy_fixed65_array_to_vec
           V.pts_to dst 'src_bytes **
           pure (V.is_full_vec dst /\ V.length dst == 65)
 
+(* Width-generic form of the fixed copies above, used for the 96-byte hybrid
+   seed and the 1216-byte hybrid share. *)
+fn copy_fixed_array_to_vec
+  (n:SZ.t)
+  (src:array U8.t)
+  (dst:V.vec U8.t)
+  requires ArrPts.pts_to src 'src_bytes **
+           V.pts_to dst 'old_dst **
+           pure (B.length 'src_bytes == SZ.v n /\
+                 V.is_full_vec dst /\
+                 V.length dst == SZ.v n /\
+                 B.length 'old_dst == SZ.v n)
+  ensures ArrPts.pts_to src 'src_bytes **
+          V.pts_to dst 'src_bytes **
+          pure (V.is_full_vec dst /\ V.length dst == SZ.v n)
+
 (* Copy a 32-byte X25519 share into the front of a 65-byte, zero-initialised
    destination: the runtime image of [CryptoSpec.pad_share_65] for the narrow
    group. *)
@@ -2013,3 +2129,19 @@ fn overwrite_optional_sized_bytes_from_certificate_chain
             slot
             max_handshake_flight_len
             (Some (Ghost.reveal leaf))
+
+(* Land a received ServerHello's key share in the client's peer-share slot:
+   the 65-byte (EC)DH share and its group, or -- when the server answered with
+   X25519MLKEM768 (RFC 10024) -- the 1120-byte ciphertext share.  Whatever the
+   slot held before is overwritten. *)
+fn store_server_hello_key_shares
+  (slot:kex_share_storage)
+  (lsh:IM.server_hello)
+  (#sh:erased GSH.serverHello)
+  (#hs0:erased CS.handshake_state)
+  (#hs1:erased CS.handshake_state)
+  requires server_key_share_exactly slot hs0 **
+           IM.is_valid_server_hello lsh sh **
+           pure (hs1.CS.hs_server_hello == Some (Ghost.reveal sh))
+  ensures server_key_share_exactly slot hs1 **
+          IM.is_valid_server_hello lsh sh

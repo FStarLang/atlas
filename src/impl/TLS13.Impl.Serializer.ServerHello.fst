@@ -40,11 +40,14 @@ fn serialize_server_hello_from_selection
                  SZ.v out_len == 58 + Seq.length (Ghost.reveal ks) + Seq.length (Ghost.reveal sid) /\
                  Seq.length (Ghost.reveal rnd) == 32 /\
                  (Ghost.reveal rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-                 (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
-                  Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
-                 Seq.length (Ghost.reveal ks) ==
-                   TLS13.Crypto.Spec.kex_public_len
-                     (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g)) /\
+                 (((Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
+                    Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
+                   Seq.length (Ghost.reveal ks) ==
+                     TLS13.Crypto.Spec.kex_public_len
+                       (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g))) \/
+                  (* X25519MLKEM768 (RFC 10024): the 1120-byte hybrid ciphertext. *)
+                  (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519mlkem768 /\
+                   Seq.length (Ghost.reveal ks) == 1120)) /\
                  Seq.length (Ghost.reveal sid) <= 32 /\
                  Ghost.reveal sh ==
                    SerH.poc_canonical_sh (Ghost.reveal rnd) (Ghost.reveal ks) (Ghost.reveal sid) (Ghost.reveal g) (Ghost.reveal cs))
@@ -81,11 +84,14 @@ fn serialize_server_hello_record_from_selection
                  SZ.v out_len == 63 + Seq.length (Ghost.reveal ks) + Seq.length (Ghost.reveal sid) /\
                  Seq.length (Ghost.reveal rnd) == 32 /\
                  (Ghost.reveal rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-                 (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
-                  Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
-                 Seq.length (Ghost.reveal ks) ==
-                   TLS13.Crypto.Spec.kex_public_len
-                     (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g)) /\
+                 (((Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
+                    Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
+                   Seq.length (Ghost.reveal ks) ==
+                     TLS13.Crypto.Spec.kex_public_len
+                       (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g))) \/
+                  (* X25519MLKEM768 (RFC 10024): the 1120-byte hybrid ciphertext. *)
+                  (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519mlkem768 /\
+                   Seq.length (Ghost.reveal ks) == 1120)) /\
                  Seq.length (Ghost.reveal sid) <= 32 /\
                  Ghost.reveal sh ==
                    SerH.poc_canonical_sh (Ghost.reveal rnd) (Ghost.reveal ks) (Ghost.reveal sid) (Ghost.reveal g) (Ghost.reveal cs))

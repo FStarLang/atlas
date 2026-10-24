@@ -3637,7 +3637,7 @@ fn try_copy_kex_share
   (#cm: Ghost.erased GKSE.keyShareEntry_mid)
   requires V.pts_to key_vec 'kv ** GKSE.keyShareEntry_vmatch v0 cm **
            pure (V.is_full_vec key_vec /\ V.length key_vec == 65)
-  returns res: (bool & CryptoSpec.kex_group)
+  returns res: (bool & CryptoSpec.dh_group)
   ensures GKSE.keyShareEntry_vmatch v0 cm **
           (exists* kbytes. V.pts_to key_vec kbytes **
             pure (V.is_full_vec key_vec /\ V.length key_vec == 65 /\
@@ -3781,7 +3781,7 @@ fn scan_sh_key_share
   requires PPVCL.vmatch_vclist
              (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
              ext_lo cext
-  returns res: (V.vec U8.t & bool & CryptoSpec.kex_group)
+  returns res: (V.vec U8.t & bool & CryptoSpec.dh_group)
   ensures PPVCL.vmatch_vclist
             (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
             ext_lo cext **
@@ -3827,7 +3827,7 @@ fn scan_sh_key_share
       let mut failed = false;
       let mut saw_sv = false;
       let mut have_key = false;
-      let mut kgroup = CryptoSpec.KexX25519;
+      let mut kgroup : CryptoSpec.dh_group = CryptoSpec.KexX25519;
       let kacc_ref = GR.alloc (None #RV.sh_kex_share);
       RV.lemma_list_drop_zero cext;
       assert (pure (RV.list_drop (SZ.v 0sz) cext == cext));
@@ -3973,6 +3973,229 @@ fn scan_sh_key_share
                 ext_lo cext);
       GR.free kacc_ref;
       (key_vec, found, kg0)
+    }
+  }
+}
+
+(* Overwrite a full [n]-byte destination Vec with the whole of a full [n]-byte
+   source Vec. *)
+inline_for_extraction
+fn copy_vec_n_into
+  (dst: V.vec U8.t)
+  (src: V.vec U8.t)
+  (n: SZ.t)
+  requires V.pts_to dst 'dst_bytes ** V.pts_to src 'src_bytes **
+           pure (V.is_full_vec dst /\ V.length dst == SZ.v n /\
+                 V.is_full_vec src /\ V.length src == SZ.v n)
+  ensures V.pts_to src 'src_bytes **
+          (exists* dst_bytes2.
+            V.pts_to dst dst_bytes2 **
+            pure (V.is_full_vec dst /\
+                  V.length dst == SZ.v n /\
+                  Seq.length dst_bytes2 == SZ.v n /\
+                  Seq.equal dst_bytes2 (Ghost.reveal 'src_bytes)))
+{
+  V.pts_to_len src;
+  V.pts_to_len dst;
+  V.to_array_pts_to dst;
+  V.to_array_pts_to src;
+  let src_slice = S.from_array (V.vec_to_array src) n;
+  let dst_slice = S.from_array (V.vec_to_array dst) n;
+  S.pts_to_len src_slice;
+  S.pts_to_len dst_slice;
+  S.copy dst_slice src_slice;
+  S.to_array src_slice;
+  V.to_vec_pts_to src;
+  S.to_array dst_slice;
+  V.to_vec_pts_to dst;
+}
+
+(* Copy the share of a `KeyShareEntry` into the 1120-byte destination iff the
+   entry names X25519MLKEM768 at the ciphertext length (RFC 10024). *)
+fn try_copy_hybrid_share
+  (hyb_vec: V.vec U8.t)
+  (v0: GKSE.keyShareEntry_lowtype)
+  (#cm: Ghost.erased GKSE.keyShareEntry_mid)
+  requires V.pts_to hyb_vec 'kv ** GKSE.keyShareEntry_vmatch v0 cm **
+           pure (V.is_full_vec hyb_vec /\ V.length hyb_vec == 1120)
+  returns ok: bool
+  ensures GKSE.keyShareEntry_vmatch v0 cm **
+          (exists* hbytes. V.pts_to hyb_vec hbytes **
+            pure (V.is_full_vec hyb_vec /\ V.length hyb_vec == 1120 /\
+                  Seq.length hbytes == 1120 /\
+                  (ok <==> (GNG.X25519mlkem768? (fst (Ghost.reveal cm)) /\
+                            Seq.length (snd (Ghost.reveal cm)) == 1120)) /\
+                  (ok ==> Seq.equal hbytes (snd (Ghost.reveal cm)))))
+{
+  V.pts_to_len hyb_vec;
+  rewrite (GKSE.keyShareEntry_vmatch v0 cm)
+      as (LPC.vmatch_pair GNG.namedGroup_vmatch GKSE.keyShareEntry_key_exchange_vmatch v0 cm);
+  unfold (LPC.vmatch_pair GNG.namedGroup_vmatch GKSE.keyShareEntry_key_exchange_vmatch v0 cm);
+  rewrite (GNG.namedGroup_vmatch (fst v0) (fst cm))
+      as (LPS.eq_as_slprop GNG.namedGroup (fst v0) (fst cm));
+  unfold (LPS.eq_as_slprop GNG.namedGroup (fst v0) (fst cm));
+  rewrite (GKSE.keyShareEntry_key_exchange_vmatch (snd v0) (snd cm))
+      as (LSeqB.vmatch_copy_seqbytes (snd v0) (snd cm));
+  unfold (LSeqB.vmatch_copy_seqbytes (snd v0) (snd cm));
+  V.pts_to_len (snd v0).PPBY.lvec_vec;
+  let group_lo = fst v0;
+  let key_len = (snd v0).PPBY.lvec_len;
+  let is_h = GNG.X25519mlkem768? group_lo;
+  let len_ok = SZ.eq key_len 1120sz;
+  if (is_h && len_ok) {
+    copy_vec_n_into hyb_vec (snd v0).PPBY.lvec_vec 1120sz;
+    repack_kse v0;
+    true
+  } else {
+    repack_kse v0;
+    false
+  }
+}
+
+(* The ServerHello's X25519MLKEM768 share: the first `key_share` extension,
+   kept only when it names the hybrid at 1120 bytes.  First-wins, exactly as
+   [Sem.sh_find_hybrid_share]. *)
+fn scan_sh_hybrid_share
+  (ext_lo: GSHBody.serverHelloBody_extensions_lowtype)
+  (#cext: Ghost.erased (list GESH.extensionServerHello))
+  requires PPVCL.vmatch_vclist
+             (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+             ext_lo cext
+  returns res: (V.vec U8.t & bool)
+  ensures PPVCL.vmatch_vclist
+            (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+            ext_lo cext **
+          (exists* hbytes. V.pts_to (fst res) hbytes **
+            pure (V.is_full_vec (fst res) /\ V.length (fst res) == 1120 /\
+                  Seq.length hbytes == 1120 /\
+                  (match Sem.sh_find_hybrid_share cext with
+                   | Some k -> snd res == true /\ Seq.equal hbytes k
+                   | None -> snd res == false)))
+{
+  let hyb_vec = V.alloc 0uy 1120sz;
+  match ext_lo {
+    None -> {
+      unfold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                None cext);
+      fold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                None cext);
+      rewrite (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                None cext)
+          as (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                ext_lo cext);
+      (hyb_vec, false)
+    }
+    Some nv -> {
+      unfold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                (Some nv) cext);
+      with s. assert (V.pts_to (snd nv) s **
+                      SM.seq_list_match s cext
+                        (PPB.vmatch_conv GESH.extensionServerHello_vmatch
+                                         GESH.extensionServerHello_conv));
+      V.pts_to_len (snd nv);
+      V.pts_to_len hyb_vec;
+      let count = fst nv;
+      let mut i = 0sz;
+      let mut decided = false;
+      let mut found = false;
+      RV.lemma_list_drop_zero cext;
+      while (
+        let d = !decided;
+        let iv = !i;
+        (not d) && (iv `SZ.lt` count)
+      )
+      invariant exists* iv dn fd hbytes.
+        R.pts_to i iv **
+        R.pts_to decided dn **
+        R.pts_to found fd **
+        V.pts_to (snd nv) s **
+        SM.seq_list_match s cext
+          (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv) **
+        V.pts_to hyb_vec hbytes **
+        pure (
+          SZ.v iv <= SZ.v count /\
+          SZ.v count == FStar.List.Tot.length cext /\
+          Seq.length s == FStar.List.Tot.length cext /\
+          V.is_full_vec (snd nv) /\
+          V.is_full_vec hyb_vec /\ V.length hyb_vec == 1120 /\ Seq.length hbytes == 1120 /\
+          ((not dn) ==> not fd /\
+             Sem.sh_find_hybrid_share cext ==
+             Sem.sh_find_hybrid_share (RV.list_drop (SZ.v iv) cext)) /\
+          (dn ==>
+            (match Sem.sh_find_hybrid_share cext with
+             | Some k -> fd == true /\ Seq.equal hbytes k
+             | None -> fd == false))
+        )
+      decreases %[(if !decided then 0 else 1); (SZ.v count - SZ.v (!i))]
+      {
+        let iv = !i;
+        assert (pure (SZ.v iv < FStar.List.Tot.length cext));
+        let el = V.op_Dot_Lparen_Rparen (snd nv) iv;
+        SMU.seq_list_match_index_trade
+          (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+          s cext (SZ.v iv);
+        Trade.rewrite_with_trade
+          (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+             (Seq.index s (SZ.v iv)) (FStar.List.Tot.index cext (SZ.v iv)))
+          (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+             el (FStar.List.Tot.index cext (SZ.v iv)));
+        Trade.trans
+          (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+             el (FStar.List.Tot.index cext (SZ.v iv)))
+          (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+             (Seq.index s (SZ.v iv)) (FStar.List.Tot.index cext (SZ.v iv)))
+          (SM.seq_list_match s cext
+             (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv));
+        elim_extSH_iffs el;
+        RV.lemma_list_drop_index cext (SZ.v iv);
+        if (GESH.Extension_data_key_share_low? el) {
+          let v0 = GESH.Extension_data_key_share_low?._0 el;
+          elim_vmatch_extSH_key_share v0 el #(FStar.List.Tot.index cext (SZ.v iv));
+          with cm_ks. assert (GKSE.keyShareEntry_vmatch v0 cm_ks);
+          lemma_extSH_ks_conv cm_ks
+            (GESH.Extension_data_key_share?._0 (FStar.List.Tot.index cext (SZ.v iv)));
+          let ok = try_copy_hybrid_share hyb_vec v0 #cm_ks;
+          intro_vmatch_extSH_key_share v0 cm_ks #(FStar.List.Tot.index cext (SZ.v iv));
+          rewrite (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+                     (GESH.Extension_data_key_share_low v0) (FStar.List.Tot.index cext (SZ.v iv)))
+              as (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+                     el (FStar.List.Tot.index cext (SZ.v iv)));
+          Trade.elim
+            (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+               el (FStar.List.Tot.index cext (SZ.v iv)))
+            (SM.seq_list_match s cext
+               (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv));
+          found := ok;
+          decided := true;
+          SZ.fits_lte (SZ.v iv + 1) (SZ.v count);
+          i := iv `SZ.add` 1sz;
+        } else {
+          Trade.elim
+            (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv
+               el (FStar.List.Tot.index cext (SZ.v iv)))
+            (SM.seq_list_match s cext
+               (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv));
+          SZ.fits_lte (SZ.v iv + 1) (SZ.v count);
+          i := iv `SZ.add` 1sz;
+        }
+      };
+      RV.lemma_list_drop_length cext;
+      let fd = !found;
+      fold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                (Some nv) cext);
+      rewrite (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                (Some nv) cext)
+          as (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GESH.extensionServerHello_vmatch GESH.extensionServerHello_conv)
+                ext_lo cext);
+      (hyb_vec, fd)
     }
   }
 }
@@ -4821,6 +5044,392 @@ fn scan_ch_p256_key_share
       let iv = !i;
       RV.lemma_list_drop_length (Ghost.reveal cext);
       RV.lemma_reveal_ch_find_key_share_secp256r1_nil ();
+      assert (pure ((not d) ==> SZ.v iv == FStar.List.Tot.length (Ghost.reveal cext)));
+      fold (PPVCL.vmatch_vclist
+              (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                               GECH.extensionClientHello_conv)
+              (Some nv) cext);
+      rewrite (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                 GECH.extensionClientHello_conv)
+                (Some nv) cext)
+          as (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                 GECH.extensionClientHello_conv)
+                ext_lo cext);
+      (key_vec, f)
+    }
+  }
+}
+
+(* RFC 10024: the X25519MLKEM768 offer (a 1216-byte share), scanned as a
+   third independent pass exactly like the secp256r1 one below.
+
+   Entry-level probe, the exact mirror of [probe_copy_x25519_key] at the other
+   group and width.  [fst res] reports "this entry names x25519mlkem768" -- which is
+   what makes the enclosing scan commit -- and [snd res] additionally reports
+   that it carries a 1216-byte share (ML-KEM-768 ek || X25519). *)
+fn probe_copy_hybrid_key
+  (key_vec: V.vec U8.t)
+  (v0: GKSE.keyShareEntry_lowtype)
+  (#cm: Ghost.erased GKSE.keyShareEntry_mid)
+  requires V.pts_to key_vec 'kv ** GKSE.keyShareEntry_vmatch v0 cm **
+           pure (V.is_full_vec key_vec /\ V.length key_vec == 1216)
+  returns res: (bool & bool)
+  ensures GKSE.keyShareEntry_vmatch v0 cm **
+          (exists* kbytes. V.pts_to key_vec kbytes **
+            pure (V.is_full_vec key_vec /\ V.length key_vec == 1216 /\
+                  Seq.length kbytes == 1216 /\
+                  (fst res <==> GNG.X25519mlkem768? (fst (Ghost.reveal cm))) /\
+                  (snd res <==> (GNG.X25519mlkem768? (fst (Ghost.reveal cm)) /\
+                            Seq.length (snd (Ghost.reveal cm)) == 1216)) /\
+                  (snd res ==> Seq.equal kbytes (snd (Ghost.reveal cm))) /\
+                  ((not (snd res)) ==> Seq.equal kbytes (Ghost.reveal 'kv))))
+{
+  V.pts_to_len key_vec;
+  rewrite (GKSE.keyShareEntry_vmatch v0 cm)
+      as (LPC.vmatch_pair GNG.namedGroup_vmatch GKSE.keyShareEntry_key_exchange_vmatch v0 cm);
+  unfold (LPC.vmatch_pair GNG.namedGroup_vmatch GKSE.keyShareEntry_key_exchange_vmatch v0 cm);
+  rewrite (GNG.namedGroup_vmatch (fst v0) (fst cm))
+      as (LPS.eq_as_slprop GNG.namedGroup (fst v0) (fst cm));
+  unfold (LPS.eq_as_slprop GNG.namedGroup (fst v0) (fst cm));
+  rewrite (GKSE.keyShareEntry_key_exchange_vmatch (snd v0) (snd cm))
+      as (LSeqB.vmatch_copy_seqbytes (snd v0) (snd cm));
+  unfold (LSeqB.vmatch_copy_seqbytes (snd v0) (snd cm));
+  V.pts_to_len (snd v0).PPBY.lvec_vec;
+  let group_lo = fst v0;
+  let key_len = (snd v0).PPBY.lvec_len;
+  let is_p = GNG.X25519mlkem768? group_lo;
+  let len_ok = SZ.eq key_len 1216sz;
+  if (is_p && len_ok) {
+    copy_vec_n_into key_vec (snd v0).PPBY.lvec_vec 1216sz;
+    repack_kse v0;
+    (is_p, true)
+  } else {
+    repack_kse v0;
+    (is_p, false)
+  }
+}
+
+(* The inner walk: [Sem.kse_list_find_x25519mlkem768] stops at the first x25519mlkem768
+   entry regardless of its length, so this is [scan_ch_key_share]'s loop at the
+   other group -- commit on the first matching tag, report success only if that
+   entry also had the right width. *)
+fn scan_kse_list_hybrid
+  (key_vec: V.vec U8.t)
+  (v0: GKSCH.keyShareClientHello_lowtype)
+  (#cm: Ghost.erased GKSCH.keyShareClientHello_mid)
+  requires V.pts_to key_vec 'old_key **
+           PPVCL.vmatch_vclist
+             (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+             v0 cm **
+           pure (V.is_full_vec key_vec /\ V.length key_vec == 1216)
+  returns found: bool
+  ensures PPVCL.vmatch_vclist
+            (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+            v0 cm **
+          (exists* kbytes. V.pts_to key_vec kbytes **
+            pure (V.is_full_vec key_vec /\ V.length key_vec == 1216 /\
+                  Seq.length kbytes == 1216 /\
+                  (match Sem.kse_list_find_x25519mlkem768 (Ghost.reveal cm) with
+                   | Some raw -> (if Seq.length raw = 1216
+                                  then found == true /\ Seq.equal kbytes raw
+                                  else found == false)
+                   | None -> found == false)))
+{
+  V.pts_to_len key_vec;
+  match v0 {
+    None -> {
+      unfold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+                None cm);
+      assert (pure (Ghost.reveal cm == []));
+      RV.lemma_reveal_kse_list_find_x25519mlkem768_nil ();
+      fold (PPVCL.vmatch_vclist
+              (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+              None cm);
+      rewrite (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+                None cm)
+          as (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+                v0 cm);
+      false
+    }
+    Some nv -> {
+      unfold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+                (Some nv) cm);
+      with s. assert (V.pts_to (snd nv) s **
+                      SM.seq_list_match s cm
+                        (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv));
+      V.pts_to_len (snd nv);
+      let count = fst nv;
+      let mut i = 0sz;
+      let mut done_ref = false;
+      let mut found_ref = false;
+      RV.lemma_list_drop_zero (Ghost.reveal cm);
+      while (
+        let d = !done_ref;
+        let iv = !i;
+        (not d) && (iv `SZ.lt` count)
+      )
+      invariant exists* iv d found kbytes.
+        R.pts_to i iv **
+        R.pts_to done_ref d **
+        R.pts_to found_ref found **
+        V.pts_to (snd nv) s **
+        SM.seq_list_match s cm
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv) **
+        V.pts_to key_vec kbytes **
+        pure (
+          SZ.v iv <= SZ.v count /\
+          SZ.v count == FStar.List.Tot.length (Ghost.reveal cm) /\
+          Seq.length s == FStar.List.Tot.length (Ghost.reveal cm) /\
+          V.is_full_vec (snd nv) /\
+          V.is_full_vec key_vec /\ V.length key_vec == 1216 /\ Seq.length kbytes == 1216 /\
+          (d ==>
+            (match Sem.kse_list_find_x25519mlkem768 (Ghost.reveal cm) with
+             | Some raw -> (if Seq.length raw = 1216
+                            then found == true /\ Seq.equal kbytes raw
+                            else found == false)
+             | None -> False)) /\
+          ((not d) ==> found == false /\
+            Sem.kse_list_find_x25519mlkem768 (Ghost.reveal cm) ==
+            Sem.kse_list_find_x25519mlkem768 (RV.list_drop (SZ.v iv) (Ghost.reveal cm))))
+      decreases %[(if !done_ref then 0 else 1); (SZ.v count - SZ.v (!i))]
+      {
+        let iv = !i;
+        assert (pure (SZ.v iv < FStar.List.Tot.length (Ghost.reveal cm)));
+        let el = V.op_Dot_Lparen_Rparen (snd nv) iv;
+        SMU.seq_list_match_index_trade
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+          s (Ghost.reveal cm) (SZ.v iv);
+        Trade.rewrite_with_trade
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+             (Seq.index s (SZ.v iv)) (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv)))
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+             el (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv)));
+        Trade.trans
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+             el (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv)))
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+             (Seq.index s (SZ.v iv)) (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv)))
+          (SM.seq_list_match s (Ghost.reveal cm)
+             (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv));
+        PPB.elim_vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+          el (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv));
+        with em. assert (GKSE.keyShareEntry_vmatch el em **
+                         pure (GKSE.keyShareEntry_conv em ==
+                               Some (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv))));
+        lemma_keyShareEntry_conv_fields em (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv));
+        RV.lemma_list_drop_index (Ghost.reveal cm) (SZ.v iv);
+        RV.lemma_reveal_kse_list_find_x25519mlkem768_cons
+          (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv))
+          (RV.list_drop (SZ.v iv + 1) (Ghost.reveal cm));
+        let res = probe_copy_hybrid_key key_vec el #em;
+        let is_p = fst res;
+        let ok = snd res;
+        PPB.intro_vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+          el em (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv));
+        Trade.elim
+          (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv
+             el (FStar.List.Tot.index (Ghost.reveal cm) (SZ.v iv)))
+          (SM.seq_list_match s (Ghost.reveal cm)
+             (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv));
+        if is_p {
+          if ok {
+            found_ref := true;
+            done_ref := true;
+          } else {
+            done_ref := true;
+          }
+        } else {
+          SZ.fits_lte (SZ.v iv + 1) (SZ.v count);
+          i := iv `SZ.add` 1sz;
+        }
+      };
+      let f = !found_ref;
+      let d = !done_ref;
+      let iv = !i;
+      RV.lemma_list_drop_length (Ghost.reveal cm);
+      RV.lemma_reveal_kse_list_find_x25519mlkem768_nil ();
+      assert (pure ((not d) ==> SZ.v iv == FStar.List.Tot.length (Ghost.reveal cm)));
+      fold (PPVCL.vmatch_vclist
+              (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+              (Some nv) cm);
+      rewrite (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+                (Some nv) cm)
+          as (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch GKSE.keyShareEntry_conv)
+                v0 cm);
+      f
+    }
+  }
+}
+
+(* The outer walk: [Sem.ch_find_key_share_x25519mlkem768] commits at the *first*
+   key_share extension, whatever that list turns out to contain, so this stops
+   there too.  Allocates and returns the 1216-byte storage. *)
+fn scan_ch_hybrid_key_share
+  (ext_lo: GCH.clientHello_extensions_lowtype)
+  (#cext: Ghost.erased GCH.clientHello_extensions_mid)
+  requires PPVCL.vmatch_vclist
+             (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                              GECH.extensionClientHello_conv)
+             ext_lo cext
+  returns res: (V.vec U8.t & bool)
+  ensures PPVCL.vmatch_vclist
+            (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                             GECH.extensionClientHello_conv)
+            ext_lo cext **
+          (exists* kbytes. V.pts_to (fst res) kbytes **
+            pure (V.is_full_vec (fst res) /\ V.length (fst res) == 1216 /\
+                  Seq.length kbytes == 1216 /\
+                  (match Sem.ch_find_key_share_x25519mlkem768 (Ghost.reveal cext) with
+                   | Some raw -> (if Seq.length raw = 1216
+                                  then (snd res) == true /\ Seq.equal kbytes raw
+                                  else (snd res) == false)
+                   | None -> (snd res) == false)))
+{
+  let key_vec = V.alloc 0uy 1216sz;
+  match ext_lo {
+    None -> {
+      unfold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                 GECH.extensionClientHello_conv)
+                None cext);
+      assert (pure (Ghost.reveal cext == []));
+      RV.lemma_reveal_ch_find_key_share_x25519mlkem768_nil ();
+      fold (PPVCL.vmatch_vclist
+              (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                               GECH.extensionClientHello_conv)
+              None cext);
+      rewrite (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                 GECH.extensionClientHello_conv)
+                None cext)
+          as (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                 GECH.extensionClientHello_conv)
+                ext_lo cext);
+      (key_vec, false)
+    }
+    Some nv -> {
+      unfold (PPVCL.vmatch_vclist
+                (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                 GECH.extensionClientHello_conv)
+                (Some nv) cext);
+      with s. assert (V.pts_to (snd nv) s **
+                      SM.seq_list_match s cext
+                        (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                         GECH.extensionClientHello_conv));
+      V.pts_to_len (snd nv);
+      let count = fst nv;
+      let mut i = 0sz;
+      let mut done_ref = false;
+      let mut found_ref = false;
+      RV.lemma_list_drop_zero (Ghost.reveal cext);
+      while (
+        let d = !done_ref;
+        let iv = !i;
+        (not d) && (iv `SZ.lt` count)
+      )
+      invariant exists* iv d found kbytes.
+        R.pts_to i iv **
+        R.pts_to done_ref d **
+        R.pts_to found_ref found **
+        V.pts_to (snd nv) s **
+        SM.seq_list_match s cext
+          (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                           GECH.extensionClientHello_conv) **
+        V.pts_to key_vec kbytes **
+        pure (
+          SZ.v iv <= SZ.v count /\
+          SZ.v count == FStar.List.Tot.length (Ghost.reveal cext) /\
+          Seq.length s == FStar.List.Tot.length (Ghost.reveal cext) /\
+          V.is_full_vec (snd nv) /\
+          V.is_full_vec key_vec /\ V.length key_vec == 1216 /\ Seq.length kbytes == 1216 /\
+          (d ==>
+            (match Sem.ch_find_key_share_x25519mlkem768 (Ghost.reveal cext) with
+             | Some raw -> (if Seq.length raw = 1216
+                            then found == true /\ Seq.equal kbytes raw
+                            else found == false)
+             | None -> found == false)) /\
+          ((not d) ==> found == false /\
+            Sem.ch_find_key_share_x25519mlkem768 (Ghost.reveal cext) ==
+            Sem.ch_find_key_share_x25519mlkem768 (RV.list_drop (SZ.v iv) (Ghost.reveal cext))))
+      decreases %[(if !done_ref then 0 else 1); (SZ.v count - SZ.v (!i))]
+      {
+        let iv = !i;
+        assert (pure (SZ.v iv < FStar.List.Tot.length (Ghost.reveal cext)));
+        let el = V.op_Dot_Lparen_Rparen (snd nv) iv;
+        SMU.seq_list_match_index_trade
+          (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv)
+          s (Ghost.reveal cext) (SZ.v iv);
+        Trade.rewrite_with_trade
+          (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv
+             (Seq.index s (SZ.v iv)) (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+          (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv
+             el (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)));
+        Trade.trans
+          (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv
+             el (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+          (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv
+             (Seq.index s (SZ.v iv)) (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+          (SM.seq_list_match s (Ghost.reveal cext)
+             (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv));
+        elim_extCH_iffs el;
+        RV.lemma_list_drop_index (Ghost.reveal cext) (SZ.v iv);
+        if (GECH.Extension_data_key_share_low? el) {
+          let v = GECH.Extension_data_key_share_low?._0 el;
+          RV.lemma_reveal_ch_find_key_share_x25519mlkem768_cons_ks
+            (GECH.Extension_data_key_share?._0
+              (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+            (RV.list_drop (SZ.v iv + 1) (Ghost.reveal cext));
+          elim_vmatch_extCH_ks v el #(FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv));
+          with cm_ks. assert (PPVCL.vmatch_vclist
+                                (PPB.vmatch_conv GKSE.keyShareEntry_vmatch
+                                                 GKSE.keyShareEntry_conv)
+                                v cm_ks);
+          let ok = scan_kse_list_hybrid key_vec v #cm_ks;
+          intro_vmatch_extCH_ks v cm_ks
+            #(FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv));
+          rewrite (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                     GECH.extensionClientHello_conv
+                     (GECH.Extension_data_key_share_low v)
+                     (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+              as (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                     GECH.extensionClientHello_conv
+                     el (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)));
+          Trade.elim
+            (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv
+               el (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+            (SM.seq_list_match s (Ghost.reveal cext)
+               (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                GECH.extensionClientHello_conv));
+          found_ref := ok;
+          done_ref := true;
+        } else {
+          RV.lemma_reveal_ch_find_key_share_x25519mlkem768_cons_other
+            (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv))
+            (RV.list_drop (SZ.v iv + 1) (Ghost.reveal cext));
+          Trade.elim
+            (PPB.vmatch_conv GECH.extensionClientHello_vmatch GECH.extensionClientHello_conv
+               el (FStar.List.Tot.index (Ghost.reveal cext) (SZ.v iv)))
+            (SM.seq_list_match s (Ghost.reveal cext)
+               (PPB.vmatch_conv GECH.extensionClientHello_vmatch
+                                GECH.extensionClientHello_conv));
+          SZ.fits_lte (SZ.v iv + 1) (SZ.v count);
+          i := iv `SZ.add` 1sz;
+        }
+      };
+      let f = !found_ref;
+      let d = !done_ref;
+      let iv = !i;
+      RV.lemma_list_drop_length (Ghost.reveal cext);
+      RV.lemma_reveal_ch_find_key_share_x25519mlkem768_nil ();
       assert (pure ((not d) ==> SZ.v iv == FStar.List.Tot.length (Ghost.reveal cext)));
       fold (PPVCL.vmatch_vclist
               (PPB.vmatch_conv GECH.extensionClientHello_vmatch
@@ -6155,6 +6764,8 @@ fn parse_handshake_message
                 GCS.TLS_CHACHA20_POLY1305_SHA256 -> {
                   let res = scan_sh_key_share (snd (snd (dsnd (snd (snd xsh)))));
                   with kbytes. assert (V.pts_to (Mktuple3?._1 res) kbytes);
+                  let hres = scan_sh_hybrid_share (snd (snd (dsnd (snd (snd xsh)))));
+                  with hbytes. assert (V.pts_to (fst hres) hbytes);
                   let randvec = V.alloc 0uy 32sz;
                   unfold (LSeqB.vmatch_copy_seqbytes (fst (snd xsh)) (fst (snd cm)));
                   V.pts_to_len (fst (snd xsh)).PPBY.lvec_vec;
@@ -6196,7 +6807,7 @@ fn parse_handshake_message
                     ((Ghost.reveal sf).GSHB.value.GSHBody.extensions <: list GESH.extensionServerHello);
                   WS.lemma_serverHello_representable (Ghost.reveal cse <: GHS.handshake_body_server_hello);
                   RV.lemma_handshake_synth_server_hello_sh (Ghost.reveal cse <: GHS.handshake_body_server_hello) (Ghost.reveal sf);
-                  let found = Mktuple3?._2 res;
+                  let found = Mktuple3?._2 res || snd hres;
                   if found {
                     RV.lemma_ptm_handshake_some (Ghost.reveal 'input_bytes) (Ghost.reveal gv)
                       (Some?.v (RV.handshake_synth (Ghost.reveal gv)));
@@ -6206,6 +6817,8 @@ fn parse_handshake_message
                                  L.server_hello_session_id_len = sidlen;
                                  L.server_hello_key_share = Mktuple3?._1 res;
                                  L.server_hello_kex_group = Mktuple3?._3 res;
+                                 L.server_hello_hybrid_share = fst hres;
+                                 L.server_hello_is_hybrid = not (Mktuple3?._2 res);
                                  L.server_hello_cipher_suite = 0x1303us });
                     rewrite (V.pts_to randvec rbytes)
                          as (V.pts_to lsh.L.server_hello_random rbytes);
@@ -6213,6 +6826,8 @@ fn parse_handshake_message
                          as (V.pts_to lsh.L.server_hello_session_id sidbytes);
                     rewrite (V.pts_to (Mktuple3?._1 res) kbytes)
                          as (V.pts_to lsh.L.server_hello_key_share kbytes);
+                    rewrite (V.pts_to (fst hres) hbytes)
+                         as (V.pts_to lsh.L.server_hello_hybrid_share hbytes);
                     fold (L.is_valid_server_hello lsh
                             (M.ServerHello?._0 (Some?.v (RV.handshake_synth (Ghost.reveal gv)))));
                     fold (L.is_valid_handshake_msg (L.LServerHello lsh)
@@ -6240,6 +6855,7 @@ fn parse_handshake_message
                     V.free randvec;
                     V.free sidvec;
                     V.free (Mktuple3?._1 res);
+                    V.free (fst hres);
                     RV.lemma_parse_handshake_none_of_synth_none (Ghost.reveal 'input_bytes)
                       (Ghost.reveal gv) (SZ.v input_len);
                     handshake_fallback content_type input input_len
@@ -6248,6 +6864,8 @@ fn parse_handshake_message
                 GCS.TLS_AES_128_GCM_SHA256 -> {
                   let res = scan_sh_key_share (snd (snd (dsnd (snd (snd xsh)))));
                   with kbytes. assert (V.pts_to (Mktuple3?._1 res) kbytes);
+                  let hres = scan_sh_hybrid_share (snd (snd (dsnd (snd (snd xsh)))));
+                  with hbytes. assert (V.pts_to (fst hres) hbytes);
                   let randvec = V.alloc 0uy 32sz;
                   unfold (LSeqB.vmatch_copy_seqbytes (fst (snd xsh)) (fst (snd cm)));
                   V.pts_to_len (fst (snd xsh)).PPBY.lvec_vec;
@@ -6289,7 +6907,7 @@ fn parse_handshake_message
                     ((Ghost.reveal sf).GSHB.value.GSHBody.extensions <: list GESH.extensionServerHello);
                   WS.lemma_serverHello_representable (Ghost.reveal cse <: GHS.handshake_body_server_hello);
                   RV.lemma_handshake_synth_server_hello_sh (Ghost.reveal cse <: GHS.handshake_body_server_hello) (Ghost.reveal sf);
-                  let found = Mktuple3?._2 res;
+                  let found = Mktuple3?._2 res || snd hres;
                   if found {
                     RV.lemma_ptm_handshake_some (Ghost.reveal 'input_bytes) (Ghost.reveal gv)
                       (Some?.v (RV.handshake_synth (Ghost.reveal gv)));
@@ -6299,6 +6917,8 @@ fn parse_handshake_message
                                  L.server_hello_session_id_len = sidlen;
                                  L.server_hello_key_share = Mktuple3?._1 res;
                                  L.server_hello_kex_group = Mktuple3?._3 res;
+                                 L.server_hello_hybrid_share = fst hres;
+                                 L.server_hello_is_hybrid = not (Mktuple3?._2 res);
                                  L.server_hello_cipher_suite = 0x1301us });
                     rewrite (V.pts_to randvec rbytes)
                          as (V.pts_to lsh.L.server_hello_random rbytes);
@@ -6306,6 +6926,8 @@ fn parse_handshake_message
                          as (V.pts_to lsh.L.server_hello_session_id sidbytes);
                     rewrite (V.pts_to (Mktuple3?._1 res) kbytes)
                          as (V.pts_to lsh.L.server_hello_key_share kbytes);
+                    rewrite (V.pts_to (fst hres) hbytes)
+                         as (V.pts_to lsh.L.server_hello_hybrid_share hbytes);
                     fold (L.is_valid_server_hello lsh
                             (M.ServerHello?._0 (Some?.v (RV.handshake_synth (Ghost.reveal gv)))));
                     fold (L.is_valid_handshake_msg (L.LServerHello lsh)
@@ -6333,6 +6955,7 @@ fn parse_handshake_message
                     V.free randvec;
                     V.free sidvec;
                     V.free (Mktuple3?._1 res);
+                    V.free (fst hres);
                     RV.lemma_parse_handshake_none_of_synth_none (Ghost.reveal 'input_bytes)
                       (Ghost.reveal gv) (SZ.v input_len);
                     handshake_fallback content_type input input_len
@@ -6542,6 +7165,19 @@ fn parse_handshake_message
                               then (snd p256_res) == true /\ Seq.equal p256bytes raw
                               else (snd p256_res) == false)
                | None -> (snd p256_res) == false)));
+          (* RFC 10024: the X25519MLKEM768 offer, a third independent pass. *)
+          let hyb_res = scan_ch_hybrid_key_share (snd (snd xch)) #(snd (snd cm));
+          with hybbytes. assert (
+            V.pts_to (fst hyb_res) hybbytes **
+            pure (
+              V.is_full_vec (fst hyb_res) /\
+              V.length (fst hyb_res) == 1216 /\
+              Seq.length hybbytes == 1216 /\
+              (match Sem.ch_find_key_share_x25519mlkem768 (Ghost.reveal (snd (snd cm))) with
+               | Some raw -> (if Seq.length raw = 1216
+                              then (snd hyb_res) == true /\ Seq.equal hybbytes raw
+                              else (snd hyb_res) == false)
+               | None -> (snd hyb_res) == false)));
           intro_vmatch_client_hello xch cm #(Ghost.reveal gv);
           PPB.free_vmatch_conv GHS.handshake_vmatch GHS.handshake_conv
             GHS.free_handshake (GHS.Body_client_hello_low xch);
@@ -6627,6 +7263,8 @@ fn parse_handshake_message
                          L.client_hello_has_x25519_key_share = Mktuple8?._5 ext_res;
                          L.client_hello_p256_key_share = fst p256_res;
                          L.client_hello_has_p256_key_share = snd p256_res;
+                         L.client_hello_hybrid_key_share = fst hyb_res;
+                         L.client_hello_has_hybrid_key_share = snd hyb_res;
                          L.client_hello_cipher_suites = Mktuple3?._1 cs_res;
                          L.client_hello_cipher_suites_len = Mktuple3?._2 cs_res;
                          L.client_hello_signature_schemes = Mktuple8?._6 ext_res;
@@ -6641,6 +7279,8 @@ fn parse_handshake_message
                  as (V.pts_to lch.L.client_hello_key_share kbytes);
             rewrite (V.pts_to (fst p256_res) p256bytes)
                  as (V.pts_to lch.L.client_hello_p256_key_share p256bytes);
+            rewrite (V.pts_to (fst hyb_res) hybbytes)
+                 as (V.pts_to lch.L.client_hello_hybrid_key_share hybbytes);
             rewrite (V.pts_to (Mktuple3?._1 cs_res) csbytes)
                  as (V.pts_to lch.L.client_hello_cipher_suites csbytes);
             rewrite (V.pts_to (Mktuple8?._6 ext_res) sigbytes)
@@ -6715,6 +7355,11 @@ fn parse_handshake_message
             assert (pure (Sem.clientHello_key_share_secp256r1 (Ghost.reveal mch) ==
                           Sem.ch_find_key_share_secp256r1
                             (Ghost.reveal (snd (snd cm)))));
+            assert (pure (Sem.clientHello_key_share_x25519mlkem768 (Ghost.reveal mch) ==
+                          Sem.ch_find_key_share_x25519mlkem768
+                            (Ghost.reveal (snd (snd cm)))));
+            assert (pure (V.is_full_vec lch.L.client_hello_hybrid_key_share));
+            assert (pure (V.length lch.L.client_hello_hybrid_key_share == 1216));
             assert (pure (V.length lch.L.client_hello_cipher_suites == L.max_cipher_suites));
             assert (pure (V.length lch.L.client_hello_signature_schemes == L.max_signature_schemes));
             assert (pure (SZ.v lch.L.client_hello_server_name_len <= B.length snbytes));
@@ -6741,6 +7386,7 @@ fn parse_handshake_message
             V.free (Mktuple8?._4 ext_res);
             V.free (Mktuple8?._6 ext_res);
             V.free (fst p256_res);
+            V.free (fst hyb_res);
             assert (pure (not (cipher_ok && ext_ok)));
             assert (pure (Ghost.reveal gv ==
                           GHS.Body_client_hello (Ghost.reveal ch_body)));

@@ -9,6 +9,7 @@ module TLS13.ConnectionState.Lemmas
 
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
+module KX = TLS13.Crypto.Kex.Spec
 module CL = TLS13.ConnectionLog
 module H = TLS13.Handshake.Spec
 module ID = FStar.IndefiniteDescription
@@ -183,8 +184,8 @@ let lemma_legal_local_event_stable_client_x25519_key_share_projection
         | Some sk ->
           (match server_hello_key_share sh with
            | Some ks ->
-             assert (C.x25519_shared sk ks == Some old_shared);
-             assert (C.x25519_shared sk ks == Some shared);
+             assert (C.widen_secret (C.x25519_shared sk ks) == Some old_shared);
+             assert (C.widen_secret (C.x25519_shared sk ks) == Some shared);
              assert (shared == old_shared)
            | None -> assert False)
         | None ->
@@ -990,7 +991,7 @@ let lemma_update_key_schedule_with_install_reachable_shape
 let lemma_derive_shared_secret_model_reachable_shape
   (model:connection_model)
   (hs:handshake_state)
-  (shared:C.x25519_shared_secret)
+  (shared:C.kex_shared_secret_any)
   : Lemma
       (requires traffic_material_slots_have_base_secret hs.hs_keys)
       (ensures
@@ -1369,9 +1370,16 @@ let lemma_legal_local_event_client_x25519_reachable_shape
          (match start_kex_private start g with
           | Some sk ->
             assert (C.kex_public_from_private g sk == start_kex_public start g);
-            assert (C.kex_shared g sk sh_ks == Some shared)
+            assert (C.widen_secret (C.kex_shared g sk sh_ks) == Some shared)
           | None -> assert False)
-       | None -> assert False)
+       | None ->
+         (* The X25519MLKEM768 side arm. *)
+         (match server_hello_hybrid_share sh, start.start_client_hybrid_private with
+          | Some sh_ks, Some sk ->
+            assert (client_hello_hybrid_key_share ch == Some start.start_client_hybrid_public);
+            assert (KX.kex_client_public C.KexX25519MLKEM768 sk == start.start_client_hybrid_public);
+            assert (KX.kex_client_shared C.KexX25519MLKEM768 sk sh_ks == Some shared)
+          | _, _ -> assert False))
      | _, _, _ ->
       assert False);
     assert (stable_client_x25519_key_share_projection st1);
@@ -1464,10 +1472,20 @@ let lemma_legal_local_event_server_x25519_reachable_shape
             server_kex_public selection g);
           (match client_hello_kex selection.server_selected_client_hello g with
            | Some ch_ks ->
-             assert (C.kex_shared g server_sk ch_ks == Some shared)
+             assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
            | None -> assert False)
         | None ->
-          assert False)
+          (* The X25519MLKEM768 side arm. *)
+          assert (hs0.hs_client_hello ==
+            Some selection.server_selected_client_hello);
+          assert (server_selects_hybrid selection);
+          (match
+             selection.server_hybrid_private,
+             client_hello_hybrid_key_share selection.server_selected_client_hello
+           with
+           | Some server_sk, Some ch_ks ->
+             assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some shared)
+           | _, _ -> assert False))
      | None ->
        assert False);
     assert (server_x25519_reachable_shape st1)
@@ -1580,9 +1598,16 @@ let lemma_connection_delta_client_x25519_reachable_shape
                  (match start_kex_private start g with
                   | Some sk ->
                     assert (C.kex_public_from_private g sk == start_kex_public start g);
-                    assert (C.kex_shared g sk sh_ks == Some shared)
+                    assert (C.widen_secret (C.kex_shared g sk sh_ks) == Some shared)
                   | None -> assert False)
-               | None -> assert False)
+               | None ->
+                 (* The X25519MLKEM768 side arm. *)
+                 (match server_hello_hybrid_share sh, start.start_client_hybrid_private with
+                  | Some sh_ks, Some sk ->
+                    assert (client_hello_hybrid_key_share ch == Some start.start_client_hybrid_public);
+                    assert (KX.kex_client_public C.KexX25519MLKEM768 sk == start.start_client_hybrid_public);
+                    assert (KX.kex_client_shared C.KexX25519MLKEM768 sk sh_ks == Some shared)
+                  | _, _ -> assert False))
             | _, _, _ ->
               assert False);
             assert (stable_client_x25519_key_share_projection st1);
@@ -1614,7 +1639,7 @@ let lemma_connection_delta_client_x25519_reachable_shape
                 Some start.start_client_key_share_public);
               assert (client_hello_p256_key_share ch ==
                 Some start.start_client_p256_public);
-              introduce forall (g:C.kex_group).
+              introduce forall (g:C.dh_group).
                 client_hello_kex ch g == Some (start_kex_public start g) /\
                 (match start_kex_private start g with
                  | Some sk -> C.kex_public_from_private g sk == start_kex_public start g
@@ -1769,10 +1794,22 @@ let lemma_connection_delta_server_x25519_reachable_shape
                       server_kex_public selection g);
                     (match client_hello_kex ch g with
                      | Some ch_ks ->
-                       assert (C.kex_shared g server_sk ch_ks == Some shared)
+                       assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
                      | None -> assert False)
                   | None ->
-                    assert False)
+                    (* The X25519MLKEM768 side arm: the ServerHello carries the
+                       ciphertext the selection encapsulated. *)
+                    assert (server_selects_hybrid selection);
+                    assert (server_hello_matches_selection selection sh);
+                    assert (server_hello_kex sh == None);
+                    (match selection.server_hybrid_private, client_hello_hybrid_key_share ch with
+                     | Some server_sk, Some ch_ks ->
+                       assert (selection.server_selected_client_hello == ch);
+                       assert (server_hello_hybrid_share sh == Some selection.server_hybrid_share);
+                       assert (KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks ==
+                               Some selection.server_hybrid_share);
+                       assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some shared)
+                     | _, _ -> assert False))
                | _, _, _ ->
                  assert False);
                assert (stable_server_x25519_key_share_projection st1);
@@ -1858,10 +1895,20 @@ let lemma_connection_delta_server_x25519_reachable_shape
                    server_kex_public selection g);
                  (match client_hello_kex selection.server_selected_client_hello g with
                   | Some ch_ks ->
-                    assert (C.kex_shared g server_sk ch_ks == Some shared)
+                    assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared)
                   | None -> assert False)
                | None ->
-                 assert False)
+                 (* The X25519MLKEM768 side arm. *)
+                 assert (st0.cs_model.model_handshake.hs_client_hello ==
+                   Some selection.server_selected_client_hello);
+                 assert (server_selects_hybrid selection);
+                 (match
+                    selection.server_hybrid_private,
+                    client_hello_hybrid_key_share selection.server_selected_client_hello
+                  with
+                  | Some server_sk, Some ch_ks ->
+                    assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some shared)
+                  | _, _ -> assert False))
             | None ->
               assert False);
             assert (server_x25519_reachable_shape st1)
@@ -2068,7 +2115,11 @@ let lemma_connection_state_consistent_server_pre_server_hello_shape
         (match st.cs_model.model_handshake.hs_server_selection with
          | Some selection ->
            server_selection_key_share_consistent selection /\
-           Some? selection.server_key_share_private /\
+           (* An (EC)DH selection holds its DH private; the X25519MLKEM768
+              one holds its hybrid randomness instead. *)
+           (if server_selects_hybrid selection
+            then Some? selection.server_hybrid_private
+            else Some? selection.server_key_share_private) /\
            (* G2 stage S6.8d: the selection was made from the stored
               ClientHello.  Needed by the ServerHello writer, which reads the
               negotiated group off the stored ClientHello's metadata and has to
@@ -2082,6 +2133,11 @@ let lemma_connection_state_consistent_server_pre_server_hello_shape
   assert (server_x25519_pre_server_hello_projection st);
   match st.cs_model.model_handshake.hs_server_selection with
   | Some selection ->
+    if server_selects_hybrid selection then
+      (match selection.server_hybrid_private, st.cs_model.model_handshake.hs_client_hello with
+       | Some _, _ -> ()
+       | None, _ -> assert False)
+    else
     (match selection.server_key_share_private with
      | Some server_sk ->
        assert (C.x25519_public_from_private server_sk ==
@@ -4028,7 +4084,9 @@ let lemma_paired_x25519_key_shares_shared_secret_agree
   (client:connection_state)
   (server:connection_state)
   : Lemma
-      (requires paired_x25519_key_shares client server)
+      (requires
+        paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server)
       (ensures shared_secret_material_agrees client server)
 =
   let client_hs = client.cs_model.model_handshake in
@@ -4062,8 +4120,8 @@ let lemma_paired_x25519_key_shares_shared_secret_agree
           | Some ch_ks ->
             assert (ch_ks == start_kex_public start g);
             assert (sh_ks == server_kex_public selection g);
-            assert (C.kex_shared g client_sk sh_ks == Some client_shared);
-            assert (C.kex_shared g server_sk ch_ks == Some server_shared);
+            assert (C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared);
+            assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
             assert (C.kex_shared g client_sk sh_ks ==
                     C.kex_shared g server_sk ch_ks);
             assert (Some client_shared == Some server_shared);
@@ -4071,7 +4129,26 @@ let lemma_paired_x25519_key_shares_shared_secret_agree
             Seq.lemma_eq_intro client_shared server_shared
           | None -> assert False)
        | _, _, _, _ -> assert False)
-     | None -> assert False)
+     | None ->
+      (* The X25519MLKEM768 side arm: KEM agreement under D6. *)
+      (match
+        server_hello_hybrid_share sh,
+        start.start_client_hybrid_private,
+        selection.server_hybrid_private,
+        client_hello_hybrid_key_share ch,
+        client_hs.hs_keys.ks_shared_secret,
+        server_hs.hs_keys.ks_shared_secret
+       with
+       | Some sh_ks, Some client_sk, Some server_sk, Some ch_ks,
+         Some client_shared, Some server_shared ->
+         assert (KX.kex_agreement_ok C.KexX25519MLKEM768 client_sk server_sk);
+         KX.lemma_kex_agreement C.KexX25519MLKEM768 client_sk server_sk;
+         assert (ch_ks == KX.kex_client_public C.KexX25519MLKEM768 client_sk);
+         assert (KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks ==
+                 KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks);
+         assert (client_shared == server_shared);
+         Seq.lemma_eq_intro client_shared server_shared
+       | _, _, _, _, _, _ -> assert False))
   | _, _, _, _ -> assert False
 
 #restart-solver
@@ -4134,6 +4211,7 @@ let lemma_paired_x25519_key_shares_base_secret_agree
   : Lemma
       (requires
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server)
       (ensures base_secret_inputs_agree base_id client server)
@@ -4149,6 +4227,7 @@ let lemma_paired_x25519_key_shares_derivation_inputs_agree
       (requires
         first_milestone_derived_key_id key_id /\
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server /\
         derivation_checkpoint_inputs_agree key_id client server)
@@ -4188,6 +4267,7 @@ let lemma_paired_x25519_key_shares_derived_key_agrees
       (requires
         first_milestone_derived_key_id key_id /\
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server /\
         derivation_checkpoint_inputs_agree key_id client server)
@@ -4238,6 +4318,7 @@ let lemma_paired_supported_profile_all_derived_key_material_agrees
   : Lemma
       (requires
         paired_x25519_key_shares client server /\
+        paired_kex_agreement_ok client server /\
         connection_supported_profile_key_schedule_lineage client /\
         connection_supported_profile_key_schedule_lineage server /\
         paired_key_derivation_checkpoints client server)

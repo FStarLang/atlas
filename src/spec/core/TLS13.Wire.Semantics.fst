@@ -155,6 +155,28 @@ let rec ch_find_key_share_secp256r1 (l: list GECH.extensionClientHello)
 let clientHello_key_share_secp256r1 (ch: GCH.clientHello) : option (Seq.seq U8.t) =
   ch_find_key_share_secp256r1 (ch.GCH.extensions <: list GECH.extensionClientHello)
 
+/// The X25519MLKEM768 (RFC 10024) entry of the ClientHello key_share
+/// extension: ML-KEM-768 encapsulation key followed by an X25519 public key.
+let rec kse_list_find_x25519mlkem768 (l: list GKE.keyShareEntry)
+  : Tot (option (Seq.seq U8.t)) (decreases l)
+  = match l with
+    | [] -> None
+    | entry :: tl ->
+      if GNG.X25519mlkem768? entry.GKE.group
+      then Some (entry.GKE.key_exchange <: Seq.seq U8.t)
+      else kse_list_find_x25519mlkem768 tl
+
+let rec ch_find_key_share_x25519mlkem768 (l: list GECH.extensionClientHello)
+  : Tot (option (Seq.seq U8.t)) (decreases l)
+  = match l with
+    | [] -> None
+    | GECH.Extension_data_key_share ks :: _ ->
+      kse_list_find_x25519mlkem768 (ks <: list GKE.keyShareEntry)
+    | _ :: tl -> ch_find_key_share_x25519mlkem768 tl
+
+let clientHello_key_share_x25519mlkem768 (ch: GCH.clientHello) : option (Seq.seq U8.t) =
+  ch_find_key_share_x25519mlkem768 (ch.GCH.extensions <: list GECH.extensionClientHello)
+
 /// Walk the ClientHello extensions for the first signature_algorithms ext.
 let rec ch_find_sig_algs (l: list GECH.extensionClientHello)
   : Tot (option (list GSS.signatureScheme)) (decreases l)
@@ -267,6 +289,11 @@ let named_group_share_len (g: GNG.namedGroup) : nat =
   | GNG.Secp256r1 -> 65
   | _ -> 0
 
+/// The hybrid's shares differ by direction (RFC 10024 section 3): the client
+/// sends an encapsulation key, the server a ciphertext.
+let x25519mlkem768_client_share_len : nat = 1216
+let x25519mlkem768_server_share_len : nat = 1120
+
 /// A share ATLAS can hold in its 65-byte key-share buffers: exactly the widths
 /// of the two groups it offers, so that `C.pad_share_65` applies directly.
 let offered_share = C.kex_public_any
@@ -274,10 +301,17 @@ let offered_share = C.kex_public_any
 /// The key-exchange group a `NamedGroup` denotes.  ATLAS offers exactly two;
 /// any other group is rejected before this is consulted (`sh_find_kex_share`
 /// returns `None` for it), so the catch-all is never the negotiated answer.
-let kex_group_of_named_group (g: GNG.namedGroup) : C.kex_group =
+let kex_group_of_named_group (g: GNG.namedGroup) : C.dh_group =
   match g with
   | GNG.Secp256r1 -> C.KexP256
   | _ -> C.KexX25519
+
+/// The group a `NamedGroup` denotes, including the X25519MLKEM768 hybrid
+/// (RFC 10024).  Agrees with `kex_group_of_named_group` on every other tag.
+let kex_group_of_named_group_full (g: GNG.namedGroup) : C.kex_group =
+  match g with
+  | GNG.X25519mlkem768 -> C.KexX25519MLKEM768
+  | _ -> kex_group_of_named_group g
 
 /// The first `key_share` entry of a ServerHello extension list, accepted only
 /// at a group ATLAS offers and only at that group's exact share length.
@@ -363,6 +397,49 @@ let lemma_serverHello_kex_share_x25519 (sh: GSH.serverHello)
     | None -> ()
     | Some body ->
       lemma_sh_find_kex_share_x25519 (body.GSHB.extensions <: list GESH.extensionServerHello)
+
+/// The server's X25519MLKEM768 share (RFC 10024): the first `key_share`
+/// entry, accepted only when it names the hybrid at the 1120-byte ciphertext
+/// length.  It reads the same entry as `sh_find_kex_share`, so at most one of
+/// the two answers.
+let rec sh_find_hybrid_share (l: list GESH.extensionServerHello)
+  : Tot (option (Seq.seq U8.t)) (decreases l)
+  = match l with
+    | [] -> None
+    | GESH.Extension_data_key_share kse :: _ ->
+      let k = ((kse <: GKE.keyShareEntry).GKE.key_exchange <: Seq.seq U8.t) in
+      if GNG.X25519mlkem768? (kse <: GKE.keyShareEntry).GKE.group &&
+         Seq.length k = x25519mlkem768_server_share_len
+      then Some k
+      else None
+    | _ :: tl -> sh_find_hybrid_share tl
+
+let serverHello_hybrid_share (sh: GSH.serverHello) : option (Seq.seq U8.t) =
+  match serverHello_body sh with
+  | None -> None
+  | Some body -> sh_find_hybrid_share (body.GSHB.extensions <: list GESH.extensionServerHello)
+
+let rec lemma_sh_find_hybrid_share_exclusive (l: list GESH.extensionServerHello)
+  : Lemma
+      (ensures (match sh_find_hybrid_share l with
+                | Some k -> Seq.length k == 1120 /\ sh_find_kex_share l == None
+                | None -> True))
+      (decreases l)
+  = match l with
+    | [] -> ()
+    | GESH.Extension_data_key_share _ :: _ -> ()
+    | _ :: tl -> lemma_sh_find_hybrid_share_exclusive tl
+
+let lemma_serverHello_hybrid_share_exclusive (sh: GSH.serverHello)
+  : Lemma
+      (ensures (match serverHello_hybrid_share sh with
+                | Some k -> Seq.length k == 1120 /\ serverHello_kex_share sh == None
+                | None -> True))
+      [SMTPat (serverHello_hybrid_share sh)]
+  = match serverHello_body sh with
+    | None -> ()
+    | Some body ->
+      lemma_sh_find_hybrid_share_exclusive (body.GSHB.extensions <: list GESH.extensionServerHello)
 
 /// The selected protocol version from the ServerHello supported_versions ext.
 let rec sh_find_selected_version (l: list GESH.extensionServerHello)

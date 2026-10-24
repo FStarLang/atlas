@@ -29,6 +29,7 @@ module W = TLS13.Wire.Spec
 module GSH = TLS13.Wire.Generated.ServerHello
 module GNG = TLS13.Wire.Generated.NamedGroup
 module GSHbody = TLS13.Wire.Generated.ServerHello_body
+module SerH = TLS13.Impl.Serializer.Handshake
 module GCS = TLS13.Wire.Generated.CipherSuite
 module GEE = TLS13.Wire.Generated.EncryptedExtensions
 module GCert = TLS13.Wire.Generated.Certificate
@@ -77,7 +78,7 @@ val lemma_serialize_handshake_finished_len (fin: GFin.finished)
    share width follows it: 32 bytes at X25519, 65 at secp256r1 (RFC 8446 4.2.8.2
    / RFC 8422 5.4.1's uncompressed point).  Both are carried explicitly rather
    than recovered from |key_share| -- the design law at
-   TLS13.Crypto.Spec.kex_group.  Since G2 stage S6.8d callers pass the group
+   TLS13.Crypto.Spec.dh_group.  Since G2 stage S6.8d callers pass the group
    the stored ClientHello's accepted key_share offer names
    ([CM.stored_client_hello_named_group]) together with a share of that group's
    width, so both arms are reachable. *)
@@ -213,7 +214,7 @@ val lemma_input_ready_server_hello_of_selection
   (material: B.bytes)
   : Lemma
     (requires
-      B.length material == 64 /\
+      B.length material == 128 /\
       st.CS.cs_model.CS.model_control ==
         CS.ControlHandshaking CS.HsClientHelloReceived /\
       st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
@@ -391,7 +392,7 @@ fn process_send_server_hello
 fn process_send_server_hello_serialized
   (s:server)
   (lsh:IM.server_hello)
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (sid_len:SZ.t)
   (#sh:erased GSH.serverHello)
   (#server_random_bytes: erased B.bytes)
@@ -575,6 +576,73 @@ fn process_send_server_hello_with_derived_public_from_private_array
                       'st0
                       sh
                       network_out_bytes)) /\
+                ST.server_local_event_end_to_end_correct
+                  'st0
+                  st1
+                  resp
+                  ST.LocalSendServerHello
+                  B.empty
+                  network_out_bytes
+                  app_out_bytes)
+
+(* The canonical X25519MLKEM768 ServerHello (RFC 10024) for the stored
+   ClientHello: the given random and hybrid ciphertext, the echoed session id
+   and the negotiated suite. *)
+noextract
+let hybrid_server_hello_witness
+  (st:CS.connection_state)
+  (rnd:B.bytes{Seq.length rnd == 32 /\ (rnd <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst})
+  (share:B.bytes{Seq.length share == 1120})
+  : GSH.serverHello
+  = SerH.poc_canonical_sh rnd share (CM.stored_client_hello_session_id st)
+      GNG.X25519mlkem768 (CM.server_selected_suite st)
+
+fn process_send_hybrid_server_hello_from_arrays
+  (s:server)
+  (server_random:array U8.t)
+  (hybrid_share:array U8.t)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires connection_exactly s 'st0 **
+           pts_to server_random 'server_random_bytes **
+           pts_to hybrid_share 'hybrid_share_bytes **
+           pts_to network_out 'old_network_out **
+           pts_to app_out 'old_app_out **
+           pure (B.length 'server_random_bytes == 32 /\
+                 B.length 'hybrid_share_bytes == 1120 /\
+                 B.length 'old_network_out == SZ.v network_out_len /\
+                 B.length 'old_app_out == SZ.v app_out_len /\
+                 SZ.v network_out_len ==
+                   63 + 1120 + Seq.length (CM.stored_client_hello_session_id 'st0) /\
+                 ST.server_end_to_end_invariant 'st0 /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+                 (Ghost.reveal 'server_random_bytes <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+                 (let sh = hybrid_server_hello_witness 'st0 'server_random_bytes 'hybrid_share_bytes in
+                  CM.can_send_server_hello
+                    'st0
+                    sh
+                    (CS.serialized_cleartext_tls_message
+                      (M.TlsHandshake (M.ServerHello sh)))))
+  returns resp:ST.server_response
+  ensures exists* st1 network_out_bytes app_out_bytes.
+          connection_exactly s st1 **
+          pts_to server_random 'server_random_bytes **
+          pts_to hybrid_share 'hybrid_share_bytes **
+          pts_to network_out network_out_bytes **
+          pts_to app_out app_out_bytes **
+          pure (B.length network_out_bytes == SZ.v network_out_len /\
+                B.length app_out_bytes == SZ.v app_out_len /\
+                (B.length 'server_random_bytes == 32 /\
+                 (Ghost.reveal 'server_random_bytes <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+                 B.length 'hybrid_share_bytes == 1120 ==>
+                 (let sh = hybrid_server_hello_witness 'st0 'server_random_bytes 'hybrid_share_bytes in
+                 Seq.equal
+                   network_out_bytes
+                   (CS.serialized_cleartext_tls_message
+                     (M.TlsHandshake (M.ServerHello sh))) /\
+                 st1 == CM.sent_server_hello_state 'st0 sh network_out_bytes)) /\
                 ST.server_local_event_end_to_end_correct
                   'st0
                   st1

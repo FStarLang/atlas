@@ -380,6 +380,99 @@ static int test_p256_ecdh(void) {
   return 0;
 }
 
+/* X25519MLKEM768 (RFC 10024).  The seeds are fixed (d = 0..31, z = 32..63,
+   m = 64..95) and the X25519 scalars are RFC 7748's Alice (client) and Bob
+   (server), so the expected values come from an independent FIPS 203
+   implementation (kyber-py's ML-KEM-768 *_internal functions) and the RFC
+   7748 shared secret.  The shares are checked by SHA-256 digest. */
+static int test_x25519mlkem768(void) {
+  static const uint8_t alice_x[32] = {
+      0x77, 0x07, 0x6d, 0x0a, 0x73, 0x18, 0xa5, 0x7d,
+      0x3c, 0x16, 0xc1, 0x72, 0x51, 0xb2, 0x66, 0x45,
+      0xdf, 0x4c, 0x2f, 0x87, 0xeb, 0xc0, 0x99, 0x2a,
+      0xb1, 0x77, 0xfb, 0xa5, 0x1d, 0xb9, 0x2c, 0x2a};
+  static const uint8_t bob_x[32] = {
+      0x5d, 0xab, 0x08, 0x7e, 0x62, 0x4a, 0x8a, 0x4b,
+      0x79, 0xe1, 0x7f, 0x8b, 0x83, 0x80, 0x0e, 0xe6,
+      0x6f, 0x3b, 0xb1, 0x29, 0x26, 0x18, 0xb6, 0xfd,
+      0x1c, 0x2f, 0x8b, 0x27, 0xff, 0x88, 0xe0, 0xeb};
+  static const char client_share_sha256[] =
+      "86861a628e1a44bde5a2a295155e2a83fe7159d6080d59796e7a6dc50674d2a7";
+  static const char server_share_sha256[] =
+      "7ee5bcb561df359c31b29a72b8b0db1b5e39145a508fa59b3e03b80eb17e75a4";
+  static const char shared_hex[] =
+      "9cddd089ffe70e3996e76f7c8d06746df34d07e8657bc0fcf2bb0e1c3084aea1"
+      "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742";
+  uint8_t csk[96];
+  uint8_t ssk[64];
+  static uint8_t client_share[1216];
+  static uint8_t server_share[1120];
+  uint8_t ss_server[64];
+  uint8_t ss_client[64];
+  uint8_t digest[32];
+  uint8_t want_digest[32];
+  uint8_t want_shared[64];
+
+  for (size_t i = 0; i < 64; ++i) {
+    csk[i] = (uint8_t)i;
+  }
+  memcpy(csk + 64, alice_x, 32);
+  for (size_t i = 0; i < 32; ++i) {
+    ssk[i] = (uint8_t)(64u + i);
+  }
+  memcpy(ssk + 32, bob_x, 32);
+
+  TLS13_Crypto_Hybrid_x25519mlkem768_client_public(csk, client_share);
+  TLS13_Crypto_sha256(client_share, sizeof client_share, digest);
+  if (!decode_hex_string(client_share_sha256, want_digest, sizeof want_digest) ||
+      expect_bytes("x25519mlkem768 client share", digest, want_digest, 32) != 0) {
+    return 1;
+  }
+  if (!TLS13_Crypto_Hybrid_x25519mlkem768_server_encaps(ssk, client_share, server_share,
+                                                        ss_server)) {
+    fprintf(stderr, "x25519mlkem768 server rejected an honest client share\n");
+    return 1;
+  }
+  TLS13_Crypto_sha256(server_share, sizeof server_share, digest);
+  if (!decode_hex_string(server_share_sha256, want_digest, sizeof want_digest) ||
+      expect_bytes("x25519mlkem768 server share", digest, want_digest, 32) != 0) {
+    return 1;
+  }
+  if (!TLS13_Crypto_Hybrid_x25519mlkem768_client_shared(csk, server_share, ss_client)) {
+    fprintf(stderr, "x25519mlkem768 client rejected an honest server share\n");
+    return 1;
+  }
+  if (!decode_hex_string(shared_hex, want_shared, sizeof want_shared) ||
+      expect_bytes("x25519mlkem768 server secret", ss_server, want_shared, 64) != 0 ||
+      expect_bytes("x25519mlkem768 client secret", ss_client, want_shared, 64) != 0) {
+    return 1;
+  }
+
+  /* FIPS 203 section 7.2: a coefficient >= q in the encapsulation key. */
+  client_share[0] = 0xff;
+  client_share[1] |= 0x0f;
+  if (TLS13_Crypto_Hybrid_x25519mlkem768_server_encaps(ssk, client_share, server_share,
+                                                       ss_server)) {
+    fprintf(stderr, "x25519mlkem768 server accepted a non-canonical ML-KEM key\n");
+    return 1;
+  }
+  TLS13_Crypto_Hybrid_x25519mlkem768_client_public(csk, client_share);
+
+  /* RFC 10024 section 4.3: an all-zero X25519 output, on either side. */
+  memset(client_share + 1184, 0, 32);
+  if (TLS13_Crypto_Hybrid_x25519mlkem768_server_encaps(ssk, client_share, server_share,
+                                                       ss_server)) {
+    fprintf(stderr, "x25519mlkem768 server accepted a low-order X25519 share\n");
+    return 1;
+  }
+  memset(server_share + 1088, 0, 32);
+  if (TLS13_Crypto_Hybrid_x25519mlkem768_client_shared(csk, server_share, ss_client)) {
+    fprintf(stderr, "x25519mlkem768 client accepted a low-order X25519 share\n");
+    return 1;
+  }
+  return 0;
+}
+
 /* NIST SP 800-38D GCM test case 4 (AES-128, 60-byte plaintext, 20-byte AAD).
    Exercises the AES-128-GCM path of the AEAD dispatcher used by the
    TLS_AES_128_GCM_SHA256 cipher suite. */
@@ -454,6 +547,7 @@ int main(void) {
   failed |= test_tls13_finished_rfc8448_simple_handshake();
   failed |= test_x25519_rfc7748();
   failed |= test_p256_ecdh();
+  failed |= test_x25519mlkem768();
   failed |= test_chacha20_poly1305_roundtrip();
   failed |= test_aes128_gcm_nist_case4();
   if (failed != 0) {

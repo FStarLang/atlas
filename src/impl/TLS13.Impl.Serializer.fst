@@ -1528,11 +1528,14 @@ fn serialize_server_hello_from_selection
                 SZ.v out_len == 58 + Seq.length (Ghost.reveal ks) + Seq.length (Ghost.reveal sid) /\
                 Seq.length (Ghost.reveal rnd) == 32 /\
                 (Ghost.reveal rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-                (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
-                 Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
-                Seq.length (Ghost.reveal ks) ==
-                  TLS13.Crypto.Spec.kex_public_len
-                    (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g)) /\
+                (((Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
+                   Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
+                  Seq.length (Ghost.reveal ks) ==
+                    TLS13.Crypto.Spec.kex_public_len
+                      (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g))) \/
+                 (* X25519MLKEM768 (RFC 10024): the 1120-byte hybrid ciphertext. *)
+                 (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519mlkem768 /\
+                  Seq.length (Ghost.reveal ks) == 1120)) /\
                 Seq.length (Ghost.reveal sid) <= 32 /\
                 Ghost.reveal sh ==
                   SerH.poc_canonical_sh (Ghost.reveal rnd) (Ghost.reveal ks) (Ghost.reveal sid) (Ghost.reveal g) (Ghost.reveal cs))
@@ -1567,11 +1570,14 @@ fn serialize_server_hello_record_from_selection
                 SZ.v out_len == 63 + Seq.length (Ghost.reveal ks) + Seq.length (Ghost.reveal sid) /\
                 Seq.length (Ghost.reveal rnd) == 32 /\
                 (Ghost.reveal rnd <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-                (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
-                 Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
-                Seq.length (Ghost.reveal ks) ==
-                  TLS13.Crypto.Spec.kex_public_len
-                    (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g)) /\
+                (((Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519 \/
+                   Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.Secp256r1) /\
+                  Seq.length (Ghost.reveal ks) ==
+                    TLS13.Crypto.Spec.kex_public_len
+                      (TLS13.Wire.Semantics.kex_group_of_named_group (Ghost.reveal g))) \/
+                 (* X25519MLKEM768 (RFC 10024): the 1120-byte hybrid ciphertext. *)
+                 (Ghost.reveal g == TLS13.Wire.Generated.NamedGroup.X25519mlkem768 /\
+                  Seq.length (Ghost.reveal ks) == 1120)) /\
                 Seq.length (Ghost.reveal sid) <= 32 /\
                 Ghost.reveal sh ==
                   SerH.poc_canonical_sh (Ghost.reveal rnd) (Ghost.reveal ks) (Ghost.reveal sid) (Ghost.reveal g) (Ghost.reveal cs))
@@ -1742,12 +1748,56 @@ let lemma_ch_handshake_len (rnd sni ks pks sid: B.bytes)
     ()
 #pop-options
 
+#push-options "--fuel 8 --ifuel 8 --z3rlimit 200"
+let lemma_ch_handshake_len_hy (rnd sni hks ks pks sid: B.bytes)
+  (cs: GCH.clientHello_cipher_suites)
+  (sa: GECH.extensionClientHello_extension_data_signature_algorithms)
+  : Lemma (requires Seq.length rnd == 32 /\ Seq.length hks == 1216 /\ Seq.length ks == 32 /\ Seq.length pks == 65 /\
+                    Seq.length sid == 32 /\
+                    1 <= Seq.length sni /\ Seq.length sni <= 255 /\
+                    FStar.List.Tot.length cs <= 16 /\ FStar.List.Tot.length sa <= 16)
+          (ensures B.length (WS.serialize_handshake (M.ClientHello (SerH.poc_canonical_ch_g true rnd sni hks ks pks sid cs sa)))
+                   == 1442 + Seq.length sni
+                          + 2 * FStar.List.Tot.length cs
+                          + 2 * FStar.List.Tot.length sa)
+  = let ch = SerH.poc_canonical_ch_g true rnd sni hks ks pks sid cs sa in
+    let sg = SerH.ch_sg_high_hy in
+    let kx = SerH.ch_ks_high_hy hks ks pks in
+    let exts = [ SerH.ch_sn_high sni; sg; SerH.ch_sa_high sa; kx; SerH.ch_sv_high ] in
+    assert (ch.GCH.extensions == exts);
+    Rev.lemma_serialize_handshake_client_hello ch;
+    GHS.handshake_bytesize_eq (GHS.Body_client_hello (ch <: GHS.handshake_body_client_hello));
+    GCH.clientHello_extensions_list_bytesize_nil;
+    GCH.clientHello_extensions_list_bytesize_cons SerH.ch_sv_high [];
+    GCH.clientHello_extensions_list_bytesize_cons kx [SerH.ch_sv_high];
+    GCH.clientHello_extensions_list_bytesize_cons (SerH.ch_sa_high sa) [kx; SerH.ch_sv_high];
+    GCH.clientHello_extensions_list_bytesize_cons sg [SerH.ch_sa_high sa; kx; SerH.ch_sv_high];
+    GCH.clientHello_extensions_list_bytesize_cons (SerH.ch_sn_high sni) [sg; SerH.ch_sa_high sa; kx; SerH.ch_sv_high];
+    ()
+#pop-options
+
+let lemma_ch_handshake_len_g (hy: bool) (rnd sni hks ks pks sid: B.bytes)
+  (cs: GCH.clientHello_cipher_suites)
+  (sa: GECH.extensionClientHello_extension_data_signature_algorithms)
+  : Lemma (requires Seq.length rnd == 32 /\ Seq.length hks == 1216 /\ Seq.length ks == 32 /\ Seq.length pks == 65 /\
+                    Seq.length sid == 32 /\
+                    1 <= Seq.length sni /\ Seq.length sni <= 255 /\
+                    FStar.List.Tot.length cs <= 16 /\ FStar.List.Tot.length sa <= 16)
+          (ensures B.length (WS.serialize_handshake (M.ClientHello (SerH.poc_canonical_ch_g hy rnd sni hks ks pks sid cs sa)))
+                   == (if hy then 1442 else 220) + Seq.length sni
+                          + 2 * FStar.List.Tot.length cs
+                          + 2 * FStar.List.Tot.length sa)
+  = if hy then lemma_ch_handshake_len_hy rnd sni hks ks pks sid cs sa
+    else (SerH.lemma_poc_canonical_ch_g_false rnd sni hks ks pks sid cs sa;
+          lemma_ch_handshake_len rnd sni ks pks sid cs sa)
+
 #push-options "--z3rlimit 100"
 fn serialize_client_hello_from_start
   (#start: erased CS.handshake_start)
   (#ch: erased GCH.clientHello)
   (#rnd: erased B.bytes)
   (#sni: erased B.bytes)
+  (#hks: erased B.bytes)
   (#ks: erased B.bytes)
   (#pks: erased B.bytes)
   (#cs: erased GCH.clientHello_cipher_suites)
@@ -1757,6 +1807,8 @@ fn serialize_client_hello_from_start
   (start_server_name_len: box SZ.t)
   (start_key_share: V.vec U8.t)
   (start_p256_key_share: V.vec U8.t)
+  (hy: bool)
+  (start_hybrid_key_share: V.vec U8.t)
   (start_cipher_suites: V.vec U16.t)
   (start_cipher_suites_len: box SZ.t)
   (start_signature_schemes: V.vec U16.t)
@@ -1771,7 +1823,7 @@ fn serialize_client_hello_from_start
                   cipher_suites cipher_suites_len
                   signature_schemes signature_schemes_len
                   old_present old_l_random old_l_session_id old_l_server_name old_l_key_share
-                  old_l_p256_key_share
+                  old_l_p256_key_share old_l_hybrid_key_share
                   old_l_cipher_suites old_l_signature_schemes
                   old_client_hello_bytes_len old_client_hello_bytes old_network_out.
           V.pts_to start_random random **
@@ -1779,6 +1831,7 @@ fn serialize_client_hello_from_start
           Box.pts_to start_server_name_len server_name_len **
           V.pts_to start_key_share key_share **
           V.pts_to start_p256_key_share (Ghost.reveal pks) **
+          V.pts_to start_hybrid_key_share (Ghost.reveal hks) **
           V.pts_to start_cipher_suites cipher_suites **
           Box.pts_to start_cipher_suites_len cipher_suites_len **
           V.pts_to start_signature_schemes signature_schemes **
@@ -1789,6 +1842,7 @@ fn serialize_client_hello_from_start
           V.pts_to l.L.client_hello_server_name old_l_server_name **
           V.pts_to l.L.client_hello_key_share old_l_key_share **
           V.pts_to l.L.client_hello_p256_key_share old_l_p256_key_share **
+          V.pts_to l.L.client_hello_hybrid_key_share old_l_hybrid_key_share **
           V.pts_to l.L.client_hello_cipher_suites old_l_cipher_suites **
           V.pts_to l.L.client_hello_signature_schemes old_l_signature_schemes **
           V.pts_to client_hello_bytes old_client_hello_bytes **
@@ -1799,6 +1853,8 @@ fn serialize_client_hello_from_start
                 V.is_full_vec start_server_name /\
                 V.is_full_vec start_key_share /\
                 V.is_full_vec start_p256_key_share /\
+                V.is_full_vec start_hybrid_key_share /\
+                V.length start_hybrid_key_share == 1216 /\
                 V.is_full_vec start_cipher_suites /\
                 V.is_full_vec start_signature_schemes /\
                 V.is_full_vec l.L.client_hello_random /\
@@ -1806,6 +1862,8 @@ fn serialize_client_hello_from_start
                 V.is_full_vec l.L.client_hello_server_name /\
                 V.is_full_vec l.L.client_hello_key_share /\
                 V.is_full_vec l.L.client_hello_p256_key_share /\
+                V.is_full_vec l.L.client_hello_hybrid_key_share /\
+                V.length l.L.client_hello_hybrid_key_share == 1216 /\
                 V.is_full_vec l.L.client_hello_cipher_suites /\
                 V.is_full_vec l.L.client_hello_signature_schemes /\
                 V.is_full_vec client_hello_bytes /\
@@ -1833,11 +1891,12 @@ fn serialize_client_hello_from_start
                 B.length old_l_server_name == L.max_server_name_len /\
                 B.length old_l_key_share == 32 /\
                 B.length old_l_p256_key_share == 65 /\
+                B.length old_l_hybrid_key_share == 1216 /\
                 Seq.length old_l_cipher_suites == L.max_cipher_suites /\
                 Seq.length old_l_signature_schemes == L.max_signature_schemes /\
                 B.length old_client_hello_bytes == 8192 /\
                 B.length old_network_out == SZ.v network_out_len /\
-                544 <= SZ.v network_out_len /\
+                1766 <= SZ.v network_out_len /\
                 SZ.v server_name_len <= B.length server_name /\
                 SZ.v cipher_suites_len <= Seq.length cipher_suites /\
                 SZ.v signature_schemes_len <= Seq.length signature_schemes /\
@@ -1856,6 +1915,7 @@ fn serialize_client_hello_from_start
                   (Ghost.reveal start).CS.start_signature_schemes /\
                 CS.client_hello_matches_start (Ghost.reveal start) (Ghost.reveal ch) /\
                 Seq.length (Ghost.reveal rnd) == 32 /\
+                Seq.length (Ghost.reveal hks) == 1216 /\
                 Seq.length (Ghost.reveal ks) == 32 /\
                 Seq.length (Ghost.reveal pks) == 65 /\
                 1 <= Seq.length (Ghost.reveal sni) /\
@@ -1863,7 +1923,7 @@ fn serialize_client_hello_from_start
                 FStar.List.Tot.length (Ghost.reveal cs) <= 16 /\
                 FStar.List.Tot.length (Ghost.reveal sa) <= 16 /\
                 Ghost.reveal ch ==
-                  SerH.poc_canonical_ch (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks)
+                  SerH.poc_canonical_ch_g hy (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal hks) (Ghost.reveal ks)
                     (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa))
   returns written: (n:SZ.t{SZ.v n <= SZ.v network_out_len})
   ensures exists* random server_name server_name_len key_share
@@ -1875,6 +1935,7 @@ fn serialize_client_hello_from_start
           Box.pts_to start_server_name_len server_name_len **
           V.pts_to start_key_share key_share **
           V.pts_to start_p256_key_share (Ghost.reveal pks) **
+          V.pts_to start_hybrid_key_share (Ghost.reveal hks) **
           V.pts_to start_cipher_suites cipher_suites **
           Box.pts_to start_cipher_suites_len cipher_suites_len **
           V.pts_to start_signature_schemes signature_schemes **
@@ -1885,6 +1946,7 @@ fn serialize_client_hello_from_start
           V.pts_to l.L.client_hello_server_name server_name **
           V.pts_to l.L.client_hello_key_share key_share **
           V.pts_to l.L.client_hello_p256_key_share (Ghost.reveal pks) **
+          V.pts_to l.L.client_hello_hybrid_key_share (Ghost.reveal hks) **
           V.pts_to l.L.client_hello_cipher_suites cipher_suites **
           V.pts_to l.L.client_hello_signature_schemes signature_schemes **
           V.pts_to client_hello_bytes handshake_bytes **
@@ -1894,6 +1956,8 @@ fn serialize_client_hello_from_start
                V.is_full_vec start_server_name /\
                V.is_full_vec start_key_share /\
                V.is_full_vec start_p256_key_share /\
+               V.is_full_vec start_hybrid_key_share /\
+               V.length start_hybrid_key_share == 1216 /\
                V.is_full_vec start_cipher_suites /\
                V.is_full_vec start_signature_schemes /\
                V.is_full_vec l.L.client_hello_random /\
@@ -1901,6 +1965,8 @@ fn serialize_client_hello_from_start
                V.is_full_vec l.L.client_hello_server_name /\
                V.is_full_vec l.L.client_hello_key_share /\
                V.is_full_vec l.L.client_hello_p256_key_share /\
+               V.is_full_vec l.L.client_hello_hybrid_key_share /\
+               V.length l.L.client_hello_hybrid_key_share == 1216 /\
                V.is_full_vec l.L.client_hello_cipher_suites /\
                V.is_full_vec l.L.client_hello_signature_schemes /\
                V.is_full_vec client_hello_bytes /\
@@ -2003,13 +2069,11 @@ fn serialize_client_hello_from_start
   with old_client_hello_bytes. assert (V.pts_to client_hello_bytes old_client_hello_bytes);
 
   (* establish ch-semantic facts and the SNI length bound (<= 255) *)
-  SerH.lemma_ch_random (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
-  SerH.lemma_ch_server_name (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
-  SerH.lemma_ch_key_share (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
+  SerH.lemma_ch_g_accessors hy (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal hks) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
   assert (pure (Ghost.reveal sni == (Ghost.reveal start).CS.start_server_name));
   assert (pure (Seq.length (Ghost.reveal sni) == SZ.v server_name_len));
   assert (pure (Seq.length (Ghost.reveal sni) <= 255));
-  lemma_ch_handshake_len (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
+  lemma_ch_handshake_len_g hy (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal hks) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
 
   let hostname_len = !start_server_name_len;
   let cipher_suites_len_runtime = !start_cipher_suites_len;
@@ -2023,8 +2087,6 @@ fn serialize_client_hello_from_start
      high-level list lengths in cs/sa: matches_start ties ch's semantics to
      start's lists, lemma_ch_cipher_suites/sig_algs tie them to cs/sa, and the
      *_match_length lemmas give the list-length == runtime-len equalities *)
-  SerH.lemma_ch_cipher_suites (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
-  SerH.lemma_ch_sig_algs (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks) (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
   assert (pure (Ghost.reveal cs == (Ghost.reveal start).CS.start_cipher_suites));
   assert (pure (Ghost.reveal sa == (Ghost.reveal start).CS.start_signature_schemes));
   lemma_cipher_suites_match_length cipher_suites (SZ.v cipher_suites_len) (Ghost.reveal start).CS.start_cipher_suites;
@@ -2039,23 +2101,26 @@ fn serialize_client_hello_from_start
      key-exchange groups: an extra NamedGroup in supported_groups (2 bytes) and
      an extra KeyShareEntry carrying the 65-byte uncompressed secp256r1 point
      (2 group + 2 length + 65 share = 69 bytes). *)
-  SZ.fits_lte (220 + SZ.v hostname_len) 475;
-  let hl1 = 220sz `SZ.add` hostname_len;
-  SZ.fits_lte (SZ.v hl1 + SZ.v cipher_suites_len_runtime) 491;
+  (* With the X25519MLKEM768 offer (RFC 10024) the base grows by 1222 bytes:
+     2 for the extra NamedGroup and 2 + 2 + 1216 for the hybrid KeyShareEntry. *)
+  let base : SZ.t = if hy then 1442sz else 220sz;
+  SZ.fits_lte (SZ.v base + SZ.v hostname_len) 1697;
+  let hl1 = base `SZ.add` hostname_len;
+  SZ.fits_lte (SZ.v hl1 + SZ.v cipher_suites_len_runtime) 1713;
   let hl2 = hl1 `SZ.add` cipher_suites_len_runtime;
-  SZ.fits_lte (SZ.v hl2 + SZ.v cipher_suites_len_runtime) 507;
+  SZ.fits_lte (SZ.v hl2 + SZ.v cipher_suites_len_runtime) 1729;
   let hl3 = hl2 `SZ.add` cipher_suites_len_runtime;
-  SZ.fits_lte (SZ.v hl3 + SZ.v signature_schemes_len_runtime) 523;
+  SZ.fits_lte (SZ.v hl3 + SZ.v signature_schemes_len_runtime) 1745;
   let hl4 = hl3 `SZ.add` signature_schemes_len_runtime;
-  SZ.fits_lte (SZ.v hl4 + SZ.v signature_schemes_len_runtime) 539;
+  SZ.fits_lte (SZ.v hl4 + SZ.v signature_schemes_len_runtime) 1761;
   let handshake_len = hl4 `SZ.add` signature_schemes_len_runtime;
   assert (pure (SZ.v handshake_len ==
-    220 + SZ.v hostname_len + 2 * SZ.v cipher_suites_len_runtime + 2 * SZ.v signature_schemes_len_runtime));
-  assert (pure (SZ.v handshake_len <= 539));
+    (if hy then 1442 else 220) + SZ.v hostname_len + 2 * SZ.v cipher_suites_len_runtime + 2 * SZ.v signature_schemes_len_runtime));
+  assert (pure (SZ.v handshake_len <= 1761));
   assert (pure (SZ.v handshake_len ==
     B.length (WS.serialize_handshake (M.ClientHello (Ghost.reveal ch)))));
-  assert (pure (SZ.v handshake_len + 5 <= 544));
-  SZ.fits_lte (SZ.v handshake_len + 5) 544;
+  assert (pure (SZ.v handshake_len + 5 <= 1766));
+  SZ.fits_lte (SZ.v handshake_len + 5) 1766;
   let record_len = handshake_len `SZ.add` 5sz;
   assert (pure (SZ.v record_len == 5 + SZ.v handshake_len));
   assert (pure (SZ.v record_len <= SZ.v network_out_len));
@@ -2079,8 +2144,8 @@ fn serialize_client_hello_from_start
      real share.  It is filled from the client's own P-256 public exactly as the
      X25519 slot is filled from start_key_share. *)
   copy_vec_to_vec_u8 start_p256_key_share l.L.client_hello_p256_key_share 65sz;
-  SerH.lemma_ch_p256_key_share (Ghost.reveal rnd) (Ghost.reveal sni) (Ghost.reveal ks)
-    (Ghost.reveal pks) (Ghost.reveal rnd) (Ghost.reveal cs) (Ghost.reveal sa);
+  (* Likewise the X25519MLKEM768 slot (RFC 10024) when the hybrid is offered. *)
+  copy_vec_to_vec_u8 start_hybrid_key_share l.L.client_hello_hybrid_key_share 1216sz;
   (* build canonical-pinned structure sharing l's vecs (only scalars differ) *)
   let l_poc : L.client_hello = {
     L.client_hello_random = l.L.client_hello_random;
@@ -2093,6 +2158,8 @@ fn serialize_client_hello_from_start
     L.client_hello_has_x25519_key_share = true;
     L.client_hello_p256_key_share = l.L.client_hello_p256_key_share;
     L.client_hello_has_p256_key_share = true;
+    L.client_hello_hybrid_key_share = l.L.client_hello_hybrid_key_share;
+    L.client_hello_has_hybrid_key_share = hy;
     L.client_hello_cipher_suites = l.L.client_hello_cipher_suites;
     L.client_hello_cipher_suites_len = cipher_suites_len_runtime;
     L.client_hello_signature_schemes = l.L.client_hello_signature_schemes;
@@ -2114,6 +2181,8 @@ fn serialize_client_hello_from_start
        as (V.pts_to l_poc.L.client_hello_key_share key_share);
   rewrite (V.pts_to l.L.client_hello_p256_key_share (Ghost.reveal pks))
        as (V.pts_to l_poc.L.client_hello_p256_key_share (Ghost.reveal pks));
+  rewrite (V.pts_to l.L.client_hello_hybrid_key_share (Ghost.reveal hks))
+       as (V.pts_to l_poc.L.client_hello_hybrid_key_share (Ghost.reveal hks));
   rewrite (V.pts_to l.L.client_hello_cipher_suites cipher_suites)
        as (V.pts_to l_poc.L.client_hello_cipher_suites cipher_suites);
   rewrite (V.pts_to l.L.client_hello_signature_schemes signature_schemes)
@@ -2124,7 +2193,7 @@ fn serialize_client_hello_from_start
   let tmp = V.alloc 0uy handshake_len;
   V.to_array_pts_to tmp;
   let written_poc = SerH.serialize_client_hello_handshake_poc
-    #ch #rnd #sni #ks #pks #rnd #cs #sa l_poc start_p256_key_share (V.vec_to_array tmp) handshake_len;
+    #ch #rnd #sni #hks #ks #pks #rnd #cs #sa l_poc hy start_hybrid_key_share start_p256_key_share (V.vec_to_array tmp) handshake_len;
   with ob. assert (pts_to (V.vec_to_array tmp) ob);
   assert (pure (Seq.equal ob (WS.serialize_handshake (M.ClientHello (Ghost.reveal ch)))));
   Seq.lemma_eq_elim
@@ -2163,6 +2232,9 @@ fn serialize_client_hello_from_start
   with w_p256. assert (V.pts_to l_poc.L.client_hello_p256_key_share w_p256);
   rewrite (V.pts_to l_poc.L.client_hello_p256_key_share w_p256)
        as (V.pts_to l.L.client_hello_p256_key_share w_p256);
+  with w_hyb. assert (V.pts_to l_poc.L.client_hello_hybrid_key_share w_hyb);
+  rewrite (V.pts_to l_poc.L.client_hello_hybrid_key_share w_hyb)
+       as (V.pts_to l.L.client_hello_hybrid_key_share w_hyb);
   with w_rnd. assert (V.pts_to l_poc.L.client_hello_random w_rnd);
   rewrite (V.pts_to l_poc.L.client_hello_random w_rnd)
        as (V.pts_to l.L.client_hello_random w_rnd);
@@ -2192,6 +2264,7 @@ fn serialize_client_hello_from_start
   copy_vec_to_vec_u8 start_key_share l.L.client_hello_key_share 32sz;
   copy_vec_to_vec_u16 start_cipher_suites l.L.client_hello_cipher_suites 64sz;
   copy_vec_to_vec_u16 start_signature_schemes l.L.client_hello_signature_schemes 32sz;
+  copy_vec_to_vec_u8 start_hybrid_key_share l.L.client_hello_hybrid_key_share 1216sz;
 
   client_hello_bytes_len := handshake_len;
   client_hello_present := true;

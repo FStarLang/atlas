@@ -505,7 +505,7 @@ let lemma_input_ready_server_hello_of_selection
   (material: B.bytes)
   : Lemma
     (requires
-      B.length material == 64 /\
+      B.length material == 128 /\
       st.CS.cs_model.CS.model_control ==
         CS.ControlHandshaking CS.HsClientHelloReceived /\
       st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
@@ -686,7 +686,7 @@ let lemma_server_process_local_obligations
     with
     ( let server_random = CL.raw_slice payload 0 32 in
       let server_private_key = CL.raw_slice payload 32 64 in
-      assert (B.length payload == 64);
+      assert (B.length payload == 128);
       assert (Seq.length server_random == 32);
       assert (Seq.length server_private_key == 32);
       match st.CS.cs_model.CS.model_handshake.CS.hs_server_selection with
@@ -889,6 +889,23 @@ let lemma_server_handshake_write_seal_some
       R.fragment = TLS13.Spec.StateMachine.Canonical.sent_tls_inner_plaintext_fragment msg;
     }
 
+
+(* A ServerHello is sent in cleartext, so its seal projection is vacuous.
+   Stated on its own so [process_send_server_hello] does not have to unfold
+   [sent_event_seal_projection] in its (large) context. *)
+let lemma_sent_server_hello_seal_projection
+  (model:CS.connection_model)
+  (sh:GSH.serverHello)
+  (raw:B.bytes)
+  : Lemma (TLS13.Spec.StateMachine.Canonical.sent_event_nonempty_seal_projection
+            model
+            (CS.ConnNetworkEvent {
+              CL.message_direction = CL.Sent;
+              CL.message_value = M.TlsHandshake (M.ServerHello sh);
+            })
+            raw)
+  = ()
+
 fn process_send_server_hello
   (s:server)
   (raw:array U8.t)
@@ -992,6 +1009,7 @@ fn process_send_server_hello
     (CM.sent_server_hello_state 'st0 sh (Ghost.reveal 'raw_bytes));
   CSL.lemma_connection_state_protected_raw_segmented_replay
     (CM.sent_server_hello_state 'st0 sh (Ghost.reveal 'raw_bytes));
+  lemma_sent_server_hello_seal_projection 'st0.CS.cs_model (Ghost.reveal sh) (Ghost.reveal 'raw_bytes);
   CSL.lemma_legal_connection_delta_sent_seal_replay_consistent
     'st0
     (Ghost.reveal delta)
@@ -1081,7 +1099,7 @@ fn process_send_server_hello
 fn process_send_server_hello_serialized
   (s:server)
   (lsh:IM.server_hello)
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (sid_len:SZ.t)
   (#sh:erased GSH.serverHello)
   (#server_random_bytes: erased B.bytes)
@@ -1351,7 +1369,7 @@ fn process_send_server_hello_serialized
 
 #restart-solver
 fn build_server_hello_from_arrays
-  (kex_group:CryptoSpec.kex_group)
+  (kex_group:CryptoSpec.dh_group)
   (server_random:array U8.t)
   (server_key_share:array U8.t)
   (session_id:array U8.t)
@@ -1391,6 +1409,9 @@ fn build_server_hello_from_arrays
      logical share is the [unpad_share_65] prefix at the width named by the
      [kex_group] tag the caller read off the stored ClientHello. *)
   let key_share_vec = V.alloc 0uy 65sz;
+  (* The server does not answer with X25519MLKEM768 yet (H9): the hybrid slot
+     is allocated empty and [server_hello_is_hybrid] is unset. *)
+  let hybrid_share_vec = V.alloc 0uy 1120sz;
   CR.copy_fixed32_array_to_vec server_random random_vec;
   CR.copy_fixed32_array_to_vec session_id session_id_vec;
   CR.copy_fixed65_array_to_vec server_key_share key_share_vec;
@@ -1400,6 +1421,8 @@ fn build_server_hello_from_arrays
     IM.server_hello_session_id_len = session_id_len;
     IM.server_hello_key_share = key_share_vec;
     IM.server_hello_kex_group = kex_group;
+    IM.server_hello_hybrid_share = hybrid_share_vec;
+    IM.server_hello_is_hybrid = false;
     IM.server_hello_cipher_suite = cipher_suite;
   };
   with random_bytes. assert (V.pts_to random_vec random_bytes);
@@ -1421,6 +1444,8 @@ fn build_server_hello_from_arrays
     as (V.pts_to lsh.IM.server_hello_session_id session_id_vec_bytes);
   rewrite (V.pts_to key_share_vec key_share_bytes)
     as (V.pts_to lsh.IM.server_hello_key_share key_share_bytes);
+  rewrite (V.pts_to hybrid_share_vec (Seq.create 1120 0uy))
+    as (V.pts_to lsh.IM.server_hello_hybrid_share (Seq.create 1120 0uy));
   fold (IM.is_valid_server_hello
     lsh
     (Ghost.reveal sh));
@@ -1651,6 +1676,438 @@ fn process_send_server_hello_with_derived_public_from_private_array
     (CS.serialized_cleartext_tls_message
       (M.TlsHandshake (M.ServerHello (Ghost.reveal sh))))));
   resp
+}
+
+#restart-solver
+#push-options "--z3rlimit 40"
+fn process_send_hybrid_server_hello_serialized
+  (s:server)
+  (lsh:IM.server_hello)
+  (sid_len:SZ.t)
+  (#sh:erased GSH.serverHello)
+  (#server_random_bytes: erased B.bytes)
+  (#server_hybrid_share_bytes: erased B.bytes)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires connection_exactly s 'st0 **
+           IM.is_valid_server_hello lsh sh **
+           pts_to network_out 'old_network_out **
+           pts_to app_out 'old_app_out **
+           pure (B.length 'old_network_out == SZ.v network_out_len /\
+                 B.length 'old_app_out == SZ.v app_out_len /\
+                 SZ.v network_out_len ==
+                   63 + 1120 + Seq.length (CM.stored_client_hello_session_id 'st0) /\
+                 SZ.v sid_len ==
+                   Seq.length (CM.stored_client_hello_session_id 'st0) /\
+                 ST.server_end_to_end_invariant 'st0 /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+                 Seq.length (Ghost.reveal server_random_bytes) == 32 /\
+                 (Ghost.reveal server_random_bytes <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+                 Seq.length (Ghost.reveal server_hybrid_share_bytes) == 1120 /\
+                 Ghost.reveal sh ==
+                   SerH.poc_canonical_sh
+                     (Ghost.reveal server_random_bytes)
+                     (Ghost.reveal server_hybrid_share_bytes)
+                     (CM.stored_client_hello_session_id 'st0)
+                     GNG.X25519mlkem768
+                     (CM.server_selected_suite 'st0) /\
+                 CM.can_send_server_hello
+                   'st0
+                   sh
+                   (CS.serialized_cleartext_tls_message
+                     (M.TlsHandshake (M.ServerHello sh))))
+  returns resp:ST.server_response
+  ensures exists* st1 network_out_bytes app_out_bytes.
+          connection_exactly s st1 **
+          pts_to network_out network_out_bytes **
+          pts_to app_out app_out_bytes **
+          pure (B.length network_out_bytes == SZ.v network_out_len /\
+                B.length app_out_bytes == SZ.v app_out_len /\
+                Seq.equal
+                  network_out_bytes
+                  (CS.serialized_cleartext_tls_message
+                    (M.TlsHandshake (M.ServerHello sh))) /\
+                st1 ==
+                  CM.sent_server_hello_state
+                    'st0
+                    sh
+                    network_out_bytes /\
+                ST.server_local_event_end_to_end_correct
+                  'st0
+                  st1
+                  resp
+                  ST.LocalSendServerHello
+                  B.empty
+                  network_out_bytes
+                  app_out_bytes)
+{
+  let sid_e = Ghost.hide (CM.stored_client_hello_session_id 'st0 <: B.bytes);
+  let suite_e = Ghost.hide ((CM.server_selected_suite 'st0) <: GCS.cipherSuite);
+  assert (pure (Seq.length (Ghost.reveal server_hybrid_share_bytes) == 1120));
+  assert (pure (Seq.length (Ghost.reveal sid_e) <= 32));
+  assert (pure (SZ.v sid_len == Seq.length (Ghost.reveal sid_e)));
+  assert (pure (SZ.v network_out_len ==
+    63 + Seq.length (Ghost.reveal server_hybrid_share_bytes) + Seq.length (Ghost.reveal sid_e)));
+  assert (pure (Ghost.reveal sh ==
+    SerH.poc_canonical_sh (Ghost.reveal server_random_bytes)
+      (Ghost.reveal server_hybrid_share_bytes) (Ghost.reveal sid_e)
+      GNG.X25519mlkem768 (Ghost.reveal suite_e)));
+  let written_raw =
+    Ser.serialize_server_hello_record_from_selection
+      #sh
+      #server_random_bytes
+      #server_hybrid_share_bytes
+      #sid_e
+      #(Ghost.hide (GNG.X25519mlkem768 <: GNG.namedGroup))
+      #suite_e
+      lsh
+      sid_len
+      network_out
+      network_out_len;
+  with network_out_bytes. assert (pts_to network_out network_out_bytes);
+  assert (pure (B.length network_out_bytes == SZ.v network_out_len));
+  assert (pure (SZ.v written_raw == SZ.v network_out_len));
+  assert (pure (Seq.equal
+    network_out_bytes
+    (CS.serialized_cleartext_tls_message
+      (M.TlsHandshake (M.ServerHello sh)))));
+  assert (pure (CM.can_send_server_hello
+    'st0
+    sh
+    network_out_bytes));
+
+  (* 58 bytes plus the 1120-byte hybrid ciphertext plus the echoed
+     legacy_session_id (RFC 8446 4.1.3, RFC 10024). *)
+  let fragment_share_len = 1120sz;
+  let fragment_len = 58sz `SZ.add` fragment_share_len `SZ.add` sid_len;
+  let fragment_vec = V.alloc 0uy fragment_len;
+  V.to_array_pts_to fragment_vec;
+  let written_fragment =
+    Ser.serialize_server_hello_from_selection
+      #sh
+      #server_random_bytes
+      #server_hybrid_share_bytes
+      #sid_e
+      #(Ghost.hide (GNG.X25519mlkem768 <: GNG.namedGroup))
+      #suite_e
+      lsh
+      (V.vec_to_array fragment_vec)
+      fragment_len;
+  with fragment_bytes. assert (pts_to (V.vec_to_array fragment_vec) fragment_bytes);
+  assert (pure (B.length fragment_bytes == SZ.v fragment_len));
+  assert (pure (SZ.v written_fragment == SZ.v fragment_len));
+  assert (pure (Seq.equal
+    fragment_bytes
+    (W.serialize_handshake (M.ServerHello sh))));
+  assert (pure (SZ.v written_fragment <= Bounds.max_server_hello_len));
+
+  unfold (connection_exactly s 'st0);
+  CLH.mark_sent_server_hello
+    s
+    network_out
+    (V.vec_to_array fragment_vec)
+    written_fragment
+    lsh
+    #sh;
+  fold (connection_exactly
+    s
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes));
+  V.to_vec_pts_to fragment_vec;
+  V.free fragment_vec;
+
+  let resp = {
+    ST.network_out_len = written_raw;
+    ST.app_out_len = 0sz;
+    ST.status = ST.StepOk;
+  };
+
+  let ev = Ghost.hide (CS.ConnNetworkEvent {
+    CL.message_direction = CL.Sent;
+    CL.message_value = M.TlsHandshake (M.ServerHello sh);
+  });
+  let delta = Ghost.hide {
+    CS.delta_event = Ghost.reveal ev;
+    CS.delta_raw_sent = network_out_bytes;
+    CS.delta_raw_received = B.empty;
+  };
+
+  CM.lemma_sent_server_hello_state_evolves
+    'st0
+    sh
+    network_out_bytes;
+  assert (pure (CS.legal_connection_delta
+    'st0
+    (Ghost.reveal delta)
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)));
+
+  CSL.lemma_legal_connection_delta_full_log_consistent_for_role
+    CS.ServerEndpoint
+    'st0
+    (Ghost.reveal delta)
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes);
+  CSL.lemma_legal_connection_delta_raw_event_replay_consistent
+    'st0
+    (Ghost.reveal delta)
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes);
+  CSL.lemma_connection_state_protected_raw_segmented_replay
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes);
+  CSL.lemma_legal_connection_delta_sent_seal_replay_consistent
+    'st0
+    (Ghost.reveal delta)
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes);
+  CSL.lemma_legal_connection_delta_received_decode_replay_consistent
+    'st0
+    (Ghost.reveal delta)
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes);
+
+  Seq.lemma_len_slice 'old_app_out 0 0;
+  Seq.lemma_eq_intro B.empty (Seq.slice 'old_app_out 0 0);
+  Seq.lemma_len_slice network_out_bytes 0 (SZ.v written_raw);
+  Seq.lemma_eq_intro
+    network_out_bytes
+    (Seq.slice network_out_bytes 0 (SZ.v written_raw));
+  assert (pure (ST.response_network_out resp network_out_bytes ==
+    Seq.slice network_out_bytes 0 (SZ.v written_raw)));
+  assert (pure (Seq.equal
+    (ST.response_network_out resp network_out_bytes)
+    network_out_bytes));
+  assert (pure (ST.response_app_out resp 'old_app_out == Seq.slice 'old_app_out 0 0));
+  assert (pure (Seq.equal (ST.response_app_out resp 'old_app_out) B.empty));
+
+  assert (pure ((CM.sent_server_hello_state 'st0 sh network_out_bytes).CS.cs_model.CS.model_config ==
+    'st0.CS.cs_model.CS.model_config));
+  assert (pure ((CM.sent_server_hello_state 'st0 sh network_out_bytes).CS.cs_model.CS.model_config.CS.config_role ==
+    CS.ServerEndpoint));
+  assert (pure (Some?
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes).CS.cs_model.CS.model_config.CS.config_server));
+  assert (pure (ST.server_state_correct
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)));
+  assert (pure (ST.server_raw_to_message_replay_consistent
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)));
+  assert (pure (ST.server_end_to_end_invariant
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)));
+
+  assert (pure (ST.legal_response_for_event
+    'st0
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)
+    resp
+    (Ghost.reveal ev)
+    network_out_bytes
+    B.empty
+    network_out_bytes
+    'old_app_out));
+  assert (pure (ST.legal_local_response
+    'st0
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    (Ghost.reveal ev)
+    network_out_bytes
+    B.empty
+    network_out_bytes
+    'old_app_out));
+  assert (pure (ST.legal_handled_local_response
+    'st0
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    network_out_bytes
+    'old_app_out));
+  assert (pure (TLS13.Spec.StateMachine.Replay.event_protected_raw_segmented_success
+    (Ghost.reveal ev)
+    network_out_bytes
+    B.empty));
+  assert (pure (TLS13.Spec.StateMachine.Canonical.sent_event_seal_projection
+    'st0.CS.cs_model
+    (Ghost.reveal ev)
+    network_out_bytes));
+  (* Supply the existential witness explicitly rather than leaving Z3 to
+     rediscover (ev, network_out_bytes, B.empty) inside this heavily loaded
+     query; see `lemma_server_local_event_end_to_end_correct_intro`. *)
+  ST.lemma_server_local_event_end_to_end_correct_intro
+    'st0
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    (Ghost.reveal ev)
+    network_out_bytes
+    B.empty
+    network_out_bytes
+    'old_app_out;
+  assert (pure (ST.server_local_event_end_to_end_correct
+    'st0
+    (CM.sent_server_hello_state 'st0 sh network_out_bytes)
+    resp
+    ST.LocalSendServerHello
+    B.empty
+    network_out_bytes
+    'old_app_out));
+  resp
+}
+#pop-options
+
+(* X25519MLKEM768 (RFC 10024): the ServerHello carries the 1120-byte hybrid
+   ciphertext in its own buffer; the classical 65-byte slot stays zero. *)
+fn build_hybrid_server_hello_from_arrays
+  (server_random:array U8.t)
+  (hybrid_share:array U8.t)
+  (session_id:array U8.t)
+  (session_id_len:SZ.t)
+  (cipher_suite:U16.t)
+  (#sh:erased GSH.serverHello)
+  (#sid:erased B.bytes)
+  requires pts_to server_random 'server_random_bytes **
+           pts_to hybrid_share 'hybrid_share_bytes **
+           pts_to session_id 'session_id_bytes **
+           pure (B.length 'server_random_bytes == 32 /\
+                 B.length 'hybrid_share_bytes == 1120 /\
+                 B.length 'session_id_bytes == 32 /\
+                 Seq.length (Ghost.reveal sid) <= 32 /\
+                 SZ.v session_id_len == Seq.length (Ghost.reveal sid) /\
+                 Seq.equal (Ghost.reveal 'session_id_bytes)
+                           (Sem.pad_session_id_32 (Ghost.reveal sid)) /\
+                 (Ghost.reveal 'server_random_bytes <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+                 (cipher_suite == 0x1303us \/ cipher_suite == 0x1301us) /\
+                 Ghost.reveal sh ==
+                   SerH.poc_canonical_sh
+                     (Ghost.reveal 'server_random_bytes)
+                     (Ghost.reveal 'hybrid_share_bytes)
+                     (Ghost.reveal sid)
+                     GNG.X25519mlkem768
+                     (IM.cipher_suite_of_u16 cipher_suite))
+  returns lsh:IM.server_hello
+  ensures pts_to server_random 'server_random_bytes **
+          pts_to hybrid_share 'hybrid_share_bytes **
+          pts_to session_id 'session_id_bytes **
+          IM.is_valid_server_hello lsh sh
+{
+  SerH.lemma_poc_canonical_sh_hybrid
+    (Ghost.reveal 'server_random_bytes)
+    (Ghost.reveal 'hybrid_share_bytes)
+    (Ghost.reveal sid)
+    (IM.cipher_suite_of_u16 cipher_suite);
+  let random_vec = V.alloc 0uy 32sz;
+  let session_id_vec = V.alloc 0uy 32sz;
+  let key_share_vec = V.alloc 0uy 65sz;
+  let hybrid_share_vec = V.alloc 0uy 1120sz;
+  CR.copy_fixed32_array_to_vec server_random random_vec;
+  CR.copy_fixed32_array_to_vec session_id session_id_vec;
+  CR.copy_fixed_array_to_vec 1120sz hybrid_share hybrid_share_vec;
+  let lsh = {
+    IM.server_hello_random = random_vec;
+    IM.server_hello_session_id = session_id_vec;
+    IM.server_hello_session_id_len = session_id_len;
+    IM.server_hello_key_share = key_share_vec;
+    IM.server_hello_kex_group = CryptoSpec.KexX25519;
+    IM.server_hello_hybrid_share = hybrid_share_vec;
+    IM.server_hello_is_hybrid = true;
+    IM.server_hello_cipher_suite = cipher_suite;
+  };
+  IM.lemma_cipher_suite_of_u16_chacha ();
+  IM.lemma_cipher_suite_of_u16_aes ();
+  rewrite (V.pts_to random_vec 'server_random_bytes)
+    as (V.pts_to lsh.IM.server_hello_random 'server_random_bytes);
+  rewrite (V.pts_to session_id_vec 'session_id_bytes)
+    as (V.pts_to lsh.IM.server_hello_session_id 'session_id_bytes);
+  rewrite (V.pts_to key_share_vec (Seq.create 65 0uy))
+    as (V.pts_to lsh.IM.server_hello_key_share (Seq.create 65 0uy));
+  rewrite (V.pts_to hybrid_share_vec 'hybrid_share_bytes)
+    as (V.pts_to lsh.IM.server_hello_hybrid_share 'hybrid_share_bytes);
+  fold (IM.is_valid_server_hello
+    lsh
+    (Ghost.reveal sh));
+  lsh
+}
+
+fn process_send_hybrid_server_hello_from_arrays
+  (s:server)
+  (server_random:array U8.t)
+  (hybrid_share:array U8.t)
+  (network_out:array U8.t)
+  (network_out_len:SZ.t)
+  (app_out:array U8.t)
+  (app_out_len:SZ.t)
+  requires connection_exactly s 'st0 **
+           pts_to server_random 'server_random_bytes **
+           pts_to hybrid_share 'hybrid_share_bytes **
+           pts_to network_out 'old_network_out **
+           pts_to app_out 'old_app_out **
+           pure (B.length 'server_random_bytes == 32 /\
+                 B.length 'hybrid_share_bytes == 1120 /\
+                 B.length 'old_network_out == SZ.v network_out_len /\
+                 B.length 'old_app_out == SZ.v app_out_len /\
+                 SZ.v network_out_len ==
+                   63 + 1120 + Seq.length (CM.stored_client_hello_session_id 'st0) /\
+                 ST.server_end_to_end_invariant 'st0 /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+                 (Ghost.reveal 'server_random_bytes <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+                 (let sh = hybrid_server_hello_witness 'st0 'server_random_bytes 'hybrid_share_bytes in
+                  CM.can_send_server_hello
+                    'st0
+                    sh
+                    (CS.serialized_cleartext_tls_message
+                      (M.TlsHandshake (M.ServerHello sh)))))
+  returns resp:ST.server_response
+  ensures exists* st1 network_out_bytes app_out_bytes.
+          connection_exactly s st1 **
+          pts_to server_random 'server_random_bytes **
+          pts_to hybrid_share 'hybrid_share_bytes **
+          pts_to network_out network_out_bytes **
+          pts_to app_out app_out_bytes **
+          pure (B.length network_out_bytes == SZ.v network_out_len /\
+                B.length app_out_bytes == SZ.v app_out_len /\
+                (B.length 'server_random_bytes == 32 /\
+                 (Ghost.reveal 'server_random_bytes <: Seq.lseq U8.t 32) <> GSHbody.serverHello_body_cst /\
+                 B.length 'hybrid_share_bytes == 1120 ==>
+                 (let sh = hybrid_server_hello_witness 'st0 'server_random_bytes 'hybrid_share_bytes in
+                 Seq.equal
+                   network_out_bytes
+                   (CS.serialized_cleartext_tls_message
+                     (M.TlsHandshake (M.ServerHello sh))) /\
+                 st1 == CM.sent_server_hello_state 'st0 sh network_out_bytes)) /\
+                ST.server_local_event_end_to_end_correct
+                  'st0
+                  st1
+                  resp
+                  ST.LocalSendServerHello
+                  B.empty
+                  network_out_bytes
+                  app_out_bytes)
+{
+  let sh = Ghost.hide (hybrid_server_hello_witness 'st0 'server_random_bytes 'hybrid_share_bytes);
+  let mut session_id = [| 0uy; 32sz |];
+  rewrite (connection_exactly s 'st0) as (CR.connection_exactly s 'st0);
+  let session_id_len = CQ.read_client_hello_session_id s session_id;
+  let negotiated_suite = CQ.read_negotiated_server_suite s;
+  rewrite (CR.connection_exactly s 'st0) as (connection_exactly s 'st0);
+  with sid_bytes. assert (pts_to session_id sid_bytes);
+  Seq.lemma_eq_elim (Ghost.reveal sid_bytes)
+    (Sem.pad_session_id_32 (CM.stored_client_hello_session_id 'st0));
+  let lsh =
+    build_hybrid_server_hello_from_arrays
+      server_random
+      hybrid_share
+      session_id
+      session_id_len
+      negotiated_suite
+      #sh
+      #(Ghost.hide (CM.stored_client_hello_session_id 'st0 <: B.bytes));
+  process_send_hybrid_server_hello_serialized
+    s
+    lsh
+    session_id_len
+    #sh
+    #('server_random_bytes)
+    #('hybrid_share_bytes)
+    network_out
+    network_out_len
+    app_out
+    app_out_len
 }
 
 #push-options "--z3rlimit 100"

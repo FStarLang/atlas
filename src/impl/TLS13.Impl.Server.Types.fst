@@ -381,7 +381,7 @@ let server_local_event_input_ready
      B.length st.CS.cs_model.CS.model_handshake.CS.hs_transcript + 36 <=
        Bounds.max_transcript_len)
   | LocalSelectServerParameters ->
-    B.length payload == 64 /\
+    B.length payload == 128 /\
     st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
     st.CS.cs_model.CS.model_control ==
       CS.ControlHandshaking CS.HsClientHelloReceived /\
@@ -404,11 +404,13 @@ let server_local_event_input_ready
        CS.server_p256_private = Some server_private_key;
        CS.server_p256_public =
          CryptoSpec.p256_public_from_private server_private_key;
+       CS.server_hybrid_private = None;
+       CS.server_hybrid_share = CS.server_hybrid_absent;
        CS.server_selected_credential = cfg.CS.server_credential_identity;
      } in
      CM.can_select_server_parameters st selection)
   | LocalSendServerHello ->
-    B.length payload == 64 /\
+    B.length payload == 128 /\
     st.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
     (let server_random = CL.raw_slice payload 0 32 in
      let server_private_key = CL.raw_slice payload 32 64 in

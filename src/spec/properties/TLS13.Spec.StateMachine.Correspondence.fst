@@ -8,6 +8,7 @@ module TLS13.Spec.StateMachine.Correspondence
 
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
+module KX = TLS13.Crypto.Kex.Spec
 module CL = TLS13.ConnectionLog
 module K = TLS13.Keys
 module M = TLS13.Messages
@@ -239,8 +240,8 @@ let paired_x25519_key_shares
             sh_ks == server_kex_public selection g /\
             C.kex_public_from_private g client_sk == start_kex_public start g /\
             C.kex_public_from_private g server_sk == server_kex_public selection g /\
-            C.kex_shared g client_sk sh_ks == Some client_shared /\
-            C.kex_shared g server_sk ch_ks == Some server_shared /\
+            C.widen_secret (C.kex_shared g client_sk sh_ks) == Some client_shared /\
+            C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared /\
             // The two endpoints negotiated the same AEAD algorithm.  Both read it
             // off their own stored ServerHello; the server's is the message it
             // sent and the client's is the message it received, so this holds for
@@ -248,8 +249,49 @@ let paired_x25519_key_shares
             negotiated_aead_alg client_hs == negotiated_aead_alg server_hs
           | None -> False)
        | _, _, _, _ -> False)
-     | None -> False)
+     | None ->
+      (* The X25519MLKEM768 side arm (RFC 10024): the client's hybrid share
+         was encapsulated to by the server, and each side ran its own half of
+         the KEM. *)
+      (match
+        server_hello_hybrid_share sh,
+        start.start_client_hybrid_private,
+        selection.server_hybrid_private,
+        client_hello_hybrid_key_share ch,
+        client_hs.hs_keys.ks_shared_secret,
+        server_hs.hs_keys.ks_shared_secret
+       with
+       | Some sh_ks, Some client_sk, Some server_sk, Some ch_ks,
+         Some client_shared, Some server_shared ->
+         server_selects_hybrid selection /\
+         ch_ks == start.start_client_hybrid_public /\
+         sh_ks == selection.server_hybrid_share /\
+         KX.kex_client_public C.KexX25519MLKEM768 client_sk == start.start_client_hybrid_public /\
+         KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks == Some sh_ks /\
+         KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks == Some client_shared /\
+         KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some server_shared /\
+         negotiated_aead_alg client_hs == negotiated_aead_alg server_hs
+       | _, _, _, _, _, _ -> False))
   | _, _, _, _ -> False
+(** D6 (RFC 10024): the one hypothesis key agreement needs beyond the model.
+    For the (EC)DH groups it is [True]; when both endpoints hold
+    X25519MLKEM768 key material it is ML-KEM-768's correctness on their joint
+    randomness ([KX.kex_agreement_ok]), which fails with probability about
+    2^-164 and which the model does not assume away. **)
+let paired_kex_agreement_ok
+  (client:connection_state)
+  (server:connection_state)
+  : prop =
+  match
+    client.cs_model.model_handshake.hs_start,
+    server.cs_model.model_handshake.hs_server_selection
+  with
+  | Some start, Some selection ->
+    (match start.start_client_hybrid_private, selection.server_hybrid_private with
+     | Some client_sk, Some server_sk ->
+       KX.kex_agreement_ok C.KexX25519MLKEM768 client_sk server_sk
+     | _, _ -> True)
+  | _, _ -> True
 let client_x25519_key_share_projection
   (client:connection_state)
   : prop =
@@ -269,11 +311,20 @@ let client_x25519_key_share_projection
          | Some ch_ks ->
           ch_ks == start_kex_public start g /\
           C.kex_public_from_private g client_sk == start_kex_public start g /\
-          C.kex_shared g client_sk sh_ks == Some shared
+          C.widen_secret (C.kex_shared g client_sk sh_ks) == Some shared
          | None -> False)
        | None -> False)
      | None ->
-      False)
+      (match
+        server_hello_hybrid_share sh,
+        start.start_client_hybrid_private,
+        client_hello_hybrid_key_share ch
+       with
+       | Some sh_ks, Some client_sk, Some ch_ks ->
+         ch_ks == start.start_client_hybrid_public /\
+         KX.kex_client_public C.KexX25519MLKEM768 client_sk == start.start_client_hybrid_public /\
+         KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks == Some shared
+       | _, _, _ -> False))
   | _, _, _, _ ->
     False
 let client_x25519_pre_shared_secret_projection
@@ -282,13 +333,18 @@ let client_x25519_pre_shared_secret_projection
   let hs = client.cs_model.model_handshake in
   match hs.hs_start, hs.hs_client_hello with
   | Some start, Some ch ->
-    (forall (g:C.kex_group).
+    (forall (g:C.dh_group).
       client_hello_kex ch g == Some (start_kex_public start g) /\
       (match start_kex_private start g with
        | Some client_sk ->
          C.kex_public_from_private g client_sk == start_kex_public start g
        | None ->
-         True))
+         True)) /\
+    (match start.start_client_hybrid_private with
+     | Some client_sk ->
+       client_hello_hybrid_key_share ch == Some start.start_client_hybrid_public /\
+       KX.kex_client_public C.KexX25519MLKEM768 client_sk == start.start_client_hybrid_public
+     | None -> True)
   | _, _ ->
     False
 let client_x25519_key_share_projection_stable_control
@@ -344,10 +400,21 @@ let server_x25519_key_share_projection
         (* The selection agrees with itself on every group it carries a keypair
            for. *)
         server_selection_key_share_consistent selection /\
-        C.kex_shared g server_sk ch_ks == Some shared
+        C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared
        | _, _ -> False)
      | None ->
-      False)
+      (match
+        server_hello_hybrid_share sh,
+        selection.server_hybrid_private,
+        client_hello_hybrid_key_share ch
+       with
+       | Some sh_ks, Some server_sk, Some ch_ks ->
+         server_selects_hybrid selection /\
+         sh_ks == selection.server_hybrid_share /\
+         server_selection_key_share_consistent selection /\
+         KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks == Some sh_ks /\
+         KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some shared
+       | _, _, _ -> False))
   | _, _, _, _ ->
     False
 let server_x25519_pre_server_hello_projection
@@ -370,10 +437,16 @@ let server_x25519_pre_server_hello_projection
           selection.server_selected_client_hello == ch /\
           C.kex_public_from_private g server_sk == server_kex_public selection g /\
           server_selection_key_share_consistent selection /\
-          C.kex_shared g server_sk ch_ks == Some shared
+          C.widen_secret (C.kex_shared g server_sk ch_ks) == Some shared
         | None -> False)
      | None ->
-       False)
+       (match selection.server_hybrid_private, client_hello_hybrid_key_share ch with
+        | Some server_sk, Some ch_ks ->
+          server_selects_hybrid selection /\
+          selection.server_selected_client_hello == ch /\
+          server_selection_key_share_consistent selection /\
+          KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some shared
+        | _, _ -> False))
   | _, _, _ ->
     False
 let server_x25519_key_share_projection_stable_control
@@ -408,6 +481,8 @@ let client_hello_corresponds
   // The secp256r1 offer travels with the X25519 one: [paired_x25519_key_shares]
   // is group-indexed and may instantiate at either group.
   Sem.clientHello_key_share_secp256r1 left == Sem.clientHello_key_share_secp256r1 right /\
+  // ...and so does the X25519MLKEM768 offer, for its side arm.
+  Sem.clientHello_key_share_x25519mlkem768 left == Sem.clientHello_key_share_x25519mlkem768 right /\
   Sem.clientHello_cipher_suites left == Sem.clientHello_cipher_suites right /\
   Sem.clientHello_sig_algs left == Sem.clientHello_sig_algs right
 let server_hello_corresponds
@@ -422,6 +497,7 @@ let server_hello_corresponds
   // instance.  Both sides hold the same parsed message, so this is as free as
   // the line above.
   Sem.serverHello_kex_share left == Sem.serverHello_kex_share right /\
+  Sem.serverHello_hybrid_share left == Sem.serverHello_hybrid_share right /\
   Sem.serverHello_cipher_suite left == Sem.serverHello_cipher_suite right
 let encrypted_extensions_corresponds
   (left:GEE.encryptedExtensions)

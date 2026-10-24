@@ -88,6 +88,16 @@ let lemma_reveal_ch_find_key_share_secp256r1_cons_ks ks tl = ()
 
 let lemma_reveal_ch_find_key_share_secp256r1_cons_other e tl = ()
 
+let lemma_reveal_kse_list_find_x25519mlkem768_nil () = ()
+
+let lemma_reveal_kse_list_find_x25519mlkem768_cons e tl = ()
+
+let lemma_reveal_ch_find_key_share_x25519mlkem768_nil () = ()
+
+let lemma_reveal_ch_find_key_share_x25519mlkem768_cons_ks ks tl = ()
+
+let lemma_reveal_ch_find_key_share_x25519mlkem768_cons_other e tl = ()
+
 let lemma_reveal_ch_extensions_nil sn ks sv ss = WS.lemma_ch_extensions_nil sn ks sv ss
 
 let lemma_reveal_ch_extensions_cons_sn snl tl sn ks sv ss =

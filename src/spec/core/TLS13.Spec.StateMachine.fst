@@ -14,6 +14,7 @@ module C = TLS13.Crypto.Spec
 module CL = TLS13.ConnectionLog
 module H = TLS13.Handshake.Spec
 module K = TLS13.Keys
+module KX = TLS13.Crypto.Kex.Spec
 module M = TLS13.Messages
 module Sem = TLS13.Wire.Semantics
 module GCS = TLS13.Wire.Generated.CipherSuite
@@ -105,6 +106,11 @@ type handshake_start = {
      keys are held until the server names the group it chose. *)
   start_client_p256_private: option C.p256_private;
   start_client_p256_public: C.p256_public;
+  (* The X25519MLKEM768 offer (RFC 10024): a 96-byte seed (ML-KEM d||z, then
+     the X25519 scalar) and the 1216-byte share it determines.  [None] with
+     [start_hybrid_absent] when the client does not offer the hybrid. *)
+  start_client_hybrid_private: option (B.bytes_of_len 96);
+  start_client_hybrid_public: B.bytes_of_len 1216;
   start_cipher_suites: list T.cipher_suite;
   start_signature_schemes: list T.signature_scheme;
 }
@@ -143,7 +149,7 @@ let updated_traffic_key_material
     (K.application_traffic_secret_update old.traffic_secret)
 type key_schedule_state = {
   ks_early_secret: option C.secret;
-  ks_shared_secret: option C.x25519_shared_secret;
+  ks_shared_secret: option C.kex_shared_secret_any;
   ks_handshake_secret: option C.secret;
   ks_master_secret: option C.secret;
   ks_client_handshake_traffic: option traffic_key_material;
@@ -206,8 +212,26 @@ type server_handshake_selection = {
      secp256r1 support additive rather than a re-plumbing of the send path. *)
   server_p256_private: option C.p256_private;
   server_p256_public: C.p256_public;
+  (* The X25519MLKEM768 response (RFC 10024).  Unlike a DH share it is an
+     encapsulation to the client's share, so it is fixed when the selection is
+     made: 64 bytes of server randomness (ML-KEM m, then the X25519 scalar)
+     and the 1120-byte share they produce for the selected ClientHello.
+     [None] with [server_hybrid_absent] unless the hybrid was selected. *)
+  server_hybrid_private: option (B.bytes_of_len 64);
+  server_hybrid_share: B.bytes_of_len 1120;
   server_selected_credential: server_credential_identity;
 }
+(** Whether the selection names the X25519MLKEM768 hybrid (RFC 10024). **)
+let server_selects_hybrid (selection:server_handshake_selection) : bool =
+  selection.server_selected_group = GNG.X25519mlkem768
+
+(** The client's X25519MLKEM768 share as read off a ClientHello, at its exact
+    length. **)
+let client_hello_hybrid_key_share (ch:GCH.clientHello) : option (B.bytes_of_len 1216) =
+  match Sem.clientHello_key_share_x25519mlkem768 ch with
+  | Some k -> if B.length k = 1216 then Some (k <: B.bytes_of_len 1216) else None
+  | None -> None
+
 let server_selection_key_share_consistent
   (selection:server_handshake_selection)
   : prop =
@@ -232,7 +256,20 @@ let server_selection_key_share_consistent
      [C.kex_shared (server_selected_kex_group selection) sk k] with the array it
      holds, whichever group the selection names, instead of every contract on
      the path having to be restated over [server_kex_private]. *)
-  selection.server_key_share_private == selection.server_p256_private
+  selection.server_key_share_private == selection.server_p256_private /\
+  (* A selection carries one key family: the (EC)DH scalar, or -- when the
+     hybrid is selected -- the hybrid randomness alone.  So a selection that
+     holds a DH private never names the hybrid. *)
+  (server_selects_hybrid selection ==> None? selection.server_key_share_private) /\
+  (* The hybrid share is the encapsulation of the server's randomness to the
+     client's hybrid share in the selected ClientHello (D3). *)
+  (match selection.server_hybrid_private with
+   | Some ssk ->
+     (match client_hello_hybrid_key_share selection.server_selected_client_hello with
+      | Some k ->
+        KX.kex_server_share C.KexX25519MLKEM768 ssk k == Some selection.server_hybrid_share
+      | None -> False)
+   | None -> True)
 
 (** Stands in [server_p256_public] wherever the server has not generated a
     secp256r1 keypair.  [server_p256_private] is [None] alongside it, so
@@ -240,6 +277,11 @@ let server_selection_key_share_consistent
     [server_selected_group] never names secp256r1 while the configured
     [server_supported_groups] does not offer it. **)
 let server_p256_absent : C.p256_public = B.zeros 65
+
+(** Stand-ins for the hybrid fields when no hybrid key exchange is offered
+    (client) or selected (server); the private field is [None] alongside. **)
+let start_hybrid_absent : B.bytes_of_len 1216 = B.zeros 1216
+let server_hybrid_absent : B.bytes_of_len 1120 = B.zeros 1120
 
 type handshake_state = {
   hs_start: option handshake_start;
@@ -319,10 +361,10 @@ let server_hello_p256_key_share (sh:GSH.serverHello) : option C.p256_public =
   server echoed.  Like `negotiated_aead_alg` this is a tag the peer put on the
   wire, not something inferred from the share's length.
 **)
-let kex_group_of_named_group (g:GNG.namedGroup) : C.kex_group =
+let kex_group_of_named_group (g:GNG.namedGroup) : C.dh_group =
   Sem.kex_group_of_named_group g
 
-let negotiated_kex_group (hs:handshake_state) : C.kex_group =
+let negotiated_kex_group (hs:handshake_state) : C.dh_group =
   match hs.hs_server_hello with
   | Some sh ->
     (match Sem.serverHello_key_share_group sh with
@@ -337,7 +379,7 @@ let negotiated_kex_group (hs:handshake_state) : C.kex_group =
   runtime storage agree on; `server_hello_key_share` above is its X25519
   special case, kept for the X25519-only server role.
 **)
-let server_hello_kex (sh:GSH.serverHello) : option (g:C.kex_group & C.kex_public g) =
+let server_hello_kex (sh:GSH.serverHello) : option (g:C.dh_group & C.kex_public g) =
   match Sem.serverHello_kex_share sh with
   | Some (GNG.X25519, k) ->
     if B.length k = 32 then Some (| C.KexX25519, (k <: C.kex_public C.KexX25519) |) else None
@@ -364,21 +406,36 @@ let lemma_server_hello_kex_of_share (sh:GSH.serverHello)
     | Some (GNG.Secp256r1, _) -> ()
     | _ -> ()
 
+(** The server's X25519MLKEM768 share (RFC 10024), when the ServerHello's
+    key_share names the hybrid at its exact ciphertext length.  It reads the
+    entry [server_hello_kex] reads, so at most one of the two is [Some]: the
+    hybrid is the side arm wherever [server_hello_kex] is [None]. **)
+let server_hello_hybrid_share (sh:GSH.serverHello) : option (B.bytes_of_len 1120) =
+  match Sem.serverHello_hybrid_share sh with
+  | Some k -> if B.length k = 1120 then Some (k <: B.bytes_of_len 1120) else None
+  | None -> None
+
+let lemma_server_hello_hybrid_share_exclusive (sh:GSH.serverHello)
+  : Lemma
+      (ensures Some? (server_hello_hybrid_share sh) ==> server_hello_kex sh == None)
+      [SMTPat (server_hello_hybrid_share sh)]
+  = ()
+
 (** The client's own private/public pair for a group, as offered in its
     ClientHello.  Both pairs are always generated; the negotiated group selects
     which one the ECDH uses. **)
-let start_kex_private (start:handshake_start) (g:C.kex_group) : option C.kex_private =
+let start_kex_private (start:handshake_start) (g:C.dh_group) : option C.kex_private =
   match g with
   | C.KexX25519 -> start.start_client_key_share_private
   | C.KexP256 -> start.start_client_p256_private
 
-let start_kex_public (start:handshake_start) (g:C.kex_group) : C.kex_public g =
+let start_kex_public (start:handshake_start) (g:C.dh_group) : C.kex_public g =
   match g with
   | C.KexX25519 -> start.start_client_key_share_public
   | C.KexP256 -> start.start_client_p256_public
 
 (** The client's offered share for a group, read back off its ClientHello. **)
-let client_hello_kex (ch:GCH.clientHello) (g:C.kex_group) : option (C.kex_public g) =
+let client_hello_kex (ch:GCH.clientHello) (g:C.dh_group) : option (C.kex_public g) =
   match g with
   | C.KexX25519 -> client_hello_key_share ch
   | C.KexP256 -> client_hello_p256_key_share ch
@@ -388,7 +445,7 @@ let client_hello_kex (ch:GCH.clientHello) (g:C.kex_group) : option (C.kex_public
     [server_selected_group] selects which one the ECDH uses. **)
 let server_kex_private
   (selection:server_handshake_selection)
-  (g:C.kex_group)
+  (g:C.dh_group)
   : option C.kex_private
   = match g with
     | C.KexX25519 -> selection.server_key_share_private
@@ -396,15 +453,28 @@ let server_kex_private
 
 let server_kex_public
   (selection:server_handshake_selection)
-  (g:C.kex_group)
+  (g:C.dh_group)
   : C.kex_public g
   = match g with
     | C.KexX25519 -> selection.server_key_share_public
     | C.KexP256 -> selection.server_p256_public
 
 (** The group the server chose, as a [kex_group] rather than a wire tag. **)
-let server_selected_kex_group (selection:server_handshake_selection) : C.kex_group =
+let server_selected_kex_group (selection:server_handshake_selection) : C.dh_group =
   kex_group_of_named_group selection.server_selected_group
+
+(** The selected group including the hybrid; [server_selected_kex_group] is its
+    (EC)DH reading. **)
+let server_selected_kex_group_full (selection:server_handshake_selection) : C.kex_group =
+  Sem.kex_group_of_named_group_full selection.server_selected_group
+
+let lemma_server_selected_kex_group_full (selection:server_handshake_selection)
+  : Lemma
+      (ensures server_selected_kex_group_full selection ==
+               (if server_selects_hybrid selection then C.KexX25519MLKEM768
+                else server_selected_kex_group selection))
+      [SMTPat (server_selected_kex_group_full selection)]
+  = ()
 
 (** The X25519 instances of the two accessors are the legacy fields, definitionally.
     Carried with patterns so that the proofs written before secp256r1 support --
@@ -423,7 +493,7 @@ let lemma_server_kex_x25519_is_legacy (selection:server_handshake_selection)
     [lemma_start_kex_public_from_private]. **)
 let lemma_server_kex_public_from_private
   (selection:server_handshake_selection)
-  (g:C.kex_group)
+  (g:C.dh_group)
   : Lemma
       (requires server_selection_key_share_consistent selection /\
                 Some? (server_kex_private selection g))
@@ -494,7 +564,7 @@ type local_event =
   | LocalStartHandshake of handshake_start
   | LocalStartServer
   | LocalSelectServerParameters of server_handshake_selection
-  | LocalDeriveSharedSecret of C.x25519_shared_secret
+  | LocalDeriveSharedSecret of C.kex_shared_secret_any
   | LocalInstallTrafficKeys of traffic_key_install
   | LocalInstallTrafficKeysForRole of role_traffic_key_install
   | LocalValidateCertificate of X.peer_identity
@@ -724,7 +794,7 @@ let application_record_keys_installed_for_role
 let derive_shared_secret_model
   (model:connection_model)
   (hs:handshake_state)
-  (shared:C.x25519_shared_secret)
+  (shared:C.kex_shared_secret_any)
   : GTot connection_model =
   let early = K.early_secret B.empty in
   let handshake = K.handshake_secret early shared in
@@ -1520,11 +1590,18 @@ let handshake_start_key_share_consistent (start:handshake_start) : prop =
        start.start_client_p256_public
        (C.p256_public_from_private sk)
    | None ->
+     True) /\
+  (match start.start_client_hybrid_private with
+   | Some sk ->
+     Seq.equal
+       start.start_client_hybrid_public
+       (KX.kex_client_public C.KexX25519MLKEM768 sk)
+   | None ->
      True)
 (** [handshake_start_key_share_consistent] states the private/public agreement
     per group; this is its group-dispatched reading, which is what the ECDH
     implementation needs once the negotiated group has selected a keypair. **)
-let lemma_start_kex_public_from_private (start:handshake_start) (g:C.kex_group)
+let lemma_start_kex_public_from_private (start:handshake_start) (g:C.dh_group)
   : Lemma
       (requires handshake_start_key_share_consistent start /\
                 Some? (start_kex_private start g))
@@ -1549,6 +1626,9 @@ let client_hello_matches_start (start:handshake_start) (ch:GCH.clientHello) : pr
   (match Sem.clientHello_key_share_secp256r1 ch with
    | Some k -> B.length k = 65 /\ Seq.equal k start.start_client_p256_public
    | None -> False) /\
+  (match start.start_client_hybrid_private with
+   | Some _ -> client_hello_hybrid_key_share ch == Some start.start_client_hybrid_public
+   | None -> True) /\
   Sem.clientHello_cipher_suites ch == start.start_cipher_suites /\
   Sem.clientHello_sig_algs ch == Some start.start_signature_schemes /\
   (* A ClientHello is only ever sent inside a single TLS plaintext record, whose
@@ -1571,9 +1651,15 @@ let server_hello_matches_selection
      wire image to the keypair the ECDH will run with. *)
   (match server_hello_kex sh with
    | Some (| g, k |) ->
+     not (server_selects_hybrid selection) /\
      g == server_selected_kex_group selection /\
      Seq.equal k (server_kex_public selection g)
-   | None -> False) /\
+   | None ->
+     (* The X25519MLKEM768 side arm: the ServerHello carries the ciphertext
+        the selection encapsulated. *)
+     server_selects_hybrid selection /\
+     Some? selection.server_hybrid_private /\
+     server_hello_hybrid_share sh == Some selection.server_hybrid_share) /\
   H.is_supported_cipher_suite selection.server_selected_cipher_suite /\
   Sem.serverHello_cipher_suite sh == Some selection.server_selected_cipher_suite /\
   B.length (W.serialize_handshake (M.ServerHello sh)) <= 16640
@@ -1720,9 +1806,16 @@ let legal_local_event (model:connection_model) (ev:local_event) : GTot prop =
           (match start_kex_private start g with
            | Some sk ->
              C.kex_public_from_private g sk == start_kex_public start g /\
-             C.kex_shared g sk server_share == Some shared
+             C.widen_secret (C.kex_shared g sk server_share) == Some shared
            | None -> False)
-        | None -> False)
+        | None ->
+          (* The X25519MLKEM768 side arm (RFC 10024): the server's share is a
+             ciphertext to the client's hybrid share, decapsulated with the
+             hybrid seed the client offered it with. *)
+          (match server_hello_hybrid_share sh, start.start_client_hybrid_private with
+           | Some server_share, Some csk ->
+             KX.kex_client_shared C.KexX25519MLKEM768 csk server_share == Some shared
+           | _, _ -> False))
      | _, _ -> False)
   | LocalDeriveSharedSecret shared, ControlHandshaking HsClientHelloReceived ->
     model.model_config.config_role == ServerEndpoint /\
@@ -1736,13 +1829,23 @@ let legal_local_event (model:connection_model) (ev:local_event) : GTot prop =
           private key the ECDH runs with.  This is the exact mirror of the
           client's arm above; the difference is only where the group comes from,
           the selection here rather than the received ServerHello there. *)
+       (* A hybrid selection holds no DH private
+          ([server_selection_key_share_consistent]), so it takes the side arm:
+          the shared secret is the one encapsulated to the client's hybrid
+          share in the selected ClientHello (RFC 10024). *)
        (let g = server_selected_kex_group selection in
         match server_kex_private selection g with
         | Some sk ->
           (match client_hello_kex selection.server_selected_client_hello g with
-           | Some k -> C.kex_shared g sk k == Some shared
+           | Some k -> C.widen_secret (C.kex_shared g sk k) == Some shared
            | None -> False)
-        | None -> False)
+        | None ->
+          server_selects_hybrid selection /\
+          (match selection.server_hybrid_private,
+                 client_hello_hybrid_key_share selection.server_selected_client_hello with
+           | Some ssk, Some k ->
+             KX.kex_server_shared C.KexX25519MLKEM768 ssk k == Some shared
+           | _, _ -> False))
      | None -> False)
   | LocalInstallTrafficKeys install, ControlHandshaking stage ->
     model.model_config.config_role == ClientEndpoint /\

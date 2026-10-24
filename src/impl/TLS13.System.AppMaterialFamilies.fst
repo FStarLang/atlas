@@ -245,7 +245,7 @@ let lemma_ama_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_material_agreement b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -288,7 +288,7 @@ let lemma_ama_client_local (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_local a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_client_local a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_material_agreement b)
   = eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -376,7 +376,7 @@ let lemma_ama_server_local (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_local a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_server_local a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_material_agreement b)
   = eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -433,7 +433,7 @@ let lemma_ama_deliver_to_client
         Seq.equal (CW.wire_serialize wire) raw /\
         EC.client_step #CTy.client_local_event a.client (SM.WireEvent wire) c' out /\
         SY.tls_system_inv ({ a with client = c'; channel = MP.Quiet }) /\
-        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with client = c'; channel = MP.Quiet }))
       (ensures ASP.app_material_agreement ({ a with client = c'; channel = MP.Quiet }))
   = let b : SY.tls_system_state = { a with client = c'; channel = MP.Quiet } in
     introduce ASP.cf_delivered b ==>
@@ -529,7 +529,7 @@ let lemma_ama_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.app_material_agreement b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -669,7 +669,7 @@ let lemma_chwsl_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.client_hs_write_record_slot_link a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.client_hs_write_record_slot_link b)
   = SY.lemma_server_send_shape a b
 #pop-options
@@ -680,7 +680,7 @@ let lemma_chwsl_server_local (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.client_hs_write_record_slot_link a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_local a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_server_local a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.client_hs_write_record_slot_link b)
   = eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -696,7 +696,7 @@ let lemma_chwsl_deliver_to_server (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.client_hs_write_record_slot_link a /\
-        SY.tls_step_deliver_to_server a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_deliver_to_server a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.client_hs_write_record_slot_link b)
   = SY.lemma_deliver_to_server_shape a b
 #pop-options
@@ -707,7 +707,7 @@ let lemma_chwsl_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.client_hs_write_record_slot_link a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.client_hs_write_record_slot_link b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -730,7 +730,7 @@ let lemma_chwsl_client_local (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.client_hs_write_record_slot_link a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_local a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_client_local a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.client_hs_write_record_slot_link b)
   = eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -750,7 +750,7 @@ let lemma_chwsl_deliver_to_client (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.client_hs_write_record_slot_link a /\
-        SY.tls_step_deliver_to_client a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_deliver_to_client a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.client_hs_write_record_slot_link b)
   = SY.lemma_deliver_to_client_shape a b;
     eliminate exists (wire:CW.wire_message) (c':CS.connection_state)

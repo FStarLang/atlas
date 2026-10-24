@@ -48,7 +48,8 @@ open TLS13.System
     antecedent (rather than pinned inside the step relation) — the honest run
     never rekeys, so it still fires along every real run. **)
 let record_material_agrees_when_ready_scoped : T.sprop tls_system_state = fun s ->
-  (tls_no_rekeying s /\ tls_quiescent s /\ tls_application_ready s /\
+  (tls_no_rekeying s /\ tls_kex_agreement_ok s /\ tls_quiescent s /\
+   tls_application_ready s /\
    CCShape.no_buffering_steps s.client.CS.cs_event_log) ==>
     (SMKM.peer_record_material_agrees
        (SMKI.traffic_id CS.TrafficApplication CS.ClientTraffic) s.client s.server /\
@@ -64,7 +65,8 @@ val lemma_inv_implies_agreement (s:tls_system_state)
           (ensures record_material_agrees_when_ready_scoped s)
 let lemma_inv_implies_agreement s =
   introduce
-    (tls_no_rekeying s /\ tls_quiescent s /\ tls_application_ready s /\
+    (tls_no_rekeying s /\ tls_kex_agreement_ok s /\ tls_quiescent s /\
+     tls_application_ready s /\
      CCShape.no_buffering_steps s.client.CS.cs_event_log) ==>
       (SMKM.peer_record_material_agrees
          (SMKI.traffic_id CS.TrafficApplication CS.ClientTraffic) s.client s.server /\
@@ -104,7 +106,8 @@ let lemma_flagship_record_material_agreement cfg_c cfg_s =
       T.reachable tls_sys_step s0 s' ==> record_material_agrees_when_ready_scoped s'
     with begin
       introduce
-        (tls_no_rekeying s' /\ tls_quiescent s' /\ tls_application_ready s' /\
+        (tls_no_rekeying s' /\ tls_kex_agreement_ok s' /\ tls_quiescent s' /\
+         tls_application_ready s' /\
          CCShape.no_buffering_steps s'.client.CS.cs_event_log) ==>
           (SMKM.peer_record_material_agrees
              (SMKI.traffic_id CS.TrafficApplication CS.ClientTraffic) s'.client s'.server /\

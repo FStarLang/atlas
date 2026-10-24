@@ -150,6 +150,13 @@ let tls_no_rekeying (s:tls_system_state) : prop =
   SMC.connection_state_no_key_update_trace s.client /\
   SMC.connection_state_no_key_update_trace s.server
 
+(** D6 (RFC 10024): ML-KEM correctness for the run's X25519MLKEM768 key pair;
+    `True` for X25519 / P-256 and until both hybrid privates exist.  A
+    hypothesis of the agreement payoffs, never an invariant (see
+    `lemma_kex_agreement_backward`). **)
+let tls_kex_agreement_ok (s:tls_system_state) : prop =
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok s.client s.server
+
 (** Initial state: fresh client and server from their configs, empty channel. **)
 let initial_tls_system (cfg_c cfg_s:CS.connection_config) : tls_system_state = {
   client  = CS.initial cfg_c;
@@ -599,7 +606,8 @@ let server_ready (s:tls_system_state) : prop =
 [@@ "opaque_to_smt"]
 let protected_witnesses_ok (s:tls_system_state) : prop =
   (client_ready s /\ server_ready s /\
-   CCShape.no_buffering_steps s.client.CS.cs_event_log) ==>
+   CCShape.no_buffering_steps s.client.CS.cs_event_log /\
+   tls_kex_agreement_ok s) ==>
     P.paired_protected_handshake_event_projection_pair_witnesses s.client s.server
 
 (** Client control at application data (weaker than `client_ready`). **)
@@ -2369,7 +2377,10 @@ let lemma_step_appdata_preserves_protected_fields
         m'.CS.model_handshake.CS.hs_server_finished
           == m.CS.model_handshake.CS.hs_server_finished /\
         m'.CS.model_handshake.CS.hs_client_finished
-          == m.CS.model_handshake.CS.hs_client_finished)
+          == m.CS.model_handshake.CS.hs_client_finished /\
+        m'.CS.model_handshake.CS.hs_start == m.CS.model_handshake.CS.hs_start /\
+        m'.CS.model_handshake.CS.hs_server_selection
+          == m.CS.model_handshake.CS.hs_server_selection)
   = ()
 #pop-options
 
@@ -2387,7 +2398,9 @@ let lemma_client_step_appdata_preserves_protected_fields
         (hsf c').CS.hs_certificate == (hsf a).CS.hs_certificate /\
         (hsf c').CS.hs_certificate_verify == (hsf a).CS.hs_certificate_verify /\
         (hsf c').CS.hs_server_finished == (hsf a).CS.hs_server_finished /\
-        (hsf c').CS.hs_client_finished == (hsf a).CS.hs_client_finished)
+        (hsf c').CS.hs_client_finished == (hsf a).CS.hs_client_finished /\
+        (hsf c').CS.hs_start == (hsf a).CS.hs_start /\
+        (hsf c').CS.hs_server_selection == (hsf a).CS.hs_server_selection)
   = assert (exists (d:CS.connection_delta). CS.legal_connection_delta a d c');
     eliminate exists (d:CS.connection_delta). CS.legal_connection_delta a d c'
     with
@@ -2409,7 +2422,9 @@ let lemma_server_step_appdata_preserves_protected_fields
         (hsf s').CS.hs_certificate == (hsf a).CS.hs_certificate /\
         (hsf s').CS.hs_certificate_verify == (hsf a).CS.hs_certificate_verify /\
         (hsf s').CS.hs_server_finished == (hsf a).CS.hs_server_finished /\
-        (hsf s').CS.hs_client_finished == (hsf a).CS.hs_client_finished)
+        (hsf s').CS.hs_client_finished == (hsf a).CS.hs_client_finished /\
+        (hsf s').CS.hs_start == (hsf a).CS.hs_start /\
+        (hsf s').CS.hs_server_selection == (hsf a).CS.hs_server_selection)
   = assert (exists (d:CS.connection_delta). CS.legal_connection_delta a d s');
     eliminate exists (d:CS.connection_delta). CS.legal_connection_delta a d s'
     with
@@ -2715,7 +2730,8 @@ let lemma_pw_establish (s:tls_system_state)
         s.server.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
         client_ready s /\
         server_ready s /\
-        CCShape.no_buffering_steps s.client.CS.cs_event_log)
+        CCShape.no_buffering_steps s.client.CS.cs_event_log /\
+        tls_kex_agreement_ok s)
       (ensures
         P.paired_protected_handshake_event_projection_pair_witnesses s.client s.server)
   =
@@ -2811,7 +2827,8 @@ let lemma_pw_pres_client_appdata_route_a
         b.client == c' /\ b.server == a.server /\
         a.client.CS.cs_model.CS.model_control == CS.ControlApplicationData /\
         client_ready b /\ server_ready b /\
-        CCShape.no_buffering_steps b.client.CS.cs_event_log)
+        CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+        tls_kex_agreement_ok b)
       (ensures
         P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server)
   = assert (exists (d:CS.connection_delta). CS.legal_connection_delta a.client d c');
@@ -2829,9 +2846,11 @@ let lemma_pw_pres_client_appdata_route_a
       assert (c'.CS.cs_event_log == a.client.CS.cs_event_log @ [d.CS.delta_event]);
       lemma_no_buffering_steps_prefix a.client.CS.cs_event_log [d.CS.delta_event];
       assert (CCShape.no_buffering_steps a.client.CS.cs_event_log);
+      lemma_client_step_appdata_preserves_protected_fields a.client c' e out;
+      // D6 reads only hs_start / hs_server_selection, fixed at appdata.
+      assert (tls_kex_agreement_ok a);
       reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok a);
       assert (P.paired_protected_handshake_event_projection_pair_witnesses a.client a.server);
-      lemma_client_step_appdata_preserves_protected_fields a.client c' e out;
       lemma_pw_transport a.client a.server b.client b.server
     )
 #pop-options
@@ -2851,7 +2870,8 @@ let lemma_pw_pres_server_appdata_route_a
         b.server == s' /\ b.client == a.client /\
         a.server.CS.cs_model.CS.model_control == CS.ControlApplicationData /\
         client_ready b /\ server_ready b /\
-        CCShape.no_buffering_steps b.client.CS.cs_event_log)
+        CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+        tls_kex_agreement_ok b)
       (ensures
         P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server)
   = assert (exists (d:CS.connection_delta). CS.legal_connection_delta a.server d s');
@@ -2875,9 +2895,11 @@ let lemma_pw_pres_server_appdata_route_a
       // server-changing step: b.client == a.client, so the post-state gate IS
       // the pre-state gate.
       assert (CCShape.no_buffering_steps a.client.CS.cs_event_log);
+      lemma_server_step_appdata_preserves_protected_fields a.server s' e out;
+      // D6 reads only hs_start / hs_server_selection, fixed at appdata.
+      assert (tls_kex_agreement_ok a);
       reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok a);
       assert (P.paired_protected_handshake_event_projection_pair_witnesses a.client a.server);
-      lemma_server_step_appdata_preserves_protected_fields a.server s' e out;
       lemma_pw_transport a.client a.server b.client b.server
     )
 #pop-options
@@ -2899,7 +2921,8 @@ let lemma_pw_pres_client_local
       (ensures protected_witnesses_ok b)
   = reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok b);
     introduce (client_ready b /\ server_ready b /\
-               CCShape.no_buffering_steps b.client.CS.cs_event_log) ==>
+               CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+               tls_kex_agreement_ok b) ==>
       P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server
     with
     (
@@ -2924,7 +2947,8 @@ let lemma_pw_pres_deliver_to_client
       (ensures protected_witnesses_ok b)
   = reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok b);
     introduce (client_ready b /\ server_ready b /\
-               CCShape.no_buffering_steps b.client.CS.cs_event_log) ==>
+               CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+               tls_kex_agreement_ok b) ==>
       P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server
     with
     (
@@ -2950,7 +2974,8 @@ let lemma_pw_pres_server_send
       (ensures protected_witnesses_ok b)
   = reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok b);
     introduce (client_ready b /\ server_ready b /\
-               CCShape.no_buffering_steps b.client.CS.cs_event_log) ==>
+               CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+               tls_kex_agreement_ok b) ==>
       P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server
     with
     (
@@ -3003,7 +3028,8 @@ let lemma_pw_pres_deliver_to_server
       (ensures protected_witnesses_ok b)
   = reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok b);
     introduce (client_ready b /\ server_ready b /\
-               CCShape.no_buffering_steps b.client.CS.cs_event_log) ==>
+               CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+               tls_kex_agreement_ok b) ==>
       P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server
     with
     (
@@ -3060,7 +3086,8 @@ let lemma_pw_pres_server_local
       (ensures protected_witnesses_ok b)
   = reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok b);
     introduce (client_ready b /\ server_ready b /\
-               CCShape.no_buffering_steps b.client.CS.cs_event_log) ==>
+               CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+               tls_kex_agreement_ok b) ==>
       P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server
     with
     (
@@ -3117,7 +3144,8 @@ let lemma_pw_pres_client_send
       (ensures protected_witnesses_ok b)
   = reveal_opaque (`%protected_witnesses_ok) (protected_witnesses_ok b);
     introduce (client_ready b /\ server_ready b /\
-               CCShape.no_buffering_steps b.client.CS.cs_event_log) ==>
+               CCShape.no_buffering_steps b.client.CS.cs_event_log /\
+               tls_kex_agreement_ok b) ==>
       P.paired_protected_handshake_event_projection_pair_witnesses b.client b.server
     with
     (
@@ -3496,6 +3524,111 @@ let lemma_no_key_update_backward (x y:tls_system_state)
     FStar.Classical.move_requires_2 lemma_no_ku_backward_server_local x y
 #pop-options
 
+(** ─────────────────────────────────────────────────────────────────────────
+    D6 (RFC 10024 hybrid): `tls_kex_agreement_ok` is ML-KEM correctness for the
+    run's X25519MLKEM768 key pair (`True` for X25519 / P-256 and until both
+    hybrid privates exist).  It is a hypothesis of the agreement payoffs, never
+    an invariant: it reads only the write-once `hs_start` (client) and
+    `hs_server_selection` (server), so it holds at every earlier state of a run
+    once it holds at a later one, and invariant conjuncts that need it take it as
+    an antecedent.
+    ───────────────────────────────────────────────────────────────────────── **)
+let lemma_paired_kex_agreement_ok_backward (c0 c1 s0 s1:CS.connection_state)
+  : Lemma
+      (requires
+        WStep.hs_hellos_stable c0.CS.cs_model c1.CS.cs_model /\
+        WStep.hs_hellos_stable s0.CS.cs_model s1.CS.cs_model /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok c1 s1)
+      (ensures TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok c0 s0)
+  = ()
+
+#push-options "--fuel 1 --ifuel 2 --z3rlimit 40"
+let lemma_kex_agreement_backward_client
+  (x y:tls_system_state) (c':CS.connection_state)
+  (e:SM.event CW.wire_message CTy.client_local_event)
+  (out:SM.step_output CW.wire_message EAPI.local_output)
+  : Lemma
+      (requires
+        tls_system_inv x /\ EC.client_step x.client e c' out /\
+        y.client == c' /\ y.server == x.server /\ tls_kex_agreement_ok y)
+      (ensures tls_kex_agreement_ok x)
+  = lemma_client_step_shape x.client c' e out;
+    lemma_paired_kex_agreement_ok_backward x.client y.client x.server y.server
+
+let lemma_kex_agreement_backward_server
+  (x y:tls_system_state) (s':CS.connection_state)
+  (e:SM.event CW.wire_message CTy.server_local_event)
+  (out:SM.step_output CW.wire_message EAPI.local_output)
+  : Lemma
+      (requires
+        tls_system_inv x /\ ES.server_step x.server e s' out /\
+        y.server == s' /\ y.client == x.client /\ tls_kex_agreement_ok y)
+      (ensures tls_kex_agreement_ok x)
+  = lemma_server_step_shape x.server s' e out;
+    lemma_paired_kex_agreement_ok_backward x.client y.client x.server y.server
+
+(** System-level backward transport of D6 across any single step. **)
+let lemma_kex_agreement_backward (x y:tls_system_state)
+  : Lemma (requires tls_system_inv x /\ tls_sys_step x y /\ tls_kex_agreement_ok y)
+          (ensures tls_kex_agreement_ok x)
+  = introduce tls_step_client_send x y ==> tls_kex_agreement_ok x
+    with (lemma_client_send_shape x y;
+      eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
+                       (out:SM.step_output CW.wire_message EAPI.local_output) (w:CW.wire_message)
+                       (sent:M.tls_message).
+        EC.client_step x.client (SM.LocalEvent local) c' out /\
+        out.SM.so_wire_outputs == [w] /\
+        c'.CS.cs_event_log == x.client.CS.cs_event_log @ [SMKM.sent_tls_event sent] /\
+        y == { x with client = c'; channel = tls_to_server (emitted_raw out) x.client.CS.cs_model sent }
+      with lemma_kex_agreement_backward_client x y c' (SM.LocalEvent local) out);
+    introduce tls_step_server_send x y ==> tls_kex_agreement_ok x
+    with (lemma_server_send_shape x y;
+      eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
+                       (out:SM.step_output CW.wire_message EAPI.local_output) (w:CW.wire_message)
+                       (sent:M.tls_message).
+        ES.server_step x.server (SM.LocalEvent local) s' out /\
+        out.SM.so_wire_outputs == [w] /\
+        s'.CS.cs_event_log == x.server.CS.cs_event_log @ [SMKM.sent_tls_event sent] /\
+        y == { x with server = s'; channel = tls_to_client (emitted_raw out) x.server.CS.cs_model sent }
+      with lemma_kex_agreement_backward_server x y s' (SM.LocalEvent local) out);
+    introduce tls_step_deliver_to_client x y ==> tls_kex_agreement_ok x
+    with (lemma_deliver_to_client_shape x y;
+      eliminate exists (wire:CW.wire_message) (c':CS.connection_state)
+                       (out:SM.step_output CW.wire_message EAPI.local_output) (raw:B.bytes)
+                       (snap:CS.connection_model) (sent:M.tls_message).
+        x.channel == tls_to_client raw snap sent /\
+        Seq.equal (CW.wire_serialize wire) raw /\
+        EC.client_step #CTy.client_local_event x.client (SM.WireEvent wire) c' out /\
+        y == { x with client = c'; channel = MP.Quiet }
+      with lemma_kex_agreement_backward_client x y c' (SM.WireEvent wire) out);
+    introduce tls_step_deliver_to_server x y ==> tls_kex_agreement_ok x
+    with (lemma_deliver_to_server_shape x y;
+      eliminate exists (wire:CW.wire_message) (s':CS.connection_state)
+                       (out:SM.step_output CW.wire_message EAPI.local_output) (raw:B.bytes)
+                       (snap:CS.connection_model) (sent:M.tls_message).
+        x.channel == tls_to_server raw snap sent /\
+        Seq.equal (CW.wire_serialize wire) raw /\
+        ES.server_step #CTy.server_local_event x.server (SM.WireEvent wire) s' out /\
+        y == { x with server = s'; channel = MP.Quiet }
+      with lemma_kex_agreement_backward_server x y s' (SM.WireEvent wire) out);
+    introduce tls_step_client_local x y ==> tls_kex_agreement_ok x
+    with (
+      eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
+                       (out:SM.step_output CW.wire_message EAPI.local_output).
+        EC.client_step x.client (SM.LocalEvent local) c' out /\
+        out.SM.so_wire_outputs == [] /\
+        y == { x with client = c' }
+      with lemma_kex_agreement_backward_client x y c' (SM.LocalEvent local) out);
+    introduce tls_step_server_local x y ==> tls_kex_agreement_ok x
+    with (
+      eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
+                       (out:SM.step_output CW.wire_message EAPI.local_output).
+        ES.server_step x.server (SM.LocalEvent local) s' out /\
+        out.SM.so_wire_outputs == [] /\
+        y == { x with server = s' }
+      with lemma_kex_agreement_backward_server x y s' (SM.LocalEvent local) out)
+#pop-options
+
 (** The combined invariant that IS inductive under the now-rekey-permitting step:
     if the state has not rekeyed, then it satisfies the structural invariant.
     Backward monotonicity of no-rekeying + guard recovery make this inductive. **)
@@ -3742,7 +3875,8 @@ let lemma_reachable_stream_inv cfg_c cfg_s s =
 #push-options "--fuel 1 --ifuel 2 --z3rlimit 40"
 val lemma_ready_quiescent_agrees (s:tls_system_state)
   : Lemma (requires tls_system_inv s /\ tls_application_ready s /\
-                    CCShape.no_buffering_steps s.client.CS.cs_event_log)
+                    CCShape.no_buffering_steps s.client.CS.cs_event_log /\
+                    tls_kex_agreement_ok s)
           (ensures SMKM.supported_profile_application_record_material_agrees s.client s.server)
 let lemma_ready_quiescent_agrees s =
   let hc = hsf s.client in

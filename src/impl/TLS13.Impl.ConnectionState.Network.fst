@@ -594,15 +594,6 @@ fn mark_received_server_hello
   unfold (connection_model_exactly c st0.CS.cs_model);
   unfold (control_exactly c.control st0.CS.cs_model.CS.model_control st0.CS.cs_model.CS.model_failure);
   unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
-  unfold (server_key_share_exactly
-    c.handshake.server_key_share
-    st0.CS.cs_model.CS.model_handshake);
-  unfold (optional_fixed_bytes_exactly
-    ({ present = c.handshake.server_key_share.present;
-       bytes = c.handshake.server_key_share.bytes })
-    65
-    (server_kex_bytes st0.CS.cs_model.CS.model_handshake));
-  with old_server_key_share_present old_server_key_share_storage. _;
 
   c.control.handshake_stage_tag := 3uy;
 
@@ -629,38 +620,11 @@ fn mark_received_server_hello
     | _, _ -> pure False);
   c.handshake.messages.server_hello := Some lsh;
 
-  unfold (IM.is_valid_server_hello lsh sh);
-  with lsh_random lsh_session_id lsh_key_share. _;
-  V.to_array_pts_to lsh.IM.server_hello_key_share;
-  V.to_array_pts_to c.handshake.server_key_share.bytes;
-  Arr.memcpy
-    65sz
-    (V.vec_to_array lsh.IM.server_hello_key_share)
-    (V.vec_to_array c.handshake.server_key_share.bytes);
-  V.to_vec_pts_to lsh.IM.server_hello_key_share;
-  V.to_vec_pts_to c.handshake.server_key_share.bytes;
-  c.handshake.server_key_share.present := true;
-  (* The group the server named travels with the bytes; it is stored, never
-     recovered from the buffer's width. *)
-  c.handshake.server_key_share.group := lsh.IM.server_hello_kex_group;
-  with copied_server_key_share. assert (V.pts_to c.handshake.server_key_share.bytes copied_server_key_share);
-  assert (pure (Some? (CS.server_hello_kex (Ghost.reveal sh)) /\
-    Seq.equal copied_server_key_share
-      (CryptoSpec.pad_share_65 (dsnd (Some?.v (CS.server_hello_kex (Ghost.reveal sh)))))));
-  assert (pure (optional_fixed_bytes_match true copied_server_key_share 65
-    (match CS.server_hello_kex (Ghost.reveal sh) with
-     | Some (| _, k |) -> Some (CryptoSpec.pad_share_65 k)
-     | None -> None)));
   lemma_received_server_hello_state_server_hello st0 sh (Ghost.reveal 'raw_bytes);
-  fold (optional_fixed_bytes_exactly
-    ({ present = c.handshake.server_key_share.present;
-       bytes = c.handshake.server_key_share.bytes })
-    65
-    (server_kex_bytes (received_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake));
-  fold (server_key_share_exactly
-    c.handshake.server_key_share
-    (received_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake);
-  fold (IM.is_valid_server_hello lsh sh);
+  store_server_hello_key_shares c.handshake.server_key_share lsh
+    #sh
+    #st0.CS.cs_model.CS.model_handshake
+    #(received_server_hello_state st0 sh (Ghost.reveal 'raw_bytes)).CS.cs_model.CS.model_handshake;
 
   unfold (handshake_buffers_exactly
     c.handshake.buffers
@@ -861,7 +825,7 @@ fn mark_received_client_hello
     st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
   with old_client_hello_present old_l_random old_l_session_id old_l_server_name
        old_l_key_share old_l_p256_key_share old_l_cipher_suites
-       old_l_signature_schemes. _;
+       old_l_signature_schemes old_l_hybrid_key_share. _;
   unfold (client_hello_metadata_exactly
     c.handshake.messages.client_hello_has_server_name
     c.handshake.messages.client_hello_server_name_len
@@ -943,6 +907,15 @@ fn mark_received_client_hello
   V.to_vec_pts_to lch.IM.client_hello_signature_schemes;
   V.to_vec_pts_to c.handshake.messages.client_hello.IM.client_hello_signature_schemes;
 
+  V.to_array_pts_to lch.IM.client_hello_hybrid_key_share;
+  V.to_array_pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
+  Arr.memcpy
+    1216sz
+    (V.vec_to_array lch.IM.client_hello_hybrid_key_share)
+    (V.vec_to_array c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share);
+  V.to_vec_pts_to lch.IM.client_hello_hybrid_key_share;
+  V.to_vec_pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
+
   c.handshake.messages.client_hello_present := true;
   c.handshake.messages.client_hello_has_server_name :=
     lch.IM.client_hello_has_server_name;
@@ -984,6 +957,14 @@ fn mark_received_client_hello
     };
   assert (pure (stored_kex_group == client_hello_kex_group_for (Ghost.reveal ch)));
   c.handshake.messages.client_hello_kex_group := stored_kex_group;
+  // RFC 10024: whether the peer made a well-formed X25519MLKEM768 offer.
+  unfold (client_hello_hybrid_offered_exactly
+    c.handshake.messages.client_hello_hybrid_offered
+    st0.CS.cs_model.CS.model_handshake.CS.hs_client_hello);
+  c.handshake.messages.client_hello_hybrid_offered :=
+    lch.IM.client_hello_has_hybrid_key_share;
+  assert (pure (lch.IM.client_hello_has_hybrid_key_share ==
+    client_hello_offers_hybrid (Some (Ghost.reveal ch))));
   lemma_bounded_u16_sizet_of_sizet
     (Seq.length (Sem.clientHello_session_id (Ghost.reveal ch)))
     lch.IM.client_hello_session_id_len;
@@ -994,6 +975,10 @@ fn mark_received_client_hello
   with stored_p256_key_share. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_p256_key_share stored_p256_key_share);
   with stored_cipher_suites. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_cipher_suites stored_cipher_suites);
   with stored_signature_schemes. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_signature_schemes stored_signature_schemes);
+  with stored_hybrid_key_share. assert (V.pts_to c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share stored_hybrid_key_share);
+  assert (pure (match CS.client_hello_hybrid_key_share (Ghost.reveal ch) with
+    | Some k -> Seq.equal stored_hybrid_key_share k
+    | None -> True));
 
   assert (pure (Seq.equal stored_random (Sem.clientHello_random (Ghost.reveal ch))));
   assert (pure (IM.optional_byte_prefix_matches
@@ -1035,6 +1020,7 @@ fn mark_received_client_hello
   V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_p256_key_share;
   V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_cipher_suites;
   V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_signature_schemes;
+  V.pts_to_len c.handshake.messages.client_hello.IM.client_hello_hybrid_key_share;
 
   fold (IM.is_valid_client_hello lch ch);
   fold (client_hello_slot_exactly
@@ -1048,6 +1034,9 @@ fn mark_received_client_hello
     c.handshake.messages.client_hello_signature_schemes_len
     c.handshake.messages.client_hello_session_id_len
     c.handshake.messages.client_hello_kex_group
+    (Some (Ghost.reveal ch)));
+  fold (client_hello_hybrid_offered_exactly
+    c.handshake.messages.client_hello_hybrid_offered
     (Some (Ghost.reveal ch)));
 
   unfold (handshake_buffers_exactly
