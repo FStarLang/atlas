@@ -9,7 +9,7 @@ generated-checked.tar.gz
 *.checked
 *.krml
 *.smt2
-.depend
+.depend*
 test/test_crypto
 test/test_openssl_stubs
 test/test_wire_stubs
