@@ -65,11 +65,13 @@ let roles_ok (client server : CS.connection_state) : prop =
 
 (** System-free restatement of [TLS13.System.hello_key_shares_ok]. **)
 let hks_ok (client server : CS.connection_state) : prop =
-  (Some? client.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
+  ((Some? client.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
    Some? server.CS.cs_model.CS.model_handshake.CS.hs_client_hello /\
    Some? client.CS.cs_model.CS.model_handshake.CS.hs_server_hello /\
    Some? server.CS.cs_model.CS.model_handshake.CS.hs_server_hello) ==>
-    WFL.paired_cleartext_hello_key_shares client server
+    WFL.paired_cleartext_hello_key_shares client server) /\
+  (* D6: KEM correctness for an X25519MLKEM768 pair (True otherwise). *)
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server
 
 (** The complete allowed-hypothesis bundle for the bridge — the System-free
     restatement of the [lemma_pw_establish] subset used here.  Introduces NO

@@ -123,6 +123,7 @@ fn select_server_parameters
                  // representation; the runtime reads it back off the ClientHello
                  // metadata box.
                  CS.server_selected_kex_group selection == stored_client_hello_kex_group st0 /\
+                 not (CS.server_selects_hybrid selection) /\
                  server_selection_absent
                    st0.CS.cs_model.CS.model_handshake /\
                  server_selection_private_absent selection)
@@ -153,6 +154,7 @@ fn select_server_parameters_with_private_from_array
                  // representation; the runtime reads it back off the ClientHello
                  // metadata box.
                  CS.server_selected_kex_group selection == stored_client_hello_kex_group st0 /\
+                 not (CS.server_selects_hybrid selection) /\
                  server_selection_absent
                    st0.CS.cs_model.CS.model_handshake /\
                  Some? selection.CS.server_key_share_private /\

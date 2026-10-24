@@ -403,7 +403,9 @@ let valid_start (start:CS.handshake_start) : prop =
   1 <= LL.length start.CS.start_cipher_suites /\
   LL.length start.CS.start_cipher_suites <= 16 /\
   1 <= LL.length start.CS.start_signature_schemes /\
-  LL.length start.CS.start_signature_schemes <= 16
+  LL.length start.CS.start_signature_schemes <= 16 /\
+  (* The canonical ClientHello does not yet carry an X25519MLKEM768 share. *)
+  None? start.CS.start_client_hybrid_private
 
 // ---- clamps (identity under valid_start) ----
 noextract
@@ -536,7 +538,9 @@ let client_hello_of_start (start:CS.handshake_start) : GCH.clientHello
 // 58 + kex_public_len (server_selected_kex_group sel) + |sid|.
 let valid_selection (sel:CS.server_handshake_selection) : prop =
   (sel.CS.server_random <: Seq.lseq U8.t 32) <> GSHB.serverHello_body_cst /\
-  H.is_supported_cipher_suite sel.CS.server_selected_cipher_suite
+  H.is_supported_cipher_suite sel.CS.server_selected_cipher_suite /\
+  (* The canonical ServerHello does not yet carry an X25519MLKEM768 share. *)
+  not (CS.server_selects_hybrid sel)
 
 // clamp: a 32-byte server random differing from the HRR sentinel (identity under
 // valid_selection).  The all-zero fallback differs from serverHello_body_cst at

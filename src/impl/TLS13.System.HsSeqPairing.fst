@@ -2992,7 +2992,7 @@ let lemma_hsp_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ hs_seq_pairing a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures hs_seq_pairing b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -3023,7 +3023,7 @@ let lemma_hsp_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ hs_seq_pairing a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures hs_seq_pairing b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -4196,7 +4196,7 @@ let lemma_hsp_deliver_to_server
         Seq.equal (CW.wire_serialize wire) raw /\
         ES.server_step #CTy.server_local_event a.server (SM.WireEvent wire) s' out /\
         hs_channel_seal_ok a /\
-        SY.tls_no_rekeying ({ a with server = s'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with server = s'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with server = s'; channel = MP.Quiet }))
       (ensures hs_seq_pairing ({ a with server = s'; channel = MP.Quiet }))
   = let b : SY.tls_system_state = { a with server = s'; channel = MP.Quiet } in
     let p : SY.tls_payload = { SY.pl_raw = raw; SY.pl_snap = snap; SY.pl_sent = sent } in
@@ -4416,7 +4416,7 @@ let lemma_hsp_deliver_to_client
         Seq.equal (CW.wire_serialize wire) raw /\
         EC.client_step #CTy.client_local_event a.client (SM.WireEvent wire) c' out /\
         hs_channel_seal_ok a /\
-        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with client = c'; channel = MP.Quiet }))
       (ensures hs_seq_pairing ({ a with client = c'; channel = MP.Quiet }))
   = let b : SY.tls_system_state = { a with client = c'; channel = MP.Quiet } in
     let p : SY.tls_payload = { SY.pl_raw = raw; SY.pl_snap = snap; SY.pl_sent = sent } in
@@ -4688,7 +4688,7 @@ let lemma_hscs_deliver_to_server
         a.channel == SY.tls_to_server raw snap sent /\
         Seq.equal (CW.wire_serialize wire) raw /\
         ES.server_step #CTy.server_local_event a.server (SM.WireEvent wire) s' out /\
-        SY.tls_no_rekeying ({ a with server = s'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with server = s'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with server = s'; channel = MP.Quiet }))
       (ensures hs_channel_seal_ok ({ a with server = s'; channel = MP.Quiet }))
   = ()
 #pop-options
@@ -4705,7 +4705,7 @@ let lemma_hscs_deliver_to_client
         a.channel == SY.tls_to_client raw snap sent /\
         Seq.equal (CW.wire_serialize wire) raw /\
         EC.client_step #CTy.client_local_event a.client (SM.WireEvent wire) c' out /\
-        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with client = c'; channel = MP.Quiet }))
       (ensures hs_channel_seal_ok ({ a with client = c'; channel = MP.Quiet }))
   = ()
 #pop-options
@@ -5040,6 +5040,7 @@ let lemma_hscs_bridge_material (client server:CS.connection_state)
         Some? client.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
         Some? server.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
         WFL.paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         SMCorr.same_key_derivation_checkpoint SMKI.DeriveHandshakeTraffic client server)
       (ensures
         SMKM.peer_record_material_agrees
@@ -5358,6 +5359,7 @@ let lemma_hscs_bridge_material_cs (client server:CS.connection_state)
         Some? client.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
         Some? server.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_shared_secret /\
         WFL.paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         SMCorr.same_key_derivation_checkpoint SMKI.DeriveHandshakeTraffic client server)
       (ensures
         SMKM.peer_record_material_agrees
@@ -5399,7 +5401,7 @@ let lemma_hscs_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures hs_channel_seal_ok b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -5462,7 +5464,7 @@ let lemma_hscs_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures hs_channel_seal_ok b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)

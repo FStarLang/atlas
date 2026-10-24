@@ -398,6 +398,49 @@ let lemma_serverHello_kex_share_x25519 (sh: GSH.serverHello)
     | Some body ->
       lemma_sh_find_kex_share_x25519 (body.GSHB.extensions <: list GESH.extensionServerHello)
 
+/// The server's X25519MLKEM768 share (RFC 10024): the first `key_share`
+/// entry, accepted only when it names the hybrid at the 1120-byte ciphertext
+/// length.  It reads the same entry as `sh_find_kex_share`, so at most one of
+/// the two answers.
+let rec sh_find_hybrid_share (l: list GESH.extensionServerHello)
+  : Tot (option (Seq.seq U8.t)) (decreases l)
+  = match l with
+    | [] -> None
+    | GESH.Extension_data_key_share kse :: _ ->
+      let k = ((kse <: GKE.keyShareEntry).GKE.key_exchange <: Seq.seq U8.t) in
+      if GNG.X25519mlkem768? (kse <: GKE.keyShareEntry).GKE.group &&
+         Seq.length k = x25519mlkem768_server_share_len
+      then Some k
+      else None
+    | _ :: tl -> sh_find_hybrid_share tl
+
+let serverHello_hybrid_share (sh: GSH.serverHello) : option (Seq.seq U8.t) =
+  match serverHello_body sh with
+  | None -> None
+  | Some body -> sh_find_hybrid_share (body.GSHB.extensions <: list GESH.extensionServerHello)
+
+let rec lemma_sh_find_hybrid_share_exclusive (l: list GESH.extensionServerHello)
+  : Lemma
+      (ensures (match sh_find_hybrid_share l with
+                | Some k -> Seq.length k == 1120 /\ sh_find_kex_share l == None
+                | None -> True))
+      (decreases l)
+  = match l with
+    | [] -> ()
+    | GESH.Extension_data_key_share _ :: _ -> ()
+    | _ :: tl -> lemma_sh_find_hybrid_share_exclusive tl
+
+let lemma_serverHello_hybrid_share_exclusive (sh: GSH.serverHello)
+  : Lemma
+      (ensures (match serverHello_hybrid_share sh with
+                | Some k -> Seq.length k == 1120 /\ serverHello_kex_share sh == None
+                | None -> True))
+      [SMTPat (serverHello_hybrid_share sh)]
+  = match serverHello_body sh with
+    | None -> ()
+    | Some body ->
+      lemma_sh_find_hybrid_share_exclusive (body.GSHB.extensions <: list GESH.extensionServerHello)
+
 /// The selected protocol version from the ServerHello supported_versions ext.
 let rec sh_find_selected_version (l: list GESH.extensionServerHello)
   : Tot (option GPV.protocolVersion) (decreases l)

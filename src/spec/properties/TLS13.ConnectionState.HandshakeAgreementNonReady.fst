@@ -34,6 +34,7 @@ module TLS13.ConnectionState.HandshakeAgreementNonReady
 
 module R = TLS13.Record.Spec
 module C = TLS13.Crypto.Spec
+module KX = TLS13.Crypto.Kex.Spec
 module Seq = FStar.Seq
 module Sem = TLS13.Wire.Semantics
 module SHSL = TLS13.ConnectionState.ServerHelloSelectionLink
@@ -113,7 +114,32 @@ let lemma_paired_x25519_key_shares_nonready
            assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
            assert (negotiated_aead_alg client_hs == negotiated_aead_alg server_hs)
          | _, _, _ -> assert False)
-      | None -> assert False))
+      | None ->
+        // The X25519MLKEM768 side arm: both hybrid shares travel with the
+        // hello correspondence, exactly as the (EC)DH ones do.
+        assert (Sem.serverHello_hybrid_share client_sh == Sem.serverHello_hybrid_share server_sh);
+        assert (server_hello_hybrid_share client_sh == server_hello_hybrid_share server_sh);
+        assert (Sem.clientHello_key_share_x25519mlkem768 client_ch ==
+                Sem.clientHello_key_share_x25519mlkem768 server_ch);
+        assert (client_hello_hybrid_key_share client_ch ==
+                client_hello_hybrid_key_share server_ch);
+        (match
+          server_hello_hybrid_share client_sh,
+          start.start_client_hybrid_private,
+          selection.server_hybrid_private,
+          client_hello_hybrid_key_share server_ch
+         with
+         | Some sh_ks, Some client_sk, Some server_sk, Some ch_ks ->
+           assert (server_selects_hybrid selection);
+           assert (ch_ks == start.start_client_hybrid_public);
+           assert (sh_ks == selection.server_hybrid_share);
+           assert (KX.kex_client_public C.KexX25519MLKEM768 client_sk ==
+                   start.start_client_hybrid_public);
+           assert (KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks == Some sh_ks);
+           assert (KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks == Some client_shared);
+           assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some server_shared);
+           assert (negotiated_aead_alg client_hs == negotiated_aead_alg server_hs)
+         | _, _, _, _ -> assert False)))
   | _, _, _, _, _, _, _, _ -> assert False
 
 #pop-options
@@ -197,7 +223,32 @@ let lemma_paired_x25519_key_shares_nonready_cf
            assert (C.widen_secret (C.kex_shared g server_sk ch_ks) == Some server_shared);
            assert (negotiated_aead_alg client_hs == negotiated_aead_alg server_hs)
          | _, _, _ -> assert False)
-      | None -> assert False))
+      | None ->
+        // The X25519MLKEM768 side arm: both hybrid shares travel with the
+        // hello correspondence, exactly as the (EC)DH ones do.
+        assert (Sem.serverHello_hybrid_share client_sh == Sem.serverHello_hybrid_share server_sh);
+        assert (server_hello_hybrid_share client_sh == server_hello_hybrid_share server_sh);
+        assert (Sem.clientHello_key_share_x25519mlkem768 client_ch ==
+                Sem.clientHello_key_share_x25519mlkem768 server_ch);
+        assert (client_hello_hybrid_key_share client_ch ==
+                client_hello_hybrid_key_share server_ch);
+        (match
+          server_hello_hybrid_share client_sh,
+          start.start_client_hybrid_private,
+          selection.server_hybrid_private,
+          client_hello_hybrid_key_share server_ch
+         with
+         | Some sh_ks, Some client_sk, Some server_sk, Some ch_ks ->
+           assert (server_selects_hybrid selection);
+           assert (ch_ks == start.start_client_hybrid_public);
+           assert (sh_ks == selection.server_hybrid_share);
+           assert (KX.kex_client_public C.KexX25519MLKEM768 client_sk ==
+                   start.start_client_hybrid_public);
+           assert (KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks == Some sh_ks);
+           assert (KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks == Some client_shared);
+           assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some server_shared);
+           assert (negotiated_aead_alg client_hs == negotiated_aead_alg server_hs)
+         | _, _, _, _ -> assert False)))
   | _, _, _, _, _, _, _, _ -> assert False
 #pop-options
 
@@ -268,6 +319,7 @@ let lemma_handshake_client_traffic_key_schedule_material_agrees_nonready
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? client.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic /\
         Some? server.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic)
@@ -311,6 +363,7 @@ let lemma_handshake_client_traffic_peer_record_material_agrees_nonready
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? (record_direction_material client.cs_model.model_record.record_write) /\
         Some? (record_direction_material server.cs_model.model_record.record_read))
@@ -388,6 +441,7 @@ let lemma_handshake_client_traffic_key_schedule_material_agrees_nonready_cf
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? client.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic /\
         Some? server.cs_model.model_handshake.hs_keys.ks_client_handshake_traffic)
@@ -431,6 +485,7 @@ let lemma_handshake_server_traffic_key_schedule_material_agrees_nonready_cf
         Some? client.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? server.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         same_key_derivation_checkpoint DeriveHandshakeTraffic client server /\
         Some? client.cs_model.model_handshake.hs_keys.ks_server_handshake_traffic /\
         Some? server.cs_model.model_handshake.hs_keys.ks_server_handshake_traffic)

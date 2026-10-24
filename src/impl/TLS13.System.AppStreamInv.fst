@@ -1016,18 +1016,19 @@ let lemma_app_stream_pairing_preserved (a b:SY.tls_system_state)
     `SY.lemma_no_key_update_backward`. **)
 let stream3_combined_inv (s:SY.tls_system_state) : prop =
   AEI.stream2_combined_inv s /\
-  (SY.tls_no_rekeying s ==> app_stream_pairing s)
+  (SY.tls_no_rekeying s /\ SY.tls_kex_agreement_ok s ==> app_stream_pairing s)
 
 #push-options "--fuel 1 --ifuel 2 --z3rlimit 60"
 let lemma_stream3_combined_inv_preserved (x y:SY.tls_system_state)
   : Lemma (requires stream3_combined_inv x /\ SY.tls_sys_step x y)
           (ensures stream3_combined_inv y)
   = AEI.lemma_stream2_combined_inv_preserved x y;
-    introduce SY.tls_no_rekeying y ==> app_stream_pairing y
+    introduce SY.tls_no_rekeying y /\ SY.tls_kex_agreement_ok y ==> app_stream_pairing y
     with
     (
       SY.lemma_no_key_update_backward x y;
       assert (SY.tls_system_inv x);
+      SY.lemma_kex_agreement_backward x y;
       assert (AEI.stream2_extras x);
       assert (ASP.app_extras x);
       assert (app_stream_pairing x);
@@ -1055,16 +1056,17 @@ let lemma_initial_stream3_combined_inv (cfg_c cfg_s:CS.connection_config)
     byte-stream pairing bundle — whose UNGATED clauses are literally
     `SY.stream_integrity_holds`.
 
-    Entry hypotheses are IDENTICAL to `AEI.lemma_reachable_stream2_inv` (and hence
-    to `SY.lemma_reachable_stream_inv` plus `server_config_valid_e2e`); nothing is
-    added and nothing is traded away.
+    Entry hypotheses are those of `AEI.lemma_reachable_stream2_inv` (and hence
+    of `SY.lemma_reachable_stream_inv` plus `server_config_valid_e2e`), plus the
+    RFC 10024 D6 hypothesis `SY.tls_kex_agreement_ok s` (ML-KEM correctness for
+    the run's hybrid key pair; vacuous for X25519 / P-256 runs).
     ───────────────────────────────────────────────────────────────────────── **)
 val lemma_reachable_app_stream_inv (cfg_c cfg_s:CS.connection_config) (s:SY.tls_system_state)
   : Lemma (requires cfg_c.CS.config_role == CS.ClientEndpoint /\
                     cfg_s.CS.config_role == CS.ServerEndpoint /\
                     WFL.supported_client_config_wire_profile cfg_c /\
                     SY.server_config_valid_e2e (CS.initial cfg_s) /\
-                    SY.tls_no_rekeying s /\
+                    SY.tls_no_rekeying s /\ SY.tls_kex_agreement_ok s /\
                     RTC.closure SY.tls_sys_step (SY.initial_tls_system cfg_c cfg_s) s)
           (ensures SY.tls_stream_inv s /\ AEI.stream2_extras s /\ app_stream_pairing s)
 let lemma_reachable_app_stream_inv cfg_c cfg_s s =

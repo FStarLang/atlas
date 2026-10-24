@@ -175,6 +175,8 @@ let paired_cleartext_hello_key_shares
     // ServerHello's whole key-share extension does.
     Sem.clientHello_key_share_secp256r1 client_ch ==
       Sem.clientHello_key_share_secp256r1 server_ch /\
+    Sem.clientHello_key_share_x25519mlkem768 client_ch ==
+      Sem.clientHello_key_share_x25519mlkem768 server_ch /\
     CS.server_hello_key_share client_sh == CS.server_hello_key_share server_sh /\
     // The negotiated group travels with the share.  [paired_x25519_key_shares]
     // and both key-share projections are group-indexed and read the group off a
@@ -182,6 +184,7 @@ let paired_cleartext_hello_key_shares
     // its X25519 instance.  Both sides hold the same parsed message, so this is
     // as free as the line above.
     Sem.serverHello_kex_share client_sh == Sem.serverHello_kex_share server_sh /\
+    Sem.serverHello_hybrid_share client_sh == Sem.serverHello_hybrid_share server_sh /\
     // Both endpoints read the negotiated AEAD algorithm off their own stored
     // ServerHello, so peering must pin the selected cipher suite as well.
     Sem.serverHello_cipher_suite client_sh == Sem.serverHello_cipher_suite server_sh

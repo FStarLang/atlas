@@ -1035,6 +1035,7 @@ let supported_profile_client_server_key_material_inputs_agree
   (server:connection_state)
   : prop =
   paired_x25519_key_shares client server /\
+  paired_kex_agreement_ok client server /\
   connection_supported_profile_key_schedule_lineage client /\
   connection_supported_profile_key_schedule_lineage server /\
   paired_key_derivation_checkpoints client server /\

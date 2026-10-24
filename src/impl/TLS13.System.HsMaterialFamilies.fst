@@ -325,7 +325,7 @@ let lemma_client_sendevent_flag_mono
 let lemma_establish (s:SY.tls_system_state)
   : Lemma
       (requires
-        SY.tls_system_inv s /\ MP.Quiet? s.channel /\
+        SY.tls_system_inv s /\ MP.Quiet? s.channel /\ SY.tls_kex_agreement_ok s /\
         s.client.CS.cs_model.CS.model_control == CS.ControlHandshaking CS.HsServerFinishedVerified /\
         s.server.CS.cs_model.CS.model_control == CS.ControlHandshaking CS.HsServerFinishedSent /\
         (* CROSS-RECORD REASSEMBLY.  `lemma_client_reachable_sfv_shared_secret_present`
@@ -391,7 +391,7 @@ let lemma_establish (s:SY.tls_system_state)
 let lemma_establish_cf (s:SY.tls_system_state)
   : Lemma
       (requires
-        SY.tls_system_inv s /\ MP.Quiet? s.channel /\
+        SY.tls_system_inv s /\ MP.Quiet? s.channel /\ SY.tls_kex_agreement_ok s /\
         s.client.CS.cs_model.CS.model_control == CS.ControlHandshaking CS.HsServerFinishedVerified /\
         (* CROSS-RECORD REASSEMBLY.  `lemma_client_reachable_sfv_shared_secret_present`
            reconstructs the client's exact spine by forward induction, and a BUFFERING
@@ -531,7 +531,7 @@ let lemma_hma_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.hs_material_agreement a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.hs_material_agreement b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -553,7 +553,7 @@ let lemma_hma_server_local (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.hs_material_agreement a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_local a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_server_local a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.hs_material_agreement b)
   = eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
                      (out:SM.step_output CW.wire_message EAPI.local_output).
@@ -572,7 +572,7 @@ let lemma_hma_deliver_to_server (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.hs_material_agreement a /\
-        SY.tls_step_deliver_to_server a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_deliver_to_server a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.hs_material_agreement b)
   = SY.lemma_deliver_to_server_shape a b;
     eliminate exists (wire:CW.wire_message) (s':CS.connection_state)
@@ -598,7 +598,7 @@ let lemma_hma_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.hs_material_agreement a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.hs_material_agreement b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -622,7 +622,7 @@ let lemma_hma_client_local (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ ASP.hs_material_agreement a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_local a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b /\
+        SY.tls_step_client_local a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b /\
         (* CROSS-RECORD REASSEMBLY: needed by `lemma_establish_cf` below.  A client
            LOCAL step never appends a buffering entry (buffering arises only on record
            delivery), so this is preserved from `a`; it is discharged one layer up,
@@ -671,7 +671,7 @@ let lemma_hma_deliver_to_client_nonflip (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.hs_material_agreement a /\
         a.client.CS.cs_model.CS.model_handshake.CS.hs_server_finished_verified /\
-        SY.tls_step_deliver_to_client a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b)
+        SY.tls_step_deliver_to_client a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b)
       (ensures ASP.hs_material_agreement b)
   = SY.lemma_deliver_to_client_shape a b;
     eliminate exists (wire:CW.wire_message) (c':CS.connection_state)
@@ -747,7 +747,7 @@ let lemma_hma_deliver_to_client_flip (a b:SY.tls_system_state)
       (requires
         SY.tls_system_inv a /\ ASP.app_extras a /\
         ~(a.client.CS.cs_model.CS.model_handshake.CS.hs_server_finished_verified) /\
-        SY.tls_step_deliver_to_client a b /\ SY.tls_no_rekeying b /\ SY.tls_system_inv b /\
+        SY.tls_step_deliver_to_client a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b /\ SY.tls_system_inv b /\
         (* CROSS-RECORD REASSEMBLY: needed by `lemma_establish_cf` below.  Discharged
            one layer up, where the protected-record seal shows the paired client never
            buffers (the ATLAS server emits one record per handshake message). *)

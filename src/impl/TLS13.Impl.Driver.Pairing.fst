@@ -6,6 +6,7 @@ open Pulse.Lib.Pervasives
 
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
+module KX = TLS13.Crypto.Kex.Spec
 module CD = TLS13.Impl.Client.Driver
 module CL = TLS13.ConnectionLog
 module CS = TLS13.Spec.StateMachine
@@ -380,6 +381,7 @@ let lemma_paired_handshake_message_states_application_derivation_projection_inpu
   : Lemma
       (requires
         paired_handshake_message_states client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server)
       (ensures
         client_server_driver_application_derivation_projection_inputs
@@ -509,7 +511,32 @@ let lemma_client_server_driver_paired_x25519_key_shares_from_projection_inputs
            // conjunct; it was already discharged above, outside this VC.
            assert (CS.negotiated_aead_alg client_hs == CS.negotiated_aead_alg server_hs)
          | _, _, _ -> assert False)
-      | None -> assert False))
+      | None ->
+        // The X25519MLKEM768 side arm: both hybrid shares travel with the
+        // hello correspondence, exactly as the (EC)DH ones do.
+        assert (Sem.serverHello_hybrid_share client_sh == Sem.serverHello_hybrid_share server_sh);
+        assert (CS.server_hello_hybrid_share client_sh == CS.server_hello_hybrid_share server_sh);
+        assert (Sem.clientHello_key_share_x25519mlkem768 client_ch ==
+                Sem.clientHello_key_share_x25519mlkem768 server_ch);
+        assert (CS.client_hello_hybrid_key_share client_ch ==
+                CS.client_hello_hybrid_key_share server_ch);
+        (match
+          CS.server_hello_hybrid_share client_sh,
+          start.CS.start_client_hybrid_private,
+          selection.CS.server_hybrid_private,
+          CS.client_hello_hybrid_key_share server_ch
+         with
+         | Some sh_ks, Some client_sk, Some server_sk, Some ch_ks ->
+           assert (CS.server_selects_hybrid selection);
+           assert (ch_ks == start.CS.start_client_hybrid_public);
+           assert (sh_ks == selection.CS.server_hybrid_share);
+           assert (KX.kex_client_public C.KexX25519MLKEM768 client_sk ==
+                   start.CS.start_client_hybrid_public);
+           assert (KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks == Some sh_ks);
+           assert (KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks == Some client_shared);
+           assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some server_shared);
+           assert (CS.negotiated_aead_alg client_hs == CS.negotiated_aead_alg server_hs)
+         | _, _, _, _ -> assert False)))
   | _, _, _, _, _, _, _, _ ->
     assert False
 
@@ -586,7 +613,32 @@ let lemma_client_server_driver_paired_x25519_key_shares_from_key_share_projectio
            // conjunct; it was already discharged above, outside this VC.
            assert (CS.negotiated_aead_alg client_hs == CS.negotiated_aead_alg server_hs)
          | _, _, _ -> assert False)
-      | None -> assert False))
+      | None ->
+        // The X25519MLKEM768 side arm: both hybrid shares travel with the
+        // hello correspondence, exactly as the (EC)DH ones do.
+        assert (Sem.serverHello_hybrid_share client_sh == Sem.serverHello_hybrid_share server_sh);
+        assert (CS.server_hello_hybrid_share client_sh == CS.server_hello_hybrid_share server_sh);
+        assert (Sem.clientHello_key_share_x25519mlkem768 client_ch ==
+                Sem.clientHello_key_share_x25519mlkem768 server_ch);
+        assert (CS.client_hello_hybrid_key_share client_ch ==
+                CS.client_hello_hybrid_key_share server_ch);
+        (match
+          CS.server_hello_hybrid_share client_sh,
+          start.CS.start_client_hybrid_private,
+          selection.CS.server_hybrid_private,
+          CS.client_hello_hybrid_key_share server_ch
+         with
+         | Some sh_ks, Some client_sk, Some server_sk, Some ch_ks ->
+           assert (CS.server_selects_hybrid selection);
+           assert (ch_ks == start.CS.start_client_hybrid_public);
+           assert (sh_ks == selection.CS.server_hybrid_share);
+           assert (KX.kex_client_public C.KexX25519MLKEM768 client_sk ==
+                   start.CS.start_client_hybrid_public);
+           assert (KX.kex_server_share C.KexX25519MLKEM768 server_sk ch_ks == Some sh_ks);
+           assert (KX.kex_client_shared C.KexX25519MLKEM768 client_sk sh_ks == Some client_shared);
+           assert (KX.kex_server_shared C.KexX25519MLKEM768 server_sk ch_ks == Some server_shared);
+           assert (CS.negotiated_aead_alg client_hs == CS.negotiated_aead_alg server_hs)
+         | _, _, _, _ -> assert False)))
   | _, _, _, _, _, _, _, _ ->
     assert False
 
@@ -777,6 +829,7 @@ let lemma_client_server_driver_remaining_semantic_projection_inputs_from_clearte
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_cleartext_hello_messages client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         TLS13.Spec.StateMachine.Correspondence.same_key_derivation_checkpoint TLS13.Spec.StateMachine.KeyIdentifiers.DeriveHandshakeTraffic client server /\
         client_server_driver_application_derivation_projection_inputs
           client
@@ -800,6 +853,7 @@ let lemma_client_server_driver_remaining_semantic_projection_inputs_from_clearte
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_cleartext_hello_messages client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_supported_profile_application_record_state_inputs
           client
@@ -823,6 +877,7 @@ let lemma_client_server_driver_remaining_semantic_projection_inputs_from_paired_
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_handshake_message_states client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_supported_profile_application_record_state_inputs
           client
@@ -1452,6 +1507,7 @@ let lemma_client_server_application_record_material_agrees_from_paired_handshake
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_handshake_message_states client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
@@ -1502,6 +1558,7 @@ let lemma_client_server_application_record_material_agrees_from_cleartext_and_ha
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_cleartext_hello_messages client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
@@ -1579,6 +1636,7 @@ let lemma_client_server_application_record_material_agrees_from_cleartext_raw_an
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
         paired_handshake_events client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
           server)
@@ -1691,6 +1749,7 @@ let lemma_client_server_application_record_material_agrees_from_cleartext_raw_ke
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
         WFL.paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
@@ -1799,6 +1858,7 @@ let lemma_client_server_application_record_material_agrees_from_cleartext_raw_an
         CS.received_cleartext_tls_message_raw
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
+          TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         PWL.paired_protected_handshake_event_projection_pairs
           client
           server
@@ -1904,6 +1964,7 @@ let lemma_client_server_application_record_material_agrees_from_cleartext_raw_an
         CS.received_cleartext_tls_message_raw
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
+          TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_protected_handshake_event_projection_pair_witnesses
           client
           server /\
@@ -2006,6 +2067,7 @@ let lemma_client_server_application_record_material_agrees_from_cleartext_raw_ke
          (M.TlsHandshake (M.ServerHello client_sh))
          client_sh_raw /\
        WFL.paired_cleartext_hello_key_shares client server /\
+       TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
        paired_protected_handshake_event_projection_pair_witnesses
          client
          server /\
@@ -2097,6 +2159,7 @@ let lemma_client_server_application_record_material_agrees_from_paired_handshake
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_handshake_event_trace client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
           server)

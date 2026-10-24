@@ -192,6 +192,7 @@ let client_server_driver_supported_profile_derived_state_inputs
   (server:CS.connection_state)
   : prop =
   TLS13.Spec.StateMachine.Correspondence.paired_x25519_key_shares client server /\
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
   TLS13.Spec.StateMachine.Correspondence.paired_key_derivation_checkpoints client server
 
 noextract
@@ -383,6 +384,7 @@ let client_server_driver_x25519_projection_inputs
   : prop =
   CD.client_driver_application_ready client /\
   SD.server_driver_application_ready server /\
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
   paired_cleartext_hello_messages client server
 
 noextract
@@ -392,6 +394,7 @@ let client_server_driver_x25519_key_share_projection_inputs
   : prop =
   CD.client_driver_application_ready client /\
   SD.server_driver_application_ready server /\
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
   WFL.paired_cleartext_hello_key_shares client server
 
 noextract
@@ -407,6 +410,7 @@ val lemma_paired_handshake_message_states_application_derivation_projection_inpu
   : Lemma
       (requires
         paired_handshake_message_states client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server)
       (ensures
         client_server_driver_application_derivation_projection_inputs
@@ -587,6 +591,7 @@ val lemma_client_server_driver_remaining_semantic_projection_inputs_from_clearte
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_cleartext_hello_messages client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         TLS13.Spec.StateMachine.Correspondence.same_key_derivation_checkpoint TLS13.Spec.StateMachine.KeyIdentifiers.DeriveHandshakeTraffic client server /\
         client_server_driver_application_derivation_projection_inputs
           client
@@ -605,6 +610,7 @@ val lemma_client_server_driver_remaining_semantic_projection_inputs_from_clearte
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_cleartext_hello_messages client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_supported_profile_application_record_state_inputs
           client
@@ -630,6 +636,7 @@ val lemma_client_server_driver_remaining_semantic_projection_inputs_from_paired_
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_handshake_message_states client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_supported_profile_application_record_state_inputs
           client
@@ -745,6 +752,7 @@ let client_server_driver_key_material_no_read_ahead_minimal_projection_inputs
     server_received
     server_sent /\
   paired_cleartext_hello_messages client server /\
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
   TLS13.Spec.StateMachine.Correspondence.same_key_derivation_checkpoint TLS13.Spec.StateMachine.KeyIdentifiers.DeriveHandshakeTraffic client server /\
   client_server_driver_application_derivation_projection_inputs client server /\
   client_server_driver_supported_profile_application_record_state_inputs
@@ -768,6 +776,7 @@ let client_server_driver_key_material_no_read_ahead_handshake_event_inputs
     server_received
     server_sent /\
   paired_cleartext_hello_messages client server /\
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
   paired_handshake_events client server /\
   client_server_driver_supported_profile_application_record_state_inputs
     client
@@ -790,6 +799,7 @@ let client_server_driver_key_material_no_read_ahead_paired_handshake_message_inp
     server_received
     server_sent /\
   paired_handshake_message_states client server /\
+  TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
   paired_handshake_events client server /\
   client_server_driver_supported_profile_application_record_state_inputs
     client
@@ -1193,6 +1203,7 @@ val lemma_client_server_application_record_material_agrees_from_paired_handshake
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_handshake_message_states client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
@@ -1221,6 +1232,7 @@ val lemma_client_server_application_record_material_agrees_from_cleartext_and_ha
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_cleartext_hello_messages client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
@@ -1276,6 +1288,7 @@ val lemma_client_server_application_record_material_agrees_from_cleartext_raw_an
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
         paired_handshake_events client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
           server)
@@ -1338,6 +1351,7 @@ val lemma_client_server_application_record_material_agrees_from_cleartext_raw_ke
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
         WFL.paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_handshake_events client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
@@ -1405,6 +1419,7 @@ val lemma_client_server_application_record_material_agrees_from_cleartext_raw_an
         CS.received_cleartext_tls_message_raw
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
+          TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         PWL.paired_protected_handshake_event_projection_pairs
           client
           server
@@ -1492,6 +1507,7 @@ val lemma_client_server_application_record_material_agrees_from_cleartext_raw_an
         CS.received_cleartext_tls_message_raw
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
+          TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_protected_handshake_event_projection_pair_witnesses
           client
           server /\
@@ -1560,6 +1576,7 @@ val lemma_client_server_application_record_material_agrees_from_cleartext_raw_ke
           (M.TlsHandshake (M.ServerHello client_sh))
           client_sh_raw /\
         WFL.paired_cleartext_hello_key_shares client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         paired_protected_handshake_event_projection_pair_witnesses
           client
           server /\
@@ -1601,6 +1618,7 @@ val lemma_client_server_application_record_material_agrees_from_paired_handshake
         CD.client_driver_application_ready client /\
         SD.server_driver_application_ready server /\
         paired_handshake_event_trace client server /\
+        TLS13.Spec.StateMachine.Correspondence.paired_kex_agreement_ok client server /\
         client_server_driver_first_epoch_no_key_update_state_inputs
           client
           server)

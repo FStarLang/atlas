@@ -849,7 +849,7 @@ let lemma_asp_client_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ app_seq_pairing a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures app_seq_pairing b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -885,7 +885,7 @@ let lemma_asp_server_send (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ app_seq_pairing a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures app_seq_pairing b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -1850,7 +1850,7 @@ let lemma_asp_client_send_inflight (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures inflight_sender_stepped b /\ inflight_single_record b /\
                inflight_raw_delta_legal b)
   = SY.lemma_client_send_shape a b;
@@ -1880,7 +1880,7 @@ let lemma_asp_server_send_inflight (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures inflight_sender_stepped b /\ inflight_single_record b /\
                inflight_raw_delta_legal b)
   = SY.lemma_server_send_shape a b;
@@ -1924,7 +1924,7 @@ let lemma_asp_client_send_snap_handshake_write (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ MP.Quiet? a.channel /\
-        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_client_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures inflight_snap_handshake_write b)
   = SY.lemma_client_send_shape a b;
     eliminate exists (local:CTy.client_local_event) (c':CS.connection_state)
@@ -1969,7 +1969,7 @@ let lemma_asp_server_send_snap_handshake_write (a b:SY.tls_system_state)
   : Lemma
       (requires
         SY.tls_system_inv a /\ MP.Quiet? a.channel /\
-        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b)
+        SY.tls_step_server_send a b /\ SY.tls_no_rekeying b /\ SY.tls_kex_agreement_ok b)
       (ensures inflight_snap_handshake_write b)
   = SY.lemma_server_send_shape a b;
     eliminate exists (local:CTy.server_local_event) (s':CS.connection_state)
@@ -2016,7 +2016,7 @@ let lemma_asp_deliver_to_server
         a.channel == SY.tls_to_server raw snap sent /\
         Seq.equal (CW.wire_serialize wire) raw /\
         ES.server_step #CTy.server_local_event a.server (SM.WireEvent wire) s' out /\
-        SY.tls_no_rekeying ({ a with server = s'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with server = s'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with server = s'; channel = MP.Quiet }))
       (ensures app_seq_pairing ({ a with server = s'; channel = MP.Quiet }))
   = let b : SY.tls_system_state = { a with server = s'; channel = MP.Quiet } in
     let p : SY.tls_payload = { SY.pl_raw = raw; SY.pl_snap = snap; SY.pl_sent = sent } in
@@ -2281,7 +2281,7 @@ let lemma_asp_deliver_to_client
         a.channel == SY.tls_to_client raw snap sent /\
         Seq.equal (CW.wire_serialize wire) raw /\
         EC.client_step #CTy.client_local_event a.client (SM.WireEvent wire) c' out /\
-        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }))
+        SY.tls_no_rekeying ({ a with client = c'; channel = MP.Quiet }) /\ SY.tls_kex_agreement_ok ({ a with client = c'; channel = MP.Quiet }))
       (ensures app_seq_pairing ({ a with client = c'; channel = MP.Quiet }))
   = let b : SY.tls_system_state = { a with client = c'; channel = MP.Quiet } in
     let p : SY.tls_payload = { SY.pl_raw = raw; SY.pl_snap = snap; SY.pl_sent = sent } in
@@ -2629,7 +2629,8 @@ let lemma_ama_deliver_to_server
            discharged one layer up in `TLS13.System.AppExtrasInv` (a conjunct of
            `stream2_extras`), which supplies it at this call.  This step does not
            touch the client (`b.client == a.client`), so the fact is stated on `a`. *)
-        CCShape.no_buffering_steps a.client.CS.cs_event_log)
+        CCShape.no_buffering_steps a.client.CS.cs_event_log /\
+        SY.tls_kex_agreement_ok ({ a with server = s'; channel = MP.Quiet }))
       (ensures app_material_agreement ({ a with server = s'; channel = MP.Quiet }))
   = let b : SY.tls_system_state = { a with server = s'; channel = MP.Quiet } in
     let p : SY.tls_payload = { SY.pl_raw = raw; SY.pl_snap = snap; SY.pl_sent = sent } in

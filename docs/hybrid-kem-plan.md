@@ -17,8 +17,9 @@ HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
 | H3 `kex_group` gains `KexX25519MLKEM768`; `dh_group`; `TLS13.Crypto.Kex.Spec` (D2, `lemma_kex_agreement`) | **landed** (`5494f59`) |
 | H4 `x25519mlkem768(0x11EC)` on the wire; ClientHello finder (1216) | **landed** (`f8bdbe4`) |
 | H5a D4 as a type change: `ks_shared_secret : kex_shared_secret_any`, `optional_shared_secret_exactly` slot | **landed** (`bd04d41`) |
-| H5b D1 fields, hybrid consistency clauses (D3), one key family per selection, `kex_group_of_named_group_full` | **landed** (this commit) |
-| H6 … H10 | not started |
+| H5b D1 fields, hybrid consistency clauses (D3), one key family per selection, `kex_group_of_named_group_full` | **landed** (`b7e9321`) |
+| H6 model + proofs: hybrid ServerHello side arm, derive arms, D6 threaded to the System layers and the flagships | **landed** (this commit) |
+| H7 … H10 | not started |
 
 Re-staging made in H5b: the `LocalDeriveSharedSecret` arms stay (EC)DH-only.
 Opening the server arm to the KEM also changes
@@ -137,6 +138,34 @@ shares live in per-group slots (D1).
 (`hello_key_shares_ok`) gain `kex_agreement_ok g csk ssk` for the negotiated
 group.  For X25519 and P-256 it is `True`, so the existing statement is the
 special case.  This must be stated in README and KEY_AGREEMENT_PROOF.md.
+
+**As built (H6).**  D6 is
+`Correspondence.paired_kex_agreement_ok client server`, which reads only the
+two write-once fields `start_client_hybrid_private` and
+`server_hybrid_private` (it is `True` until both are `Some`), and
+`System.tls_kex_agreement_ok s` lifts it to a system state.  It is *not* added
+to FACT 3: FACT 3 is inductive and D6 is not provable.  Instead:
+
+* FACT 4 (`protected_witnesses_ok`) carries it as an antecedent;
+* the app/stream invariants (`stream2_combined_inv`, `stream3_combined_inv`)
+  are guarded by `tls_no_rekeying s /\ tls_kex_agreement_ok s`, exactly like
+  the existing no-rekeying guard, and the preservation lemmas take D6 of the
+  post-state;
+* `lemma_kex_agreement_backward` transports D6 from post- to pre-state along
+  any step (the fields are write-once, given `tls_system_inv` of the
+  pre-state), which is what keeps the guarded invariants inductive;
+* the flagships (`System.Temporal`, `System.StreamTemporal`) gain
+  `tls_kex_agreement_ok s` in their antecedents.
+
+**Side-arm deviation from D2 (H6).**  The (EC)DH accessors
+(`server_hello_kex`, `server_selected_kex_group`, the DH privates) keep their
+`dh_group` typing.  A hybrid ServerHello is read by separate accessors
+(`serverHello_hybrid_share`, `server_hello_hybrid_share`, exclusive with
+`server_hello_kex` by SMTPat lemmas), and a hybrid selection has `None` DH
+privates.  This avoided re-typing every DH proof site.  Until H8/H9 the impl
+pins the runtime to non-hybrid: `Repr.handshake_start_fields_exactly` carries
+`None? start_client_hybrid_private`, and `Repr.server_selection_private_absent`
+carries `not (server_selects_hybrid selection)`.
 
 ## 3. Stages (each one green; the capability flips only in H10)
 

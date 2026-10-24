@@ -917,7 +917,9 @@ let handshake_start_fields_exactly
   fixed_bytes_exactly start.client_p256_public 65 spec.CS.start_client_p256_public **
   cipher_suite_list_exactly start.cipher_suites max_cipher_suites spec.CS.start_cipher_suites **
   signature_scheme_list_exactly start.signature_schemes max_signature_schemes spec.CS.start_signature_schemes **
-  pure (CS.handshake_start_key_share_consistent spec)
+  (* The runtime does not yet store a hybrid (X25519MLKEM768) client share. *)
+  pure (CS.handshake_start_key_share_consistent spec /\
+        None? spec.CS.start_client_hybrid_private)
 
 let handshake_start_payload_exactly
   ([@@@mkey] start:handshake_start_storage)
@@ -1211,9 +1213,11 @@ let server_selection_absent
 let server_selection_private_absent
   (selection:CS.server_handshake_selection)
   : prop =
-  match selection.CS.server_key_share_private with
-  | Some _ -> False
-  | None -> True
+  (match selection.CS.server_key_share_private with
+   | Some _ -> False
+   | None -> True) /\
+  (* The runtime never selects X25519MLKEM768 yet (it has no hybrid storage). *)
+  not (CS.server_selects_hybrid selection)
 
 (**
   The selected group is a purely ghost field of [CS.server_handshake_selection]:
@@ -1243,7 +1247,9 @@ let server_selection_group_pinned
   match selection with
   | Some sel ->
     CS.server_selected_kex_group sel ==
-      client_hello_kex_group_for sel.CS.server_selected_client_hello
+      client_hello_kex_group_for sel.CS.server_selected_client_hello /\
+    (* The runtime does not select X25519MLKEM768 yet. *)
+    not (CS.server_selects_hybrid sel)
   | None -> True
 
 let server_selection_presence_exactly
