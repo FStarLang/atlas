@@ -1,5 +1,5 @@
-#ifndef TLS13_OPENSSL_STUBS_H
-#define TLS13_OPENSSL_STUBS_H
+#ifndef OPENSSL_HOST_AUTH_H
+#define OPENSSL_HOST_AUTH_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -10,7 +10,6 @@ extern "C" {
 #endif
 
 typedef struct tls13_peer_identity_s tls13_peer_identity;
-typedef struct tls13_server_credentials_s tls13_server_credentials;
 typedef struct tls13_trust_store_s tls13_trust_store;
 
 #define TLS13_SIG_RSA_PSS_RSAE_SHA256 ((uint16_t)0x0804u)
@@ -76,36 +75,9 @@ bool tls13_openssl_peer_copy_public_key_der(
     size_t out_capacity,
     size_t *out_len);
 
-tls13_server_credentials *tls13_openssl_server_credentials_new(
-    const uint8_t *certificate_chain,
-    size_t certificate_chain_len,
-    const uint8_t *private_key,
-    size_t private_key_len);
-
-/* Returns the TLS SignatureScheme code point this credential's key can
-   produce (0x0804 for RSA, 0x0403 for P-256), or 0 if unsupported. */
-uint16_t tls13_openssl_server_credential_signature_scheme(
-    const tls13_server_credentials *creds);
-
-bool tls13_openssl_server_sign_rsa_pss_sha256(
-    const tls13_server_credentials *creds,
-    const uint8_t *message,
-    size_t message_len,
-    uint8_t *signature,
-    size_t signature_capacity,
-    size_t *signature_len);
-
-bool tls13_openssl_server_copy_certificate_chain(
-    const tls13_server_credentials *creds,
-    uint8_t *out,
-    size_t out_capacity,
-    size_t *out_len);
-
 void tls13_openssl_peer_identity_free(tls13_peer_identity *peer);
 
 void tls13_openssl_trust_store_free(tls13_trust_store *trust_store);
-
-void tls13_openssl_server_credentials_free(tls13_server_credentials *creds);
 
 #ifdef __cplusplus
 }

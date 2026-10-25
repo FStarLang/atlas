@@ -535,16 +535,11 @@ let verify_signature scheme public_key message signature =
 
 let lemma_verify_signature_def scheme public_key message signature = ()
 
-assume val credential_signature_scheme_ax: public_key:public_key -> Tot T.signature_scheme
+let credential_signature_scheme public_key =
+  match certificate_raw_public_key public_key with
+  | Some (RawP256 _) -> T.Ecdsa_secp256r1_sha256
+  | _ -> T.Rsa_pss_rsae_sha256
 
-let credential_signature_scheme = credential_signature_scheme_ax
+let lemma_credential_signature_scheme_def public_key = ()
 
-assume val lemma_credential_signature_scheme_supported_ax:
-  public_key:public_key ->
-  Lemma
-    (ensures
-      credential_signature_scheme_ax public_key == T.Rsa_pss_rsae_sha256 \/
-      credential_signature_scheme_ax public_key == T.Ecdsa_secp256r1_sha256)
-
-let lemma_credential_signature_scheme_supported public_key =
-  lemma_credential_signature_scheme_supported_ax public_key
+let lemma_credential_signature_scheme_supported public_key = ()

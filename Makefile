@@ -612,7 +612,7 @@ SERVER_DRIVER_MODULES = \
   TLS13.Impl.Server.App \
   TLS13.Impl.Server \
   Common.TCP \
-  TLS13.OpenSSL \
+  TLS13.Impl.ServerCredentials \
   TLS13.Impl.Server.Driver.State \
   TLS13.Impl.Server.Driver.BufferedNetwork \
   TLS13.Impl.Server.Driver.BufferedTransport \
@@ -656,10 +656,7 @@ TLS13_CUSTARD_ENTRIES = \
 # them, so the extracted C includes those headers instead of declaring them.
 TLS13_CUSTARD_EXTERN_TYPES = \
   Common.TCP.channel@common_tcp_custard.h \
-  Common.TCP.listener@common_tcp_custard.h \
-  TLS13.OpenSSL.auth_config@tls13_openssl_custard.h \
-  TLS13.OpenSSL.auth_context@tls13_openssl_custard.h \
-  TLS13.OpenSSL.server_credentials@tls13_openssl_custard.h
+  Common.TCP.listener@common_tcp_custard.h
 # Custard takes a single file on the command line; it loads the checked files of
 # the entry modules on demand.
 TLS13_CUSTARD_ROOTS = src/impl/TLS13.Impl.Client.Driver.fst
@@ -731,9 +728,7 @@ ECHO_STUB_SOURCES = \
   c_stubs/atlas_trace.c \
   c_stubs/common_tcp_custard.c \
   c_stubs/common_tcp_stubs.c \
-  c_stubs/tls13_crypto_external.c \
-  c_stubs/tls13_openssl_custard.c \
-  c_stubs/tls13_openssl_stubs.c
+  c_stubs/tls13_crypto_external.c
 
 ECHO_STUB_HEADERS = \
   runtime/common_memmove.h \
@@ -741,9 +736,7 @@ ECHO_STUB_HEADERS = \
   c_stubs/common_tcp_custard.h \
   c_stubs/custard_option.h \
   c_stubs/common_tcp_stubs.h \
-  c_stubs/tls13_crypto_external.h \
-  c_stubs/tls13_openssl_custard.h \
-  c_stubs/tls13_openssl_stubs.h
+  c_stubs/tls13_crypto_external.h
 
 # Common C flags for all test builds
 CFLAGS_COMMON = -Wall -Wextra -Wno-deprecated-declarations \
@@ -788,7 +781,7 @@ CHROMIUM_DEMO_BUNDLE_DIR_NAME = atlas-chromium-demo-linux-x86_64
 endif
 
 CHROMIUM_DEMO_OBJ_DIR = $(EXTRACT_DIR)/chromium_demo_obj
-CHROMIUM_DEMO_C_SOURCES = c_stubs/tls13_openssl_stubs.c
+CHROMIUM_DEMO_C_SOURCES = test/unit/openssl_host_auth.c
 CHROMIUM_DEMO_OBJ_STAMP = $(CHROMIUM_DEMO_OBJ_DIR)/.built
 
 $(HACL_TEST_OBJ_DIR) $(HACL_BENCHMARK_OBJ_DIR) $(HACL_PROFILE_OBJ_DIR):
@@ -848,8 +841,6 @@ define link_benchmark
 	  runtime/tls13_server_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/perf/tls13_bench.c \
 	  $(HACL_RANDOM_SOURCES) \
 	  $(LDFLAGS_COMMON) $(1) -lssl -lcrypto -o $(3)
@@ -947,11 +938,9 @@ test/test_key_schedule_bindings: test/unit/test_key_schedule_bindings.c \
 	  runtime/common_memmove.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_key_schedule_bindings.c \
 	  $(HACL_RANDOM_SOURCES) \
-	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
+	  $(LDFLAGS_COMMON) -o $@
 
 test-key-schedule-bindings: test/test_key_schedule_bindings
 	./test/test_key_schedule_bindings
@@ -992,11 +981,9 @@ test/test_extracted_client_openssl_echo: \
 	  runtime/tls13_client_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_extracted_client_openssl_echo.c \
 	  $(HACL_RANDOM_SOURCES) \
-	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
+	  $(LDFLAGS_COMMON) -o $@
 
 test-extracted-client-openssl-echo: test-openssl-echo
 
@@ -1018,11 +1005,9 @@ test/test_interop_client: \
 	  runtime/tls13_client_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_interop_client.c \
 	  $(HACL_RANDOM_SOURCES) \
-	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
+	  $(LDFLAGS_COMMON) -o $@
 
 .PHONY: interop-client
 interop-client: test/test_interop_client
@@ -1031,6 +1016,7 @@ test/test_extracted_client_engine_openssl_echo: \
   test/unit/test_extracted_client_engine_openssl_echo.c \
   $(TLS13_BUNDLE_OBJS_STAMP) \
   runtime/tls13_client_engine.c runtime/tls13_client_engine.h runtime/tls13_pem.h \
+  test/unit/openssl_host_auth.c test/unit/openssl_host_auth.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_TEST_OBJECTS) | check-deps
 	$(CC) $(CFLAGS_COMMON) \
@@ -1043,8 +1029,7 @@ test/test_extracted_client_engine_openssl_echo: \
 	  runtime/tls13_client_engine.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
+	  test/unit/openssl_host_auth.c \
 	  test/unit/test_extracted_client_engine_openssl_echo.c \
 	  $(HACL_RANDOM_SOURCES) \
 	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
@@ -1300,7 +1285,7 @@ test-chromium-demo-bundle-logging:
 	  test-chromium-demo-bundle
 
 $(CHROMIUM_DEMO_OBJ_STAMP): $(CHROMIUM_DEMO_C_SOURCES) \
-  c_stubs/tls13_openssl_stubs.h Makefile | check-deps
+  test/unit/openssl_host_auth.h Makefile | check-deps
 	@rm -rf $(CHROMIUM_DEMO_OBJ_DIR)
 	@mkdir -p $(CHROMIUM_DEMO_OBJ_DIR)
 	@set -e; for src in $(CHROMIUM_DEMO_C_SOURCES); do \
@@ -1429,8 +1414,6 @@ $(HTTP_SAMPLE_VTLS_BIN): \
 	  runtime/tls13_server_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  $(HACL_RANDOM_SOURCES) \
 	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
 	@echo "Built $@ (verified HTTP/1.1 over verified TLS 1.3)"
@@ -1489,8 +1472,6 @@ test/test_extracted_server_openssl_client: \
 	  runtime/tls13_server_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_extracted_server_openssl_client.c \
 	  $(HACL_RANDOM_SOURCES) \
 	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
@@ -1522,11 +1503,9 @@ test/test_atlas_loopback: \
 	  runtime/tls13_server_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_atlas_loopback.c \
 	  $(HACL_RANDOM_SOURCES) \
-	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
+	  $(LDFLAGS_COMMON) -o $@
 
 test-atlas-loopback: test/test_atlas_loopback \
   test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der
@@ -1554,8 +1533,6 @@ test/test_server_interop_matrix: \
 	  runtime/tls13_server_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_server_interop_matrix.c \
 	  $(HACL_RANDOM_SOURCES) \
 	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
@@ -1583,11 +1560,9 @@ test/test_hybrid_server_peer: \
 	  runtime/tls13_server_driver.c \
 	  c_stubs/common_tcp_custard.c \
 	  c_stubs/common_tcp_stubs.c \
-	  c_stubs/tls13_openssl_custard.c \
-	  c_stubs/tls13_openssl_stubs.c \
 	  test/unit/test_hybrid_server_peer.c \
 	  $(HACL_RANDOM_SOURCES) \
-	  $(LDFLAGS_COMMON) -lssl -lcrypto -o $@
+	  $(LDFLAGS_COMMON) -o $@
 
 .PHONY: test-hybrid-interop
 test-hybrid-interop: test/test_interop_client test/test_hybrid_server_peer \

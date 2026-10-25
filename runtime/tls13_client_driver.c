@@ -30,7 +30,6 @@ struct tls13_client_driver_s {
 };
 
 struct tls13_client_config_s {
-  TLS13_Impl_Client_Driver_client_auth_config verified_config;
   uint8_t *server_name;
   size_t server_name_len;
   /* Concatenated DER certificates, decoded from the caller's PEM. */
@@ -204,12 +203,6 @@ int tls13_client_config_new(
   }
   memcpy(server_name_copy, server_name, server_name_len);
 
-  config->verified_config = TLS13_Impl_Client_Driver_new_auth_config(
-      server_name_copy,
-      server_name_len,
-      trust_anchor_der,
-      trust_anchor_der_len,
-      validation_time_seconds);
   config->server_name = server_name_copy;
   config->server_name_len = server_name_len;
   config->trust_anchor_der = trust_anchor_der;
@@ -223,7 +216,6 @@ void tls13_client_config_free(tls13_client_config *config) {
   if (config == NULL) {
     return;
   }
-  TLS13_Impl_Client_Driver_free_auth_config(config->verified_config);
   free(config->trust_anchor_der);
   free(config->server_name);
   free(config);
@@ -262,8 +254,7 @@ static int connect_with_config_reporting(
 #endif
 
   driver->verified_driver =
-      TLS13_Impl_Client_Driver_new_client_with_auth_config(
-          config->verified_config,
+      TLS13_Impl_Client_Driver_new_client(
           config->server_name,
           config->server_name_len,
           config->trust_anchor_der,

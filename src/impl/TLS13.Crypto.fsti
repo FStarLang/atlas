@@ -549,3 +549,67 @@ fn verify_rsa_pkcs1
                         (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
                         (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
                         (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+(** {2 Signing}
+
+    Raw hacl-pulse signing, for the server's CertificateVerify.  Only the
+    output length is specified: the server checks every signature it makes
+    with the verifiers above before sending it
+    ([TLS13.Impl.ServerCredentials.sign_certificate_verify]), so what reaches
+    the peer is justified by [C.verify_signature] alone, and neither these
+    functions nor the private-key parser need a functional specification. *)
+
+(** RSASSA-PSS-SIGN with SHA-256, MGF1-SHA-256 and a 32-byte [salt], by the
+    key with modulus [modulus[0 .. modulus_len)] and private exponent
+    [d[0 .. d_len)].  On success the signature is [sg[0 .. modulus_len)]. *)
+fn sign_rsa_pss_rsae_sha256
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (d: array U8.t)
+  (d_len: SZ.t)
+  (salt: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to d 'd_bytes **
+           pts_to salt 'salt_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'old_sg **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v d_len <= B.length 'd_bytes /\
+                 B.length 'salt_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v modulus_len <= B.length 'old_sg)
+  returns ok: bool
+  ensures exists* sg_bytes.
+          pts_to modulus 'n_bytes **
+          pts_to d 'd_bytes **
+          pts_to salt 'salt_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg sg_bytes **
+          pure (B.length sg_bytes == B.length 'old_sg)
+
+(** ECDSA over P-256 with SHA-256, by the 32-byte private scalar [sk] with
+    the 32-byte per-signature [nonce].  On success [out] holds [r || s]. *)
+fn sign_ecdsa_secp256r1_sha256
+  (sk: array U8.t)
+  (nonce: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to nonce 'nonce_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to out 'old_out **
+           pure (B.length 'sk_bytes == 32 /\
+                 B.length 'nonce_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 B.length 'old_out == 64)
+  returns ok: bool
+  ensures exists* out_bytes.
+          pts_to sk 'sk_bytes **
+          pts_to nonce 'nonce_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == 64)

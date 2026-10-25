@@ -29,7 +29,6 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
 module Seq = FStar.Seq
@@ -416,7 +415,6 @@ noeq type client_driver = {
   client_driver_client: C.client;
   client_driver_progress: MR.mref (EC.client_progress_preorder #CTypes.client_local_event);
   client_driver_initial: Ghost.erased EC.client_initial_state;
-  client_driver_auth: O.auth_context;
   client_driver_channel: Box.box (option BT.t);
   client_driver_storage: BT.storage;
   client_driver_tcp_history: MR.mref CI.io_history_preorder;
@@ -469,7 +467,6 @@ let driver_as_buffered (d:driver) : buffered_driver =
 
 noeq type top_buffered_driver = {
   top_buffered_driver_core: buffered_driver;
-  top_buffered_driver_auth: O.auth_context;
 }
 
 inline_for_extraction
@@ -493,7 +490,6 @@ let client_top_buffered_driver
   : top_buffered_driver =
   {
     top_buffered_driver_core = client_buffered_driver d channel;
-    top_buffered_driver_auth = d.client_driver_auth;
   }
 
 let lemma_rejoined_raw_mask_matches_old
@@ -868,8 +864,7 @@ let top_buffered_driver_exactly
     d.top_buffered_driver_core
     st
     buffered
-    buffered_len **
-  O.is_auth_context d.top_buffered_driver_auth
+    buffered_len
 
 noextract
 let driver_exactly
@@ -886,14 +881,12 @@ let driver_exactly
 
 noeq type top_driver = {
   top_driver_core: driver;
-  top_driver_auth: O.auth_context;
 }
 
 inline_for_extraction
 let top_driver_as_buffered (d:top_driver) : top_buffered_driver =
   {
     top_buffered_driver_core = driver_as_buffered d.top_driver_core;
-    top_buffered_driver_auth = d.top_driver_auth;
   }
 
 let no_channel : option BT.t = None
@@ -905,8 +898,7 @@ let top_driver_exactly
   (buffered:B.bytes)
   (buffered_len:SZ.t)
   : slprop =
-  driver_exactly d.top_driver_core st buffered buffered_len **
-  O.is_auth_context d.top_driver_auth
+  driver_exactly d.top_driver_core st buffered buffered_len
 
 noextract
 let client_driver_buffers
@@ -970,7 +962,6 @@ let client_driver_live
   : slprop =
   C.connection_exactly d.client_driver_client st **
   client_driver_canonical_progress d st **
-  O.is_auth_context d.client_driver_auth **
   Box.pts_to d.client_driver_channel no_channel **
   MR.pts_to d.client_driver_tcp_history #1.0R (wire_history B.empty B.empty) **
   client_driver_buffers d **
@@ -1010,7 +1001,6 @@ let client_driver_connected_indexed
     received
     committed
     sent **
-  O.is_auth_context d.client_driver_auth **
   client_driver_buffers d **
   pure (SZ.v buffered_len == B.length (BT.pending model))
 
@@ -1042,7 +1032,6 @@ let client_channel_terminal_indexed
     st.CS.cs_wire_log.CL.raw_received
     st.CS.cs_wire_log.CL.raw_sent
     st **
-  O.is_auth_context d.client_driver_auth **
   Box.pts_to d.client_driver_channel (Some channel) **
   BT.is_buffered
     channel
@@ -1102,7 +1091,6 @@ let client_channel_inv_indexed
     st.CS.cs_wire_log.CL.raw_received
     st.CS.cs_wire_log.CL.raw_sent
     st **
-  O.is_auth_context d.client_driver_auth **
   Box.pts_to d.client_driver_channel (Some channel) **
   BT.is_buffered
     channel
@@ -1170,7 +1158,6 @@ let client_channel_io_frame_indexed
     st.CS.cs_wire_log.CL.raw_received
     st.CS.cs_wire_log.CL.raw_sent
     st **
-  O.is_auth_context d.client_driver_auth **
   Box.pts_to d.client_driver_channel (Some channel) **
   BT.io_frame
     channel

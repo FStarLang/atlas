@@ -216,7 +216,7 @@ The active TCB surface is intentionally explicit.
 | --- | --- | --- |
 | Crypto primitives | `src/impl/TLS13.Crypto.fst` (verified), hacl-pulse (`tools/hacl-pulse`, linked via `--custard_link obj/build/Hacl.cui` into `dist/Hacl.c`) | Not trusted beyond hacl-pulse itself: `TLS13.Crypto.Spec` defines hashing, HMAC, HKDF, X25519, P-256 and AEAD from hacl-pulse's specifications (as ghost functions, like hacl-pulse's own), and the Pulse bindings in `TLS13.Crypto` call hacl-pulse directly and are proved against them. No assumptions are added. |
 | Entropy | `src/impl/extern/TLS13.Crypto.Random.fsti`, `c_stubs/tls13_crypto_external.c`, hacl-pulse entropy shim `c/Hacl_Random.c` | Trusted to fill the buffer with random bytes; the contract only fixes the length. |
-| X509/signature validation | `src/impl/extern/TLS13.OpenSSL.fsti`, `c_stubs/tls13_openssl_custard.*`, `c_stubs/tls13_openssl_stubs.c` | Typed OpenSSL auth TCB. The Pulse workflow calls this interface directly; successful returns are trusted to establish `CT.local_input_wf` for certificate validation over the exact returned peer-identity prefix and for CertificateVerify. |
+| PEM decoding | `runtime/tls13_pem.h` | Untrusted for authentication: decodes PEM trust anchors and the server private key to DER. X.509 validation (`TLS13.Impl.X509.Validate`), CertificateVerify verification and server signing (`TLS13.Impl.ServerCredentials`) are verified; a wrong key only yields signatures that the server's own sign-then-verify check rejects. OpenSSL is not linked into the library. |
 | TCP bridge | `common/Common.TCP.fsti`, `c_stubs/common_tcp_stubs.c`, `c_stubs/common_tcp_custard.*` | Trusted connect/listen/accept/read/write/close bridge with ghost-indexed received/sent byte histories. Endpoint predicates expose those histories and relate their contents to the protocol wire log: sent transport bytes equal the protocol raw-sent log, while received transport bytes split into consumed bytes plus retained read-ahead, with the protocol raw-received log content-accounted inside the consumed prefix. The generated C includes `common_tcp_custard.h` for the TCP handle types (`--custard_extern_type`); the C shim is deliberately small. Read-prefix handling, retained-buffer read-append, and retained-buffer prefix/compaction are verified in Pulse. |
 | ATLAS trace writer | `src/impl/extern/TLS13.Trace.fsti`, `c_stubs/atlas_trace.*`, `runtime/analyze_atlas_trace.py` | Explicit observational TCB. Verified code chooses event positions and metadata under an `emp -> emp` Pulse contract; the C writer supplies timestamps and process/thread/connection correlation and emits atomic JSONL records. Callers are forbidden to pass secrets, plaintext, certificates, or payload bytes. Disabled builds macro-eliminate calls without evaluating arguments. |
 | Extracted runtime infrastructure | F*, Pulse, Custard, generated C, C compiler/runtime | Trusted extraction/runtime substrate and C platform behavior. |
@@ -229,8 +229,7 @@ The C code is kept to glue and TCB responsibilities:
 
 - POSIX socket connect/listen/accept/read/write/close in `common_tcp_stubs.c`;
 - the tiny extracted-TCP ABI shim in `common_tcp_custard.c`;
-- the typed OpenSSL ABI shim in `tls13_openssl_custard.c`;
-- crypto/X509 bridge code;
+- PEM-to-DER decoding of trust anchors and the server private key;
 - optional ATLAS JSONL trace emission and runtime connection correlation;
 - the small client/server runtime ABI wrappers.
 
@@ -275,16 +274,16 @@ Start with these files:
 5. `common/Common.ProtocolImplementation.fst`,
    `common/Common.ProtocolEndpoint.fst`, `common/Common.ProtocolDriver.fst`, and
    `common/Common.TCP.fsti` for the shared endpoint/driver/TCP architecture.
-6. `src/impl/extern/TLS13.OpenSSL.fsti` and `c_stubs/tls13_openssl_custard.*` for the
-   typed OpenSSL TCB boundary called by the Pulse workflow.
+6. `src/impl/TLS13.Impl.ServerCredentials.fst` for verified server credentials
+   and CertificateVerify signing (sign with hacl-pulse, then verify).
 7. `runtime/tls13_client_driver.c` and `runtime/tls13_server_driver.c` for the
    small C ABI wrappers around the extracted endpoint/canonical runtime path.
 8. `src/impl/TLS13.Impl.Parser.*` and `src/impl/TLS13.Impl.Serializer.*` for
    the verified parser/serializer facades and their `TLS13.Wire.Spec`
    postconditions.
 9. `c_stubs/common_tcp_custard.*`, `c_stubs/common_tcp_stubs.*`,
-   `c_stubs/tls13_crypto_external.*` (entropy only), and
-   `c_stubs/tls13_openssl_stubs.*` for the remaining C boundary.
+   `c_stubs/tls13_crypto_external.*` (entropy only), and `runtime/tls13_pem.h`
+   for the remaining C boundary.
 
 ## Validation commands
 

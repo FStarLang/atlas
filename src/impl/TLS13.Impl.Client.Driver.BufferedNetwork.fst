@@ -16,7 +16,6 @@ module CS = TLS13.Spec.StateMachine
 module CT = TLS13.Impl.Client.Types
 module CTypes = TLS13.Impl.CanonicalTypes
 module MR = Pulse.Lib.MonotonicGhostRef
-module O = TLS13.OpenSSL
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
@@ -186,7 +185,6 @@ let owns
       received
       committed
       sent **
-    O.is_auth_context e.endpoint_driver.top_buffered_driver_auth **
     pts_to e.endpoint_network_out_buffer st.endpoint_network_out **
     pts_to e.endpoint_app_out_buffer st.endpoint_app_out **
     pure (
@@ -1609,10 +1607,6 @@ fn drive_until_conclusive
       received
       committed
       sent);
-  rewrite
-    (O.is_auth_context d.top_buffered_driver_auth)
-    as
-    (O.is_auth_context e.endpoint_driver.top_buffered_driver_auth);
   rewrite
     (pts_to network_out 'old_network_out)
     as

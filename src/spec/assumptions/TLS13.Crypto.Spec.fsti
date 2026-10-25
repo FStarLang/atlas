@@ -780,10 +780,21 @@ val lemma_verify_signature_def:
    in this profile and a P-256 key only ecdsa_secp256r1_sha256 -- so this is a
    function of the identity rather than an extra field the configuration has to
    carry.  It is what makes the server's CertificateVerify algorithm agile
-   (parity gap G5) without indexing the credential predicate by a scheme. *)
+   (parity gap G5) without indexing the credential predicate by a scheme.
+   The server only loads credentials with an RSA or P-256 key, so the default
+   case is never used for a loaded credential. *)
 val credential_signature_scheme:
   public_key:public_key ->
   Tot T.signature_scheme
+
+val lemma_credential_signature_scheme_def:
+  public_key:public_key ->
+  Lemma
+    (ensures
+      credential_signature_scheme public_key ==
+        (match certificate_raw_public_key public_key with
+         | Some (RawP256 _) -> T.Ecdsa_secp256r1_sha256
+         | _ -> T.Rsa_pss_rsae_sha256))
 
 (* The profile implements exactly two credential algorithms, so a runtime query
    of the credential's scheme has only two answers to distinguish. *)

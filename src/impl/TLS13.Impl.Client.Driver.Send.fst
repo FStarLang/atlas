@@ -24,7 +24,6 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
 module Seq = FStar.Seq
@@ -325,7 +324,6 @@ fn run
         };
         let td = {
           top_driver_core = core;
-          top_driver_auth = d.client_driver_auth;
         };
         rewrite
           (buffered_driver_indexed
@@ -369,10 +367,6 @@ fn run
           'st0
           (BT.pending model)
           buffered_len);
-        rewrite
-          (O.is_auth_context d.client_driver_auth)
-          as
-          (O.is_auth_context td.top_driver_auth);
         fold (top_driver_exactly
           td
           'st0
@@ -480,10 +474,6 @@ fn run
           received1
           committed1
           sent1);
-        rewrite
-          (O.is_auth_context td.top_driver_auth)
-          as
-          (O.is_auth_context d.client_driver_auth);
         fold (client_driver_buffers d);
         fold (client_driver_connected_indexed
           d
@@ -857,7 +847,6 @@ fn run_key_update
   };
   let td = {
     top_driver_core = core;
-    top_driver_auth = d.client_driver_auth;
   };
   rewrite
     (buffered_driver_indexed
@@ -901,10 +890,6 @@ fn run_key_update
     'st0
     (BT.pending model)
     buffered_len);
-  rewrite
-    (O.is_auth_context d.client_driver_auth)
-    as
-    (O.is_auth_context td.top_driver_auth);
   fold (top_driver_exactly
     td
     'st0
@@ -1005,10 +990,6 @@ fn run_key_update
     received1
     committed1
     sent1);
-  rewrite
-    (O.is_auth_context td.top_driver_auth)
-    as
-    (O.is_auth_context d.client_driver_auth);
   fold (client_driver_buffers d);
   fold (client_driver_connected_indexed
     d

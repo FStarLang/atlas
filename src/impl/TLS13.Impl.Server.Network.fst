@@ -32,7 +32,6 @@ module M = TLS13.Messages
 module Sem = TLS13.Wire.Semantics
 module GCH = TLS13.Wire.Generated.ClientHello
 module GFin = TLS13.Wire.Generated.Finished
-module O = TLS13.OpenSSL
 module P = TLS13.Impl.Parser
 module R = TLS13.Record.Spec
 module Ser = TLS13.Impl.Serializer

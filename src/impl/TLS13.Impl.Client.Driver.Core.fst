@@ -29,7 +29,6 @@ module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
 module X = TLS13.X509.Spec
-module O = TLS13.OpenSSL
 module PK = TLS13.Impl.X509.PublicKey
 module U64 = FStar.UInt64
 module XF = TLS13.Impl.X509.Fields

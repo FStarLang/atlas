@@ -381,9 +381,11 @@ Other trusted runtime boundaries remain:
 - entropy and X25519 key generation;
 - for the sans-I/O client engine only, host-side certificate-chain
   validation against `TLS13.X509.Spec.validate_chain` (the client driver uses
-  the verified `TLS13.Impl.X509.Validate`); server credentials and signing
-  behind `TLS13.OpenSSL.fsti`; PEM trust-anchor decoding in
-  `runtime/tls13_pem.h`;
+  the verified `TLS13.Impl.X509.Validate`); PEM trust-anchor and private-key
+  decoding in `runtime/tls13_pem.h`. Server credentials and CertificateVerify
+  signing are verified (`TLS13.Impl.ServerCredentials`, signing with hacl-pulse
+  and checking each signature with the verified verifier before it is sent);
+  the library does not link OpenSSL;
 - Pulse/F*/KaRaMeL/runtime infrastructure, allocation, and C platform behavior;
 - the TCP bridge in `c_stubs/common_tcp_stubs.c` and
   `c_stubs/common_tcp_custard.*` that connects explicit input/output buffers to

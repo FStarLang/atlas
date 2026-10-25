@@ -1,4 +1,19 @@
-module TLS13.OpenSSL
+module TLS13.Impl.ServerCredentials
+
+(** The server's credential: its certificate and private key, and the
+    CertificateVerify signatures made with it.
+
+    The certificate is the DER leaf the server sends, and also the
+    credential's identity: [C.credential_signature_scheme] and
+    [C.verify_signature] read its public key with the verified parser
+    [C.certificate_raw_public_key].  The private key is a DER PKCS#8
+    [PrivateKeyInfo], PKCS#1 [RSAPrivateKey] or SEC1 [ECPrivateKey] for an RSA
+    or P-256 certificate key.  Signing is hacl-pulse's RSASSA-PSS or ECDSA,
+    with salt and nonce from [TLS13.Crypto.random_bytes], and every signature
+    is checked with the verified verifier against the certificate before it is
+    returned -- which is what establishes [sign_certificate_verify]'s
+    postcondition, and also rejects a private key that does not match the
+    certificate. *)
 
 #lang-pulse
 
@@ -8,72 +23,19 @@ open Pulse.Lib.Array.PtsTo
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
 module CS = TLS13.Spec.StateMachine
-module CL = TLS13.ConnectionLog
-module CT = TLS13.Impl.Client.Types
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module T = TLS13.Types
 module U16 = FStar.UInt16
 module U8 = FStar.UInt8
 
-val auth_config : Type0
-val auth_context : Type0
 val server_credentials : Type0
 
-val is_auth_config :
-  auth_config ->
-  server_name:B.bytes ->
-  trust_anchors:B.bytes ->
-  validation_time_seconds:SZ.t ->
-  slprop
-val is_auth_context : auth_context -> slprop
 val is_server_credentials:
   server_credentials ->
   certificate_chain:B.bytes ->
   credential_identity:CS.server_credential_identity ->
   slprop
-
-fn auth_config_new
-  (server_name:array U8.t)
-  (server_name_len:SZ.t)
-  (trust_anchors:array U8.t)
-  (trust_anchors_len:SZ.t)
-  (validation_time_seconds:SZ.t)
-  requires pts_to server_name 'server_name_bytes **
-           pts_to trust_anchors 'trust_anchors_bytes **
-           pure (B.length 'server_name_bytes == SZ.v server_name_len /\
-                 B.length 'trust_anchors_bytes == SZ.v trust_anchors_len)
-  returns config: auth_config
-  ensures pts_to server_name 'server_name_bytes **
-          pts_to trust_anchors 'trust_anchors_bytes **
-          is_auth_config
-            config
-            (Ghost.reveal 'server_name_bytes)
-            (Ghost.reveal 'trust_anchors_bytes)
-            validation_time_seconds
-
-fn auth_context_new
-  (config:auth_config)
-  requires is_auth_config
-    config
-    'server_name_bytes
-    'trust_anchors_bytes
-    'validation_time_seconds
-  returns ctx: auth_context
-  ensures is_auth_config
-           config
-           'server_name_bytes
-           'trust_anchors_bytes
-           'validation_time_seconds **
-          is_auth_context ctx
-
-fn auth_config_free (config:auth_config)
-  requires is_auth_config
-    config
-    'server_name_bytes
-    'trust_anchors_bytes
-    'validation_time_seconds
-  ensures emp
 
 fn server_credentials_new
   (certificate_chain:array U8.t)
@@ -171,10 +133,6 @@ fn copy_server_certificate_chain
                     (Ghost.reveal 'certificate_chain)
                  | None ->
                    B.length (Ghost.reveal 'certificate_chain) > SZ.v out_capacity))
-
-fn auth_context_free (ctx:auth_context)
-  requires is_auth_context ctx
-  ensures emp
 
 fn server_credentials_free (creds:server_credentials)
   requires is_server_credentials creds 'certificate_chain 'credential_identity

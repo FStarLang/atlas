@@ -217,6 +217,10 @@ Current phase: **Phase 6 server buffer/event API and theorem surface**.
     allocation/free and `sign_certificate_verify`, with a postcondition that a
     successful signature verifies as `RsaPssRsaeSha256` against the credential
     identity.
+  - (Later superseded: `TLS13.OpenSSL` was replaced by the verified
+    `TLS13.Impl.ServerCredentials`, which signs with hacl-pulse and checks the
+    signature with the verified verifier, so server credentials and signing
+    are no longer part of the TCB.)
 - [x] Added C shim support for the new Phase 4 TCB surface:
   `Common_TCP_listen_tcp`/`Common_TCP_accept_tcp` and the KaRaMeL listener ABI,
   plus OpenSSL-backed in-memory server credential allocation, RSA-PSS/SHA-256

@@ -1545,3 +1545,127 @@ fn verify_rsa_pkcs1
   }
 }
 #pop-options
+
+(** {2 Signing} *)
+
+#push-options "--z3rlimit 80"
+fn sign_rsa_pss_rsae_sha256
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (d: array U8.t)
+  (d_len: SZ.t)
+  (salt: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to d 'd_bytes **
+           pts_to salt 'salt_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'old_sg **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v d_len <= B.length 'd_bytes /\
+                 B.length 'salt_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v modulus_len <= B.length 'old_sg)
+  returns ok: bool
+  ensures exists* sg_bytes.
+          pts_to modulus 'n_bytes **
+          pts_to d 'd_bytes **
+          pts_to salt 'salt_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg sg_bytes **
+          pure (B.length sg_bytes == B.length 'old_sg)
+{
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.gte modulus_len 128sz && SZ.lte modulus_len 1024sz && small &&
+      SZ.gt d_len 0sz && SZ.lte d_len modulus_len) {
+    let n0 = modulus.(0sz);
+    if (n0 = 0uy) {
+      false
+    } else {
+      let vn = Ghost.hide (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len));
+      let vd = Ghost.hide (CL.raw_slice 'd_bytes 0 (SZ.v d_len));
+      let vm = Ghost.hide (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len));
+      let bl = byte_bit_length n0;
+      let mbs = SZ.add (SZ.mul 8sz (SZ.sub modulus_len 1sz)) bl;
+      FStar.Math.Lemmas.small_mod (SZ.v mbs) (pow2 32);
+      let mb = SZ.sizet_to_uint32 mbs;
+      assert (pure (U32.v mb == C.rsa_mod_bits vn));
+      C.rsa_pss_args_facts vn vd vm vn;
+      CS.to_secret modulus;
+      CS.to_secret d;
+      CS.to_secret salt;
+      CS.to_secret msg;
+      CS.to_secret sg;
+      A.pts_to_len (CS.secret modulus);
+      A.pts_to_len (CS.secret d);
+      A.pts_to_len (CS.secret salt);
+      A.pts_to_len (CS.secret msg);
+      A.pts_to_len (CS.secret sg);
+      let nb = Sub.sub (CS.secret modulus) 0sz modulus_len;
+      let db = Sub.sub (CS.secret d) 0sz d_len;
+      let mm = Sub.sub (CS.secret msg) 0sz msg_len;
+      let sb = Sub.sub (CS.secret sg) 0sz modulus_len;
+      with vsb. assert (A.pts_to sb vsb);
+      let ok = Hacl.RSAPSS.sign_sha256 mb nb d_len db 32sz (CS.secret salt) msg_len mm sb;
+      with vsb'. assert (A.pts_to sb vsb');
+      Sub.unsub (CS.secret sg) 0 (SZ.v modulus_len) sb;
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) mm;
+      Sub.unsub_id (CS.secret d) 0 (SZ.v d_len) db;
+      Sub.unsub_id (CS.secret modulus) 0 (SZ.v modulus_len) nb;
+      CS.of_secret modulus;
+      CS.of_secret d;
+      CS.of_secret salt;
+      CS.of_secret msg;
+      CS.of_secret sg;
+      ok
+    }
+  } else {
+    false
+  }
+}
+#pop-options
+
+fn sign_ecdsa_secp256r1_sha256
+  (sk: array U8.t)
+  (nonce: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to nonce 'nonce_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to out 'old_out **
+           pure (B.length 'sk_bytes == 32 /\
+                 B.length 'nonce_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 B.length 'old_out == 64)
+  returns ok: bool
+  ensures exists* out_bytes.
+          pts_to sk 'sk_bytes **
+          pts_to nonce 'nonce_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == 64)
+{
+  let small = below_pow2_61_sz msg_len;
+  if small {
+    CS.to_secret sk;
+    CS.to_secret nonce;
+    CS.to_secret msg;
+    CS.to_secret out;
+    A.pts_to_len (CS.secret msg);
+    let m = Sub.sub (CS.secret msg) 0sz msg_len;
+    let ok =
+      Hacl.P256.ecdsa_sign_sha256 (CS.secret out) m msg_len (CS.secret sk) (CS.secret nonce);
+    Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) m;
+    CS.of_secret sk;
+    CS.of_secret nonce;
+    CS.of_secret msg;
+    CS.of_secret out;
+    ok
+  } else {
+    false
+  }
+}
