@@ -1261,7 +1261,8 @@ fn concat_rs (r s rs: array U8.t)
   assert (pure (Seq.equal o (Seq.append 'vr 'vs)));
 }
 
-fn verify_ecdsa_secp384r1_sha384
+fn verify_ecdsa_secp384r1
+  (h384: bool)
   (point: array U8.t)
   (point_len: SZ.t)
   (msg: array U8.t)
@@ -1278,7 +1279,7 @@ fn verify_ecdsa_secp384r1_sha384
   ensures pts_to point 'point_bytes **
           pts_to msg 'msg_bytes **
           pts_to sg 'sg_bytes **
-          pure (ok == C.ecdsa_secp384r1_sha384_verify
+          pure (ok == p384_verify h384
                         (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
                         (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
                         (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
@@ -1305,7 +1306,10 @@ fn verify_ecdsa_secp384r1_sha384
       let m = Sub.sub (CS.secret msg) 0sz msg_len;
       CS.classify_slice 'point_bytes 0 (SZ.v point_len);
       CS.classify_slice 'msg_bytes 0 (SZ.v msg_len);
-      let ok = Hacl.P384.ecdsa_verify_sha384 m msg_len pt (CS.secret rs);
+      let ok =
+        (if h384
+         then Hacl.P384.ecdsa_verify_sha384 m msg_len pt (CS.secret rs)
+         else Hacl.P384.ecdsa_verify_sha256 m msg_len pt (CS.secret rs));
       Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) m;
       Sub.unsub_id (CS.secret point) 0 (SZ.v point_len) pt;
       CS.of_secret point;
@@ -1318,6 +1322,31 @@ fn verify_ecdsa_secp384r1_sha384
   } else {
     false
   }
+}
+
+fn verify_ecdsa_secp384r1_sha384
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp384r1_sha384_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  verify_ecdsa_secp384r1 true point point_len msg msg_len sg sg_len
 }
 
 fn byte_bit_length (x: U8.t)

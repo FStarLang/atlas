@@ -96,21 +96,18 @@ roots), so the sweep measures what the verified profile accepts:
 
 | | Sites |
 |---|---|
-| ATLAS OK | **93 / 101** |
-| Chain has a P-384 key signing with `ecdsa-with-SHA256` (not in the profile) | 2 |
+| ATLAS OK | **95 / 101** |
 | Correctly rejected (hostname mismatch / self-signed, see below) | 5 |
 | Validation OK, then the server closes the connection (`amazon-adsystem.com`; OpenSSL sees the same) | 1 |
 
-The profile covers RSA PKCS#1 v1.5 (SHA-256/384/512), ecdsa-with-SHA256 and
-ecdsa-with-SHA384 on P-256 keys, and ecdsa-with-SHA384 on P-384 keys (the
-P-384 verifier is FStarLang/hacl-pulse#14).  Before P-384 support, 37 sites
-failed with this profile, among them every Google, Cloudflare (GTS/WE1), Apple,
-GitHub and DigiCert ECC chain.  All but two now pass, including the chains
-that end in a cross-certificate such as GTS Root R4 signed by GlobalSign.
-The two remaining sites, `tiktok.com` and `tiktokv.com`, serve RapidSSL TLS
-ECC CA G1, which DigiCert Global Root G3 (P-384) signs with
-`ecdsa-with-SHA256`.  hacl-pulse only exports P-384 verification with
-SHA-384, so this combination is not supported yet.
+The profile covers RSA PKCS#1 v1.5 (SHA-256/384/512), and ecdsa-with-SHA256
+and ecdsa-with-SHA384 on both P-256 and P-384 keys (the P-384 verifiers are
+FStarLang/hacl-pulse#14 and FStarLang/hacl-pulse#17).  The client also
+accepts `ecdsa_secp384r1_sha384` CertificateVerify signatures from P-384
+leaves.  Every site that reaches validation and serves a valid chain for its
+name now passes, including every Google, Cloudflare (GTS/WE1), Apple, GitHub
+and DigiCert ECC chain, and the chains that end in a cross-certificate (e.g.
+GTS Root R4 signed by GlobalSign).
 
 ## Bugs found and fixed
 

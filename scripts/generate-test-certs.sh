@@ -100,10 +100,11 @@ openssl x509 -req -days 30 \
 
 cat "$dest_dir/inter-leaf.pem" "$dest_dir/inter.pem" > "$dest_dir/inter-chain.pem"
 
-# An all-ECDSA-SHA384 path in the shape of public ECC hierarchies: a P-384
-# root, a P-384 intermediate it signs, a P-256 intermediate signed by that,
-# and a P-256 leaf.  Every signature is ecdsa-with-SHA384, so the path
-# exercises P-384/SHA-384 and P-256/SHA-384 verification.
+# An all-ECDSA path in the shape of public ECC hierarchies: a P-384 root, a
+# P-384 intermediate it signs (ecdsa-with-SHA384), a P-256 intermediate signed
+# by that with ecdsa-with-SHA256 (as DigiCert Global Root G3 does), and a
+# P-256 leaf (ecdsa-with-SHA384).  The path exercises P-384/SHA-384,
+# P-384/SHA-256 and P-256/SHA-384 verification.
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:secp384r1 -nodes \
   -sha384 -days 30 \
   -subj "/CN=atlas test ECC root" \
@@ -137,7 +138,7 @@ openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
   -out "$dest_dir/ecc-inter256.csr" \
   >/dev/null 2>&1
 
-openssl x509 -req -days 30 -sha384 \
+openssl x509 -req -days 30 -sha256 \
   -in "$dest_dir/ecc-inter256.csr" \
   -CA "$dest_dir/ecc-inter384.pem" \
   -CAkey "$dest_dir/ecc-inter384.key" \

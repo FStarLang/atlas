@@ -316,8 +316,8 @@ The public client API is buffer/event oriented:
   respected) allowing keyCertSign. The chain ends at a trust anchor whose
   subject matches the issuer name exactly and whose key verifies the
   signature (sha{256,384,512}WithRSAEncryption via
-  `TLS13.Crypto.Spec.rsa_pkcs1_verify`, ecdsa-with-SHA256/SHA-384 on P-256,
-  or ecdsa-with-SHA384 on P-384); a leaf
+  `TLS13.Crypto.Spec.rsa_pkcs1_verify`, or ecdsa-with-SHA256/SHA-384 on P-256
+  or P-384); a leaf
   that is itself an anchor is also accepted. Trust anchors are a concatenation
   of DER certificates (up to `Bounds.max_trust_anchors_len`, 1 MiB, enough for
   a full system root store; the configuration stores them at their exact

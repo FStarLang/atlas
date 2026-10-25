@@ -23,8 +23,7 @@ module TLS13.X509.Spec
       subject CN is never used) and has digitalSignature if it carries
       keyUsage.
     - Signatures are sha{256,384,512}WithRSAEncryption by RSA keys,
-      ecdsa-with-SHA256 and ecdsa-with-SHA384 by P-256 keys, and
-      ecdsa-with-SHA384 by P-384 keys.
+      ecdsa-with-SHA256 and ecdsa-with-SHA384 by P-256 and P-384 keys.
     - Trust anchors are only a subject name and public key: their validity,
       extensions and signatures are not checked.
 
@@ -625,8 +624,11 @@ let signed_by (child:certificate) (pc:parsed_certificate) (issuer:certificate) :
       C.ecdsa_secp256r1_sha384_verify q tbs sg
     else false
   | Some (C.RawP384 q) ->
-    ecdsa_with_sha child pc.sig_alg_s pc.sig_alg_e 0x03uy &&
-    C.ecdsa_secp384r1_sha384_verify q tbs sg
+    if ecdsa_with_sha child pc.sig_alg_s pc.sig_alg_e 0x02uy then
+      C.ecdsa_secp384r1_sha256_verify q tbs sg
+    else if ecdsa_with_sha child pc.sig_alg_s pc.sig_alg_e 0x03uy then
+      C.ecdsa_secp384r1_sha384_verify q tbs sg
+    else false
   | None -> false
 
 (** {2 Paths} *)

@@ -441,6 +441,34 @@ fn verify_ecdsa_secp256r1_sha384
                         (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
                         (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
 
+(** ECDSA over P-384 with SHA-256 ([h384 = false]) or SHA-384. *)
+let p384_verify (h384: bool) (point message signature: B.bytes) : GTot bool =
+  if h384 then C.ecdsa_secp384r1_sha384_verify point message signature
+  else C.ecdsa_secp384r1_sha256_verify point message signature
+
+fn verify_ecdsa_secp384r1
+  (h384: bool)
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == p384_verify h384
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
 fn verify_ecdsa_secp384r1_sha384
   (point: array U8.t)
   (point_len: SZ.t)

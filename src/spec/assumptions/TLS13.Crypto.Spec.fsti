@@ -742,6 +742,15 @@ val ecdsa_secp384r1_sha384_verify:
   signature:signature ->
   GTot bool
 
+(** ECDSA-VERIFY over P-384 with SHA-256 (the 256-bit digest is shorter than
+    the order, so it is used whole), of a DER-encoded signature.  Used only
+    for certificate signatures ([ecdsa-with-SHA256] by a P-384 key). *)
+val ecdsa_secp384r1_sha256_verify:
+  point:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
 val verify_signature:
   scheme:T.signature_scheme ->
   public_key:public_key ->

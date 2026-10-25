@@ -131,10 +131,13 @@ let signed_by_p256 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes)
           (ensures X.signed_by child pc issuer)
   = ()
 
-let signed_by_p384 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes)
+let signed_by_p384 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes) (h384:bool)
   : Lemma (requires C.certificate_raw_public_key issuer == Some (C.RawP384 q) /\
-                    X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x03uy /\
-                    C.ecdsa_secp384r1_sha384_verify q (X.sub child pc.X.tbs_s pc.X.tbs_e)
+                    (if h384
+                     then not (X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
+                          X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x03uy
+                     else X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
+                    Cr.p384_verify h384 q (X.sub child pc.X.tbs_s pc.X.tbs_e)
                       (X.sub child pc.X.sig_s pc.X.sig_e))
           (ensures X.signed_by child pc issuer)
   = ()
@@ -217,13 +220,16 @@ fn signed_by
         false
       }
     } else if (kind = 3uy) {
-      let ec = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x03uy;
-      if (ec) {
+      let e256 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x02uy;
+      let e384 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x03uy;
+      if (e256 || e384) {
+        let h384 = not e256;
         let v =
-          Cr.verify_ecdsa_secp384r1_sha384
+          Cr.verify_ecdsa_secp384r1 h384
             (V.vec_to_array kv) kl (V.vec_to_array tv) tbs_n (V.vec_to_array sv) sig_n;
         if (v) {
-          signed_by_p384 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl));
+          signed_by_p384 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl))
+            h384;
           true
         } else {
           false
