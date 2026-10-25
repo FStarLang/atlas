@@ -96,20 +96,21 @@ roots), so the sweep measures what the verified profile accepts:
 
 | | Sites |
 |---|---|
-| ATLAS OK | **58 / 101** |
-| Chain needs P-384 keys or `ecdsa-with-SHA384` (not yet in the profile) | 37 |
+| ATLAS OK | **93 / 101** |
+| Chain has a P-384 key signing with `ecdsa-with-SHA256` (not in the profile) | 2 |
 | Correctly rejected (hostname mismatch / self-signed, see below) | 5 |
 | Validation OK, then the server closes the connection (`amazon-adsystem.com`; OpenSSL sees the same) | 1 |
 
-Each of the 37 profile failures has at least one P-384 certificate or
-`ecdsa-with-SHA384` signature in the served chain.  This includes every
-Google, Cloudflare (GTS/WE1), Apple, GitHub and DigiCert ECC chain.  These
-sites will pass once the verified P-384 ECDSA verifier lands
-(FStarLang/hacl-pulse#14).  For 22 of them the served chain also ends in a
-cross-certificate (e.g. GTS Root R4 signed by GlobalSign) whose issuer did
-not match any local root by name.  The validator follows the served chain
-as-is and does not build alternate paths, so those sites may also need path
-building, or a store that holds the cross-signing root.
+The profile covers RSA PKCS#1 v1.5 (SHA-256/384/512), ecdsa-with-SHA256 and
+ecdsa-with-SHA384 on P-256 keys, and ecdsa-with-SHA384 on P-384 keys (the
+P-384 verifier is FStarLang/hacl-pulse#14).  Before P-384 support, 37 sites
+failed with this profile, among them every Google, Cloudflare (GTS/WE1), Apple,
+GitHub and DigiCert ECC chain.  All but two now pass, including the chains
+that end in a cross-certificate such as GTS Root R4 signed by GlobalSign.
+The two remaining sites, `tiktok.com` and `tiktokv.com`, serve RapidSSL TLS
+ECC CA G1, which DigiCert Global Root G3 (P-384) signs with
+`ecdsa-with-SHA256`.  hacl-pulse only exports P-384 verification with
+SHA-384, so this combination is not supported yet.
 
 ## Bugs found and fixed
 

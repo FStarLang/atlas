@@ -289,9 +289,58 @@ fn p256_algorithm_impl
   }
 }
 
+fn p384_algorithm_impl
+  (cert:array U8.t)
+  (len:SZ.t)
+  (s e:SZ.t)
+  requires pts_to cert 'b **
+           pure (SZ.v len <= B.length 'b /\ SZ.v len <= SZ.v max_certificate_len /\
+                 SZ.v s <= SZ.v len)
+  returns r:bool
+  ensures pts_to cert 'b **
+          pure (r == C.p384_algorithm (cert_bytes 'b len) (SZ.v s) (SZ.v e))
+{
+  if (e = s +^ 16sz && SZ.lte e len) {
+    let b0 = cert.(s);
+    let b1 = cert.(s +^ 1sz);
+    let b2 = cert.(s +^ 2sz);
+    let b3 = cert.(s +^ 3sz);
+    let b4 = cert.(s +^ 4sz);
+    let b5 = cert.(s +^ 5sz);
+    let b6 = cert.(s +^ 6sz);
+    let b7 = cert.(s +^ 7sz);
+    let b8 = cert.(s +^ 8sz);
+    let b9 = cert.(s +^ 9sz);
+    let b10 = cert.(s +^ 10sz);
+    let b11 = cert.(s +^ 11sz);
+    let b12 = cert.(s +^ 12sz);
+    let b13 = cert.(s +^ 13sz);
+    let b14 = cert.(s +^ 14sz);
+    let b15 = cert.(s +^ 15sz);
+    (b0 = 0x06uy &&
+     b1 = 0x07uy &&
+     b2 = 0x2Auy &&
+     b3 = 0x86uy &&
+     b4 = 0x48uy &&
+     b5 = 0xCEuy &&
+     b6 = 0x3Duy &&
+     b7 = 0x02uy &&
+     b8 = 0x01uy &&
+     b9 = 0x06uy &&
+     b10 = 0x05uy &&
+     b11 = 0x2Buy &&
+     b12 = 0x81uy &&
+     b13 = 0x04uy &&
+     b14 = 0x00uy &&
+     b15 = 0x22uy)
+  } else {
+    false
+  }
+}
+
 (** Ranges of [cert] holding a raw public key: [kind] 1 is an RSA key with
-    modulus [k_lo, k_hi) and exponent [e_lo, e_hi); 2 is a P-256 point
-    [k_lo, k_hi); anything else is no key. *)
+    modulus [k_lo, k_hi) and exponent [e_lo, e_hi); 2 is a P-256 point and
+    3 a P-384 point [k_lo, k_hi); anything else is no key. *)
 type raw_ranges = {
   kind: U8.t;
   k_lo: SZ.t;
@@ -314,7 +363,11 @@ let raw_ranges_sound (r:raw_ranges) (c:B.bytes) (ss se:nat) : prop =
   (r.kind == 2uy ==>
     SZ.v r.k_lo <= SZ.v r.k_hi /\ SZ.v r.k_hi <= B.length c /\
     C.spki_raw_public_key c ss se ==
-      Some (C.RawP256 (CL.raw_slice c (SZ.v r.k_lo) (SZ.v r.k_hi))))
+      Some (C.RawP256 (CL.raw_slice c (SZ.v r.k_lo) (SZ.v r.k_hi)))) /\
+  (r.kind == 3uy ==>
+    SZ.v r.k_lo <= SZ.v r.k_hi /\ SZ.v r.k_hi <= B.length c /\
+    C.spki_raw_public_key c ss se ==
+      Some (C.RawP384 (CL.raw_slice c (SZ.v r.k_lo) (SZ.v r.k_hi))))
 
 #push-options "--z3rlimit 100"
 fn spki_raw_impl
@@ -374,7 +427,17 @@ fn spki_raw_impl
               no_key
             }
           } else {
-            no_key
+            let is_p384 = p384_algorithm_impl cert len alg.lo alg.hi;
+            if (not is_p256 && is_p384 && bits.hi = bits.lo +^ 98sz) {
+              let form = cert.(bits.lo +^ 1sz);
+              if (form = 0x04uy) {
+                ({ kind = 3uy; k_lo = bits.lo +^ 2sz; k_hi = bits.hi; e_lo = 0sz; e_hi = 0sz })
+              } else {
+                no_key
+              }
+            } else {
+              no_key
+            }
           }
         }
       }
@@ -427,8 +490,8 @@ fn copy_range
 
 (** The certificate's public key, copied out in the raw form the verifiers in
     [TLS13.Crypto] take: 1 for an RSA key (modulus in [key[0 .. lens[0])],
-    exponent in [exponent[0 .. lens[1])]), 2 for a P-256 point (in
-    [key[0 .. lens[0])]), 0 for no usable key (including one too large for
+    exponent in [exponent[0 .. lens[1])]), 2 for a P-256 point and 3 for a
+    P-384 point (in [key[0 .. lens[0])]), 0 for no usable key (including one too large for
     the buffers). *)
 #push-options "--z3rlimit 80"
 fn certificate_raw_public_key
@@ -468,6 +531,11 @@ fn certificate_raw_public_key
                   C.certificate_raw_public_key
                     (CL.raw_slice 'certificate_bytes 0 (SZ.v certificate_len)) ==
                   Some (C.RawP256
+                    (CL.raw_slice key_bytes 0 (SZ.v (Seq.index lens_values 0))))) /\
+                (kind == 3uy ==>
+                  C.certificate_raw_public_key
+                    (CL.raw_slice 'certificate_bytes 0 (SZ.v certificate_len)) ==
+                  Some (C.RawP384
                     (CL.raw_slice key_bytes 0 (SZ.v (Seq.index lens_values 0))))))
 {
   A.pts_to_len lens;
@@ -493,6 +561,10 @@ fn certificate_raw_public_key
         copy_range certificate raw.k_lo (raw.k_hi -^ raw.k_lo) key key_capacity;
         lens.(0sz) <- raw.k_hi -^ raw.k_lo;
         2uy
+      } else if (raw.kind = 3uy && SZ.lte (raw.k_hi -^ raw.k_lo) key_capacity) {
+        copy_range certificate raw.k_lo (raw.k_hi -^ raw.k_lo) key key_capacity;
+        lens.(0sz) <- raw.k_hi -^ raw.k_lo;
+        3uy
       } else {
         0uy
       }

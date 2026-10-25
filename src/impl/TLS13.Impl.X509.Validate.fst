@@ -77,11 +77,11 @@ fn sha_with_rsa
   }
 }
 
-fn ecdsa_with_sha256
-  (c:array U8.t) (len:SZ.t) (s e:SZ.t)
+fn ecdsa_with_sha
+  (c:array U8.t) (len:SZ.t) (s e:SZ.t) (last:U8.t)
   requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v s <= SZ.v e /\ SZ.v e <= SZ.v len)
   returns r:bool
-  ensures pts_to c 'b ** pure (r == X.ecdsa_with_sha256 (cb 'b len) (SZ.v s) (SZ.v e))
+  ensures pts_to c 'b ** pure (r == X.ecdsa_with_sha (cb 'b len) (SZ.v s) (SZ.v e) last)
 {
   if (e -^ s = 10sz) {
     let b0 = byte_is c len s 0x06uy;
@@ -93,7 +93,7 @@ fn ecdsa_with_sha256
     let b6 = byte_is c len (s +^ 6sz) 0x3Duy;
     let b7 = byte_is c len (s +^ 7sz) 0x04uy;
     let b8 = byte_is c len (s +^ 8sz) 0x03uy;
-    let b9 = byte_is c len (s +^ 9sz) 0x02uy;
+    let b9 = byte_is c len (s +^ 9sz) last;
     (b0 && b1 && b2 && b3 && b4 && b5 && b6 && b7 && b8 && b9)
   } else {
     false
@@ -120,9 +120,21 @@ let signed_by_rsa (child:B.bytes) (pc:X.parsed_certificate) (issuer n e:B.bytes)
   = ()
 
 let signed_by_p256 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes)
+  (h384:bool)
   : Lemma (requires C.certificate_raw_public_key issuer == Some (C.RawP256 q) /\
-                    X.ecdsa_with_sha256 child pc.X.sig_alg_s pc.X.sig_alg_e /\
-                    C.ecdsa_secp256r1_sha256_verify q (X.sub child pc.X.tbs_s pc.X.tbs_e)
+                    (if h384
+                     then not (X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
+                          X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x03uy
+                     else X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
+                    Cr.p256_verify h384 q (X.sub child pc.X.tbs_s pc.X.tbs_e)
+                      (X.sub child pc.X.sig_s pc.X.sig_e))
+          (ensures X.signed_by child pc issuer)
+  = ()
+
+let signed_by_p384 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes)
+  : Lemma (requires C.certificate_raw_public_key issuer == Some (C.RawP384 q) /\
+                    X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x03uy /\
+                    C.ecdsa_secp384r1_sha384_verify q (X.sub child pc.X.tbs_s pc.X.tbs_e)
                       (X.sub child pc.X.sig_s pc.X.sig_e))
           (ensures X.signed_by child pc issuer)
   = ()
@@ -187,13 +199,31 @@ fn signed_by
         false
       }
     } else if (kind = 2uy) {
-      let ec = ecdsa_with_sha256 child clen r.sig_alg_s r.sig_alg_e;
-      if (ec) {
+      let e256 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x02uy;
+      let e384 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x03uy;
+      if (e256 || e384) {
+        let h384 = not e256;
         let v =
-          Cr.verify_ecdsa_secp256r1_sha256
+          Cr.verify_ecdsa_secp256r1 h384
             (V.vec_to_array kv) kl (V.vec_to_array tv) tbs_n (V.vec_to_array sv) sig_n;
         if (v) {
-          signed_by_p256 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl));
+          signed_by_p256 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl))
+            h384;
+          true
+        } else {
+          false
+        }
+      } else {
+        false
+      }
+    } else if (kind = 3uy) {
+      let ec = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x03uy;
+      if (ec) {
+        let v =
+          Cr.verify_ecdsa_secp384r1_sha384
+            (V.vec_to_array kv) kl (V.vec_to_array tv) tbs_n (V.vec_to_array sv) sig_n;
+        if (v) {
+          signed_by_p384 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl));
           true
         } else {
           false

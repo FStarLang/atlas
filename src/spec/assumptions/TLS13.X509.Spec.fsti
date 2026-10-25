@@ -22,8 +22,9 @@ module TLS13.X509.Spec
       optional leftmost [*] label, or iPAddress for an IPv4 literal; the
       subject CN is never used) and has digitalSignature if it carries
       keyUsage.
-    - Signatures are sha{256,384,512}WithRSAEncryption by RSA keys and
-      ecdsa-with-SHA256 by P-256 keys.
+    - Signatures are sha{256,384,512}WithRSAEncryption by RSA keys,
+      ecdsa-with-SHA256 and ecdsa-with-SHA384 by P-256 keys, and
+      ecdsa-with-SHA384 by P-384 keys.
     - Trust anchors are only a subject name and public key: their validity,
       extensions and signatures are not checked.
 
@@ -594,14 +595,14 @@ let sha_with_rsa (c:B.bytes) (s e:nat) (last:U8.t) : bool =
   byte_is c (s + 9) 0x01uy && byte_is c (s + 10) last && byte_is c (s + 11) 0x05uy &&
   byte_is c (s + 12) 0x00uy
 
-(** ecdsa-with-SHA256 (1.2.840.10045.4.3.2) without parameters (RFC 5758
-    3.2) at [c[s, e)]. *)
-let ecdsa_with_sha256 (c:B.bytes) (s e:nat) : bool =
+(** ecdsa-with-SHA256/384 (1.2.840.10045.4.3.2/3) without parameters
+    (RFC 5758 3.2) at [c[s, e)]. *)
+let ecdsa_with_sha (c:B.bytes) (s e:nat) (last:U8.t) : bool =
   e = s + 10 &&
   byte_is c s 0x06uy && byte_is c (s + 1) 0x08uy && byte_is c (s + 2) 0x2Auy &&
   byte_is c (s + 3) 0x86uy && byte_is c (s + 4) 0x48uy && byte_is c (s + 5) 0xCEuy &&
   byte_is c (s + 6) 0x3Duy && byte_is c (s + 7) 0x04uy && byte_is c (s + 8) 0x03uy &&
-  byte_is c (s + 9) 0x02uy
+  byte_is c (s + 9) last
 
 (** The signature of certificate [child], parsed as [pc], verifies under
     the public key of certificate [issuer]. *)
@@ -618,8 +619,14 @@ let signed_by (child:certificate) (pc:parsed_certificate) (issuer:certificate) :
       C.rsa_pkcs1_verify C.Pkcs1Sha512 n e tbs sg
     else false
   | Some (C.RawP256 q) ->
-    ecdsa_with_sha256 child pc.sig_alg_s pc.sig_alg_e &&
-    C.ecdsa_secp256r1_sha256_verify q tbs sg
+    if ecdsa_with_sha child pc.sig_alg_s pc.sig_alg_e 0x02uy then
+      C.ecdsa_secp256r1_sha256_verify q tbs sg
+    else if ecdsa_with_sha child pc.sig_alg_s pc.sig_alg_e 0x03uy then
+      C.ecdsa_secp256r1_sha384_verify q tbs sg
+    else false
+  | Some (C.RawP384 q) ->
+    ecdsa_with_sha child pc.sig_alg_s pc.sig_alg_e 0x03uy &&
+    C.ecdsa_secp384r1_sha384_verify q tbs sg
   | None -> false
 
 (** {2 Paths} *)

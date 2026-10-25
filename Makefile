@@ -85,7 +85,7 @@ HACL_C_DIR    = $(HACL_PULSE_HOME)/c
 # the Custard unit interface obj/build/Hacl.cui instead of re-extracting them.
 HACL_PULSE_SRC_DIRS = $(addprefix $(HACL_PULSE_HOME)/,lib spec \
   $(addprefix code/,hash chacha salsa20 poly1305 aead curve25519 nacl ed25519 \
-    field256 p256 k256 drbg aes bignum ffdhe rsapss frodo hpke mlkem mldsa) code)
+    field256 p256 p384 k256 drbg aes bignum ffdhe rsapss frodo hpke mlkem mldsa) code)
 HACL_PULSE_CACHE_DIR = $(HACL_PULSE_HOME)/obj/cache
 HACL_PULSE_CUI = $(HACL_PULSE_HOME)/obj/build/Hacl.cui
 EXTERN_DIR  = src/impl/extern
@@ -965,7 +965,8 @@ $(TEST_CERT_STAMP): scripts/generate-test-certs.sh
 
 test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
 test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.der test/certs/ec-leaf.pem \
-test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key: $(TEST_CERT_STAMP)
+test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key \
+test/certs/ecc-chain.pem test/certs/ecc-leaf.key test/certs/ecc-ca.pem: $(TEST_CERT_STAMP)
 	@test -f $@
 
 # A full-size trust store: the host's system bundle (when present) with the
@@ -1058,6 +1059,7 @@ test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_e
   test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
   test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.pem \
   test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key \
+  test/certs/ecc-chain.pem test/certs/ecc-leaf.key test/certs/ecc-ca.pem \
   test/certs/system-store.pem
 	@set -e; \
 	for case in "chain.pem leaf.key localhost ca.pem accept" \
@@ -1066,6 +1068,8 @@ test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_e
 	            "ec-chain.pem ec-leaf.key localhost ca.pem accept" \
 	            "inter-chain.pem inter-leaf.key localhost ca.pem accept" \
 	            "inter-leaf.pem inter-leaf.key localhost ca.pem reject" \
+	            "ecc-chain.pem ecc-leaf.key localhost ecc-ca.pem accept" \
+	            "ecc-chain.pem ecc-leaf.key localhost ca.pem reject" \
 	            "chain.pem leaf.key wrong.example ca.pem reject" \
 	            "chain.pem leaf.key localhost ec-leaf.pem reject"; do \
 	  echo "OpenSSL echo server case: $$case"; \

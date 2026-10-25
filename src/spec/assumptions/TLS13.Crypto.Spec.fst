@@ -498,6 +498,24 @@ let ecdsa_secp256r1_sha256_verify point message signature =
     | None -> false
   else false
 
+let ecdsa_secp256r1_sha384_verify point message signature =
+  if B.length point = 64 && B.length message < pow2 61 then
+    match ecdsa_signature_der_decode signature with
+    | Some (r, s) ->
+      P.ecdsa_verify_msg_as_qelem
+        (P.sha384_as_qelem (c message)) (c point) (c r) (c s)
+    | None -> false
+  else false
+
+module P384 = Spec.P384
+
+let ecdsa_secp384r1_sha384_verify point message signature =
+  if B.length point = 96 && B.length message < pow2 61 then
+    match ecdsa_signature_der_decode_n 48 signature with
+    | Some (r, s) -> P384.verify_sha384 (c message) (c point) (c (Seq.append r s))
+    | None -> false
+  else false
+
 let verify_signature scheme public_key message signature =
   match scheme, certificate_raw_public_key public_key with
   | T.Rsa_pss_rsae_sha256, Some (RawRsa modulus exponent) ->
