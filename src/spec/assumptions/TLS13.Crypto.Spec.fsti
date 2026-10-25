@@ -438,12 +438,125 @@ val lemma_aead_open_seal:
       (aead_seal alg key nonce aad plaintext) ==
       Some plaintext)
 
+(** {2 Signature verification}
+
+  A peer's [public_key] is its leaf certificate (DER).  Verification is
+  hacl-pulse's: [verify_signature] is defined in the implementation of this
+  module from hacl-pulse's RSASSA-PSS and P-256 ECDSA specifications.  The one
+  remaining assumption is [certificate_raw_public_key], the extraction of the
+  SubjectPublicKeyInfo from the certificate, which the OpenSSL TCB performs
+  until a verified X.509 parser replaces it. *)
+
+(** A SubjectPublicKeyInfo in the raw form the hacl-pulse verifiers consume:
+    an [rsaEncryption] key as its big-endian modulus and public exponent, or
+    a P-256 key as its 64-byte affine point [x || y]. *)
+type raw_public_key =
+  | RawRsa : modulus:B.bytes -> exponent:B.bytes -> raw_public_key
+  | RawP256 : point:B.bytes -> raw_public_key
+
+(** Assumption (TCB): the public key a DER certificate carries, or [None] if
+    it does not carry an [rsaEncryption] or P-256 key. *)
+val certificate_raw_public_key: certificate:public_key -> Tot (option raw_public_key)
+
+(** {3 ECDSA signatures}
+
+    TLS carries an ECDSA signature as the DER encoding of
+    [Ecdsa-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }] (RFC 8446 4.2.3,
+    RFC 3279 2.2.3).  Decoding is strict DER: one definite short-form
+    SEQUENCE spanning the whole input, two minimally encoded non-negative
+    INTEGERs, nothing else.  For P-256 every such encoding is at most 72 bytes,
+    so long-form lengths never occur. *)
+
+(** The 32-byte big-endian value of the contents of a DER INTEGER, if it is
+    minimal, non-negative, and below [2^256]. *)
+let der_integer_32 (v:B.bytes) : option (bytes_of_len 32) =
+  let l = B.length v in
+  if l = 0 || l > 33 then None
+  else if U8.v (Seq.index v 0) >= 0x80 then None
+  else if l > 1 && U8.v (Seq.index v 0) = 0 && U8.v (Seq.index v 1) < 0x80 then None
+  else if l = 33 then Some (Seq.slice v 1 33)
+  else Some (Seq.append (Seq.create (32 - l) 0uy) v)
+
+let ecdsa_signature_der_decode (sg:B.bytes)
+  : option (bytes_of_len 32 & bytes_of_len 32) =
+  let n = B.length sg in
+  if n < 8 || n > 72 then None
+  else if U8.v (Seq.index sg 0) <> 0x30 || U8.v (Seq.index sg 1) <> n - 2 then None
+  else if U8.v (Seq.index sg 2) <> 0x02 then None
+  else
+    let rl = U8.v (Seq.index sg 3) in
+    if 6 + rl > n then None
+    else if U8.v (Seq.index sg (4 + rl)) <> 0x02 then None
+    else
+      let sl = U8.v (Seq.index sg (5 + rl)) in
+      if 6 + rl + sl <> n then None
+      else
+        match der_integer_32 (Seq.slice sg 4 (4 + rl)),
+              der_integer_32 (Seq.slice sg (6 + rl) n) with
+        | Some r, Some s -> Some (r, s)
+        | _, _ -> None
+
+(** {3 RSA moduli}
+
+    A modulus is accepted as a minimal big-endian string (no leading zero
+    byte) of 128 to 1024 bytes, i.e. roughly 1024- to 8192-bit RSA; its bit
+    length is what RSASSA-PSS calls [modBits]. *)
+
+let byte_bit_length (x:U8.t) : n:nat{n <= 8} =
+  let v = U8.v x in
+  if v >= 128 then 8 else if v >= 64 then 7 else if v >= 32 then 6
+  else if v >= 16 then 5 else if v >= 8 then 4 else if v >= 4 then 3
+  else if v >= 2 then 2 else if v >= 1 then 1 else 0
+
+let rsa_max_modulus_bytes : nat = 1024
+let rsa_min_modulus_bytes : nat = 128
+
+let rsa_modulus_ok (n:B.bytes) : bool =
+  rsa_min_modulus_bytes <= B.length n &&
+  B.length n <= rsa_max_modulus_bytes &&
+  U8.v (Seq.index n 0) <> 0
+
+let rsa_mod_bits (n:B.bytes{rsa_modulus_ok n}) : nat =
+  8 * (B.length n - 1) + byte_bit_length (Seq.index n 0)
+
+(** RSASSA-PSS-VERIFY (RFC 8017 8.1.2) with SHA-256, MGF1-SHA-256 and a
+    32-byte salt -- [rsa_pss_rsae_sha256] (RFC 8446 4.2.3) -- by an
+    [rsaEncryption] key [(modulus, exponent)]. *)
+val rsa_pss_rsae_sha256_verify:
+  modulus:B.bytes ->
+  exponent:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
+(** ECDSA-VERIFY over P-256 with SHA-256 -- [ecdsa_secp256r1_sha256] -- by the
+    affine point [point = x || y], of a DER-encoded signature. *)
+val ecdsa_secp256r1_sha256_verify:
+  point:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
 val verify_signature:
   scheme:T.signature_scheme ->
   public_key:public_key ->
   message:B.bytes ->
   signature:signature ->
-  Tot bool
+  GTot bool
+
+val lemma_verify_signature_def:
+  scheme:T.signature_scheme ->
+  public_key:public_key ->
+  message:B.bytes ->
+  signature:signature ->
+  Lemma
+    (verify_signature scheme public_key message signature ==
+      (match scheme, certificate_raw_public_key public_key with
+       | T.Rsa_pss_rsae_sha256, Some (RawRsa modulus exponent) ->
+         rsa_pss_rsae_sha256_verify modulus exponent message signature
+       | T.Ecdsa_secp256r1_sha256, Some (RawP256 point) ->
+         ecdsa_secp256r1_sha256_verify point message signature
+       | _, _ -> false))
 
 (* The signature scheme a credential can produce, as a function of the
    credential's public key.  A TLS 1.3 credential's algorithm is determined by

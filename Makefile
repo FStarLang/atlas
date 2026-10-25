@@ -1047,25 +1047,30 @@ test-client:
 	@echo "OpenSSL interop is pending the new buffer/event network driver."
 
 test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_echo \
-  test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der
-	@rm -f test/openssl_echo_server.port test/openssl_echo_server.log
+  test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
+  test/certs/ec-chain.pem test/certs/ec-leaf.key
 	@set -e; \
-	  ./test/openssl_echo_server 0 test/certs/chain.pem test/certs/leaf.key \
-	    test/openssl_echo_server.port > test/openssl_echo_server.log 2>&1 & \
-	  server_pid=$$!; \
-	  trap 'kill '"$$server_pid"' 2>/dev/null || true; wait '"$$server_pid"' 2>/dev/null || true; rm -f test/openssl_echo_server.port' EXIT; \
-	  for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do \
-	    test -s test/openssl_echo_server.port && break; \
-	    sleep 0.1; \
-	  done; \
-	  if ! test -s test/openssl_echo_server.port; then \
-	    echo "OpenSSL echo server did not start"; \
-	    cat test/openssl_echo_server.log; \
-	    exit 1; \
-	  fi; \
-	  port=$$(cat test/openssl_echo_server.port); \
-	  ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/ca.pem; \
-	  wait $$server_pid
+	for creds in "chain.pem leaf.key" "ec-chain.pem ec-leaf.key"; do \
+	  echo "OpenSSL echo server credentials: $$creds"; \
+	  rm -f test/openssl_echo_server.port test/openssl_echo_server.log; \
+	  ( set -e; set -- $$creds; \
+	    ./test/openssl_echo_server 0 test/certs/$$1 test/certs/$$2 \
+	      test/openssl_echo_server.port > test/openssl_echo_server.log 2>&1 & \
+	    server_pid=$$!; \
+	    trap 'kill '"$$server_pid"' 2>/dev/null || true; wait '"$$server_pid"' 2>/dev/null || true; rm -f test/openssl_echo_server.port' EXIT; \
+	    for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do \
+	      test -s test/openssl_echo_server.port && break; \
+	      sleep 0.1; \
+	    done; \
+	    if ! test -s test/openssl_echo_server.port; then \
+	      echo "OpenSSL echo server did not start"; \
+	      cat test/openssl_echo_server.log; \
+	      exit 1; \
+	    fi; \
+	    port=$$(cat test/openssl_echo_server.port); \
+	    ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/ca.pem; \
+	    wait $$server_pid ); \
+	done
 
 test-client-engine-openssl-echo: test/openssl_echo_server \
   test/test_extracted_client_engine_openssl_echo \

@@ -16,6 +16,7 @@ module Bounds = TLS13.Impl.ConnectionState.Bounds
 module CL = TLS13.ConnectionLog
 module CQ = TLS13.Impl.ConnectionState.Queries
 module CR = TLS13.Impl.ConnectionState.Repr
+module CV = TLS13.Impl.Client.CertificateVerify
 module CS = TLS13.Spec.StateMachine
 module CSL = TLS13.ConnectionState.Lemmas
 module CT = TLS13.Impl.Client.Types
@@ -27,6 +28,7 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
+module X = TLS13.X509.Spec
 module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
@@ -400,6 +402,63 @@ fn driver_copy_certificate_verify_signature
     as (C.connection_exactly d.driver_client 'st0);
   close_driver_connection d;
   snapshot
+}
+
+fn driver_can_verify_certificate_signature
+  (d:driver)
+  requires driver_exactly d 'st0 'buffered 'pending_len
+  returns ok:bool
+  ensures driver_exactly d 'st0 'buffered 'pending_len **
+          pure (ok ==>
+            'st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsCertificateVerifyReceived /\
+            'st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_buffers.CS.hb_certificate_verify_input)
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let ok = C.can_verify_certificate_signature d.driver_client;
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  ok
+}
+
+fn driver_copy_validated_peer_public_key
+  (d:driver)
+  (out:array U8.t)
+  (out_len:SZ.t)
+  requires driver_exactly d 'st0 'buffered 'pending_len **
+           pts_to out 'old_out **
+           pure (B.length 'old_out == SZ.v out_len /\
+                 Bounds.max_public_key_len <= SZ.v out_len /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer)
+  returns copied_len:SZ.t
+  ensures exists* out_bytes.
+          driver_exactly d 'st0 'buffered 'pending_len **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == SZ.v out_len /\
+                SZ.v copied_len <= B.length out_bytes /\
+                (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer with
+                 | Some peer ->
+                   SZ.v copied_len == B.length peer.X.leaf_public_key /\
+                   Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) peer.X.leaf_public_key
+                 | None -> False))
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let copied_len = C.copy_validated_peer_public_key d.driver_client out out_len;
+  with out_bytes.
+    assert (CR.connection_exactly d.driver_client 'st0 **
+            pts_to out out_bytes);
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  copied_len
 }
 
 fn process_ready_internal_local_action_once
@@ -1307,6 +1366,8 @@ fn top_driver_process_one_local_action
             'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify));
           assert (pure (Some?
             st1.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify));
+          let ready =
+            driver_can_verify_certificate_signature d.top_driver_core;
           let input_len =
             driver_copy_certificate_verify_input
               d.top_driver_core
@@ -1323,18 +1384,28 @@ fn top_driver_process_one_local_action
           with auth_signature_bytes.
             assert (driver_exactly d.top_driver_core st1 (Ghost.reveal 'buffered) (Ghost.reveal 'pending_len) **
                     pts_to auth_signature auth_signature_bytes);
-          let ok =
-            O.verify_certificate_signature_for_local_event
-              d.top_driver_auth
-              #(st1)
-              auth_cv_input
-              auth_cv_input_len
-              input_len
+          let public_key_len =
+            driver_copy_validated_peer_public_key
+              d.top_driver_core
+              auth_leaf_der
+              auth_leaf_der_len;
+          with auth_leaf_der_bytes.
+            assert (driver_exactly d.top_driver_core st1 (Ghost.reveal 'buffered) (Ghost.reveal 'pending_len) **
+                    pts_to auth_leaf_der auth_leaf_der_bytes);
+          let signature_ok =
+            CV.verify_peer_signature
+              auth_leaf_der
+              public_key_len
               signature_snapshot.CR.cv_signature_scheme
+              (hide (Sem.certificateVerify_scheme
+                (Some?.v st1.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify)))
+              auth_cv_input
+              input_len
               auth_signature
-              auth_signature_len
               signature_snapshot.CR.cv_signature_len;
+          let ok = ready && signature_ok;
           if ok {
+            CT.lemma_local_input_wf_verify_certificate_signature st1;
             assert (pure (CT.local_input_wf
               st1
               CT.LocalVerifyCertificateSignature

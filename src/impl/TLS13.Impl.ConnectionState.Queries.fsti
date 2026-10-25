@@ -220,6 +220,28 @@ fn copy_certificate_verify_input
                   Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) input
                 | None -> False))
 
+fn copy_validated_peer_public_key
+  (c:connection_state)
+  (out:array U8.t)
+  (out_len:SZ.t)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           ArrPts.pts_to out 'old_out **
+           pure (B.length 'old_out == SZ.v out_len /\
+                 max_public_key_len <= SZ.v out_len /\
+                 Some? st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer)
+  returns copied_len:SZ.t
+  ensures exists* out_bytes.
+          connection_exactly c st0 **
+          ArrPts.pts_to out out_bytes **
+          pure (B.length out_bytes == SZ.v out_len /\
+                SZ.v copied_len <= B.length out_bytes /\
+                (match st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer with
+                | Some peer ->
+                  SZ.v copied_len == B.length peer.X.leaf_public_key /\
+                  Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) peer.X.leaf_public_key
+                | None -> False))
+
 fn copy_certificate_verify_signature
   (c:connection_state)
   (out:array U8.t)

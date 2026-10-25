@@ -800,6 +800,59 @@ fn copy_certificate_verify_input
   fold (connection_exactly c st0);
   copied_len
 }
+fn copy_validated_peer_public_key
+  (c:connection_state)
+  (out:array U8.t)
+  (out_len:SZ.t)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           ArrPts.pts_to out 'old_out **
+           pure (B.length 'old_out == SZ.v out_len /\
+                 max_public_key_len <= SZ.v out_len /\
+                 Some? st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer)
+  returns copied_len:SZ.t
+  ensures exists* out_bytes.
+          connection_exactly c st0 **
+          ArrPts.pts_to out out_bytes **
+          pure (B.length out_bytes == SZ.v out_len /\
+                SZ.v copied_len <= B.length out_bytes /\
+                (match st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer with
+                | Some peer ->
+                  SZ.v copied_len == B.length peer.X.leaf_public_key /\
+                  Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) peer.X.leaf_public_key
+                | None -> False))
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  unfold (peer_exactly
+    c.handshake.validated_peer
+    st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer);
+  with present hostname hostname_len public_key public_key_len schemes schemes_len. _;
+
+  let copy_len = !c.handshake.validated_peer.leaf_public_key.len;
+  assert (pure (copy_len == public_key_len));
+  assert (pure (present));
+  assert (pure (SZ.v copy_len <= SZ.v out_len));
+
+  ArrPts.pts_to_len out;
+  V.to_array_pts_to c.handshake.validated_peer.leaf_public_key.bytes;
+  Arr.memcpy_l copy_len (V.vec_to_array c.handshake.validated_peer.leaf_public_key.bytes) out;
+  V.to_vec_pts_to c.handshake.validated_peer.leaf_public_key.bytes;
+
+  with out_bytes. assert (ArrPts.pts_to out out_bytes);
+  assert (pure (Seq.equal
+    (Seq.slice out_bytes 0 (SZ.v copy_len))
+    (Seq.slice public_key 0 (SZ.v copy_len))));
+
+  fold (peer_exactly
+    c.handshake.validated_peer
+    st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer);
+  fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
+  copy_len
+}
 fn copy_certificate_verify_signature
   (c:connection_state)
   (out:array U8.t)

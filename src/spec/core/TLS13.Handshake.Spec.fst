@@ -40,7 +40,7 @@ let verify_certificate_verify
   (peer:X.peer_identity)
   (transcript_hash:C.digest32)
   (cv:GCV.certificateVerify)
-  : bool =
+  : GTot bool =
   C.verify_signature
     (Sem.certificateVerify_scheme cv)
     peer.X.leaf_public_key

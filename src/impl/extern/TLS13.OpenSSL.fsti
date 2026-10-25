@@ -8,6 +8,7 @@ open Pulse.Lib.Array.PtsTo
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
 module CS = TLS13.Spec.StateMachine
+module CL = TLS13.ConnectionLog
 module CT = TLS13.Impl.Client.Types
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
@@ -197,32 +198,54 @@ fn validate_certificate_for_local_event
                   CT.LocalValidateCertificate
                   payload_bytes))
 
-fn verify_certificate_signature_for_local_event
-  (ctx:auth_context)
-  (#st:erased CS.connection_state)
-  (certificate_verify_input:array U8.t)
-  (certificate_verify_input_capacity:SZ.t)
-  (certificate_verify_input_len:SZ.t)
-  (signature_scheme:U16.t)
-  (signature:array U8.t)
-  (signature_capacity:SZ.t)
-  (signature_len:SZ.t)
-  requires is_auth_context ctx **
-           pts_to certificate_verify_input 'input_bytes **
-           pts_to signature 'signature_bytes **
-           pure (B.length 'input_bytes == SZ.v certificate_verify_input_capacity /\
-                 SZ.v certificate_verify_input_len <= SZ.v certificate_verify_input_capacity /\
-                 B.length 'signature_bytes == SZ.v signature_capacity /\
-                 SZ.v signature_len <= SZ.v signature_capacity)
-  returns ok:bool
-  ensures is_auth_context ctx **
-          pts_to certificate_verify_input 'input_bytes **
-          pts_to signature 'signature_bytes **
-          pure (ok == true ==>
-                CT.local_input_wf
-                  (reveal st)
-                  CT.LocalVerifyCertificateSignature
-                  B.empty)
+(** The public key a DER certificate [certificate[0 .. certificate_len)]
+    carries, in the raw form the verified signature verifiers consume
+    ([C.certificate_raw_public_key]): 1 for an [rsaEncryption] key, written as
+    its minimal big-endian modulus to [key[0 .. lens[0])] and exponent to
+    [exponent[0 .. lens[1])]; 2 for a P-256 key, written as the 64-byte point
+    [x || y] to [key[0 .. lens[0])]; 0 when the certificate does not parse, its
+    key is of another type, or it does not fit the buffers.
+
+    This is the only part of CertificateVerify checking left to OpenSSL: the
+    signature itself is checked by the verified [TLS13.Crypto] verifiers. *)
+fn certificate_raw_public_key
+  (certificate:array U8.t)
+  (certificate_len:SZ.t)
+  (key:array U8.t)
+  (key_capacity:SZ.t)
+  (exponent:array U8.t)
+  (exponent_capacity:SZ.t)
+  (lens:array SZ.t)
+  requires pts_to certificate 'certificate_bytes **
+           pts_to key 'old_key **
+           pts_to exponent 'old_exponent **
+           pts_to lens 'old_lens **
+           pure (SZ.v certificate_len <= B.length 'certificate_bytes /\
+                 B.length 'old_key == SZ.v key_capacity /\
+                 B.length 'old_exponent == SZ.v exponent_capacity /\
+                 Seq.length 'old_lens == 2)
+  returns kind:U8.t
+  ensures exists* key_bytes exponent_bytes lens_values.
+          pts_to certificate 'certificate_bytes **
+          pts_to key key_bytes **
+          pts_to exponent exponent_bytes **
+          pts_to lens lens_values **
+          pure (B.length key_bytes == SZ.v key_capacity /\
+                B.length exponent_bytes == SZ.v exponent_capacity /\
+                Seq.length lens_values == 2 /\
+                SZ.v (Seq.index lens_values 0) <= SZ.v key_capacity /\
+                SZ.v (Seq.index lens_values 1) <= SZ.v exponent_capacity /\
+                (kind == 1uy ==>
+                  C.certificate_raw_public_key
+                    (CL.raw_slice 'certificate_bytes 0 (SZ.v certificate_len)) ==
+                  Some (C.RawRsa
+                    (CL.raw_slice key_bytes 0 (SZ.v (Seq.index lens_values 0)))
+                    (CL.raw_slice exponent_bytes 0 (SZ.v (Seq.index lens_values 1))))) /\
+                (kind == 2uy ==>
+                  C.certificate_raw_public_key
+                    (CL.raw_slice 'certificate_bytes 0 (SZ.v certificate_len)) ==
+                  Some (C.RawP256
+                    (CL.raw_slice key_bytes 0 (SZ.v (Seq.index lens_values 0))))))
 
 (** Hand the auth context the certificates the peer sent alongside its leaf.
 

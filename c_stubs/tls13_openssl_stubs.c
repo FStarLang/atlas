@@ -354,6 +354,89 @@ done:
   return ok;
 }
 
+/* The SubjectPublicKeyInfo of a DER certificate, in the raw form the verified
+   signature verifiers consume (TLS13.Crypto.Spec.certificate_raw_public_key):
+   an rsaEncryption key as its minimal big-endian modulus and exponent, a P-256
+   key as the 64-byte affine point x || y.  Returns
+   TLS13_RAW_PUBLIC_KEY_{NONE,RSA,P256}. */
+uint8_t tls13_openssl_certificate_raw_public_key(
+    const uint8_t *certificate,
+    size_t certificate_len,
+    uint8_t *key,
+    size_t key_capacity,
+    size_t *key_len,
+    uint8_t *exponent,
+    size_t exponent_capacity,
+    size_t *exponent_len) {
+  if (key_len != NULL) {
+    *key_len = 0u;
+  }
+  if (exponent_len != NULL) {
+    *exponent_len = 0u;
+  }
+  if (certificate == NULL || key == NULL || key_len == NULL ||
+      exponent == NULL || exponent_len == NULL || certificate_len == 0u) {
+    return TLS13_RAW_PUBLIC_KEY_NONE;
+  }
+  X509 *cert = read_single_cert_der(certificate, certificate_len);
+  if (cert == NULL) {
+    return TLS13_RAW_PUBLIC_KEY_NONE;
+  }
+
+  uint8_t kind = TLS13_RAW_PUBLIC_KEY_NONE;
+  EVP_PKEY *pkey = X509_get0_pubkey(cert);
+  BIGNUM *a = NULL;
+  BIGNUM *b = NULL;
+  if (pkey == NULL) {
+    goto done;
+  }
+  switch (EVP_PKEY_get_base_id(pkey)) {
+  case EVP_PKEY_RSA: {
+    if (EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &a) != 1 ||
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &b) != 1) {
+      goto done;
+    }
+    int n_len = BN_num_bytes(a);
+    int e_len = BN_num_bytes(b);
+    if (n_len <= 0 || e_len <= 0 ||
+        (size_t)n_len > key_capacity || (size_t)e_len > exponent_capacity ||
+        BN_bn2bin(a, key) != n_len || BN_bn2bin(b, exponent) != e_len) {
+      goto done;
+    }
+    *key_len = (size_t)n_len;
+    *exponent_len = (size_t)e_len;
+    kind = TLS13_RAW_PUBLIC_KEY_RSA;
+    break;
+  }
+  case EVP_PKEY_EC: {
+    char group[64];
+    size_t group_len = 0u;
+    if (key_capacity < 64u ||
+        EVP_PKEY_get_utf8_string_param(
+            pkey, OSSL_PKEY_PARAM_GROUP_NAME, group, sizeof group,
+            &group_len) != 1 ||
+        strcmp(group, SN_X9_62_prime256v1) != 0 ||
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_X, &a) != 1 ||
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_Y, &b) != 1 ||
+        BN_bn2binpad(a, key, 32) != 32 ||
+        BN_bn2binpad(b, key + 32, 32) != 32) {
+      goto done;
+    }
+    *key_len = 64u;
+    kind = TLS13_RAW_PUBLIC_KEY_P256;
+    break;
+  }
+  default:
+    break;
+  }
+
+done:
+  BN_free(a);
+  BN_free(b);
+  X509_free(cert);
+  return kind;
+}
+
 bool tls13_openssl_peer_verify_signature(
     const tls13_peer_identity *peer,
     uint16_t signature_scheme,

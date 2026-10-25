@@ -406,17 +406,88 @@ let lemma_aead_open_seal alg key nonce aad plaintext =
 
 (** {2 Signatures}
 
-    Signature verification is OpenSSL's, not hacl-pulse's, so it stays an
-    assumption: a function the model names but does not define. *)
+    Signature verification is hacl-pulse's.  Only the extraction of a
+    certificate's public key is assumed; see the interface. *)
 
-assume val verify_signature_ax:
-  scheme:T.signature_scheme ->
-  public_key:public_key ->
-  message:B.bytes ->
-  signature:signature ->
-  Tot bool
+assume val certificate_raw_public_key_ax: certificate:public_key -> Tot (option raw_public_key)
 
-let verify_signature = verify_signature_ax
+let certificate_raw_public_key = certificate_raw_public_key_ax
+
+module RP = Spec.RSAPSS
+module RF = Spec.RSAPSS.Fermat
+module HB = Hacl.Spec.Bytes
+
+(** Everything [Hacl.RSAPSS.verify_sha256] requires of its arguments, with a
+    32-byte salt; [rsa_pss_rsae_sha256_verify] is false outside it. *)
+noextract
+let rsa_pss_args_ok (n e message signature:B.bytes) : bool =
+  rsa_modulus_ok n &&
+  0 < B.length e && B.length e <= B.length n &&
+  B.length signature = B.length n &&
+  B.length message < pow2 61
+
+#push-options "--fuel 0 --ifuel 0 --z3rlimit 20 --using_facts_from 'Prims FStar.Math.Lemmas'"
+let rsa_mod_bits_arith (l b:nat)
+  : Lemma (requires 1 <= b /\ b <= 8 /\ 128 <= l /\ l <= 1024)
+          (ensures (let mb = 8 * (l - 1) + b in
+                    1 < mb /\ mb <= 65536 /\
+                    (mb + 7) / 8 == l /\
+                    (mb - 1 + 7) / 8 >= l - 1))
+  = FStar.Math.Lemmas.lemma_div_plus (b - 1) l 8;
+    FStar.Math.Lemmas.small_div (b - 1) 8;
+    FStar.Math.Lemmas.lemma_div_plus (b + 6) (l - 1) 8
+#pop-options
+
+let rsa_pss_args_facts (n e message signature:B.bytes)
+  : Lemma (requires rsa_pss_args_ok n e message signature)
+          (ensures (let mb = rsa_mod_bits n in
+                    1 < mb /\ mb <= 65536 /\
+                    B.length n == (mb + 7) / 8 /\
+                    B.length message < SHA.max_input #S32.t /\
+                    RP.pss_ok SC.sha2_256 32 (mb - 1)))
+  = sha2_facts ();
+    assert_norm (pow2 32 == 4294967296);
+    let l = B.length n in
+    let b = byte_bit_length (Seq.index n 0) in
+    assert (rsa_mod_bits n == 8 * (l - 1) + b);
+    rsa_mod_bits_arith l b
+
+noextract
+let rsa_pss_rsae_sha256_valid (n e message signature:B.bytes) : GTot prop =
+  if rsa_pss_args_ok n e message signature then begin
+    rsa_pss_args_facts n e message signature;
+    let mb = rsa_mod_bits n in
+    let vn = HB.be_nat (c n) in
+    let vs = HB.be_nat (c signature) in
+    1 < vn /\ vn % 2 == 1 /\ vs < vn /\
+    (exists (em: Seq.lseq S8.t (RP.em_len (mb - 1))).
+       HB.be_nat em == RF.rsa_pow vs (HB.be_nat (c e)) vn /\
+       RP.pss_valid SC.sha2_256 32 (mb - 1) (c message) em)
+  end
+  else False
+
+let rsa_pss_rsae_sha256_verify n e message signature =
+  FStar.IndefiniteDescription.strong_excluded_middle
+    (rsa_pss_rsae_sha256_valid n e message signature)
+
+let ecdsa_secp256r1_sha256_verify point message signature =
+  if B.length point = 64 && B.length message < pow2 61 then
+    match ecdsa_signature_der_decode signature with
+    | Some (r, s) ->
+      P.ecdsa_verify_msg_as_qelem
+        (P.sha256_as_qelem (c message)) (c point) (c r) (c s)
+    | None -> false
+  else false
+
+let verify_signature scheme public_key message signature =
+  match scheme, certificate_raw_public_key public_key with
+  | T.Rsa_pss_rsae_sha256, Some (RawRsa modulus exponent) ->
+    rsa_pss_rsae_sha256_verify modulus exponent message signature
+  | T.Ecdsa_secp256r1_sha256, Some (RawP256 point) ->
+    ecdsa_secp256r1_sha256_verify point message signature
+  | _, _ -> false
+
+let lemma_verify_signature_def scheme public_key message signature = ()
 
 assume val credential_signature_scheme_ax: public_key:public_key -> Tot T.signature_scheme
 

@@ -4,7 +4,8 @@
 
 Build and prove a fully functional TLS 1.3 client for the supported profile:
 TLS 1.3, X25519, `TLS_CHACHA20_POLY1305_SHA256`, no PSK/0-RTT, basic
-certificate validation and CertificateVerify through specified external TCBs,
+certificate validation through a specified external TCB, CertificateVerify
+signatures checked by verified hacl-pulse code,
 application data, close_notify, tickets, and KeyUpdate behavior supported as
 currently implemented.
 
@@ -135,7 +136,15 @@ The public client API is buffer/event oriented:
   assumes `TLS13.X509.Spec.validate_chain` returns the peer identity being
   installed, and `LocalVerifyCertificateSignature` assumes
   `TLS13.Crypto.Spec.verify_signature` succeeds over the stored peer key,
-  CertificateVerify input, and parsed signature. The local end-to-end theorem
+  CertificateVerify input, and parsed signature. `verify_signature` is now
+  defined from hacl-pulse's RSASSA-PSS (`rsa_pss_rsae_sha256`) and P-256 ECDSA
+  (`ecdsa_secp256r1_sha256`) specifications; the only assumption left in it is
+  `certificate_raw_public_key`, the SubjectPublicKeyInfo extraction from the
+  leaf DER. The driver discharges the predicate itself: it copies the stored
+  peer key, CertificateVerify input, and signature, asks the OpenSSL TCB only
+  for the raw public key (`TLS13.OpenSSL.certificate_raw_public_key`), and
+  checks the signature with the verified verifiers in `TLS13.Crypto`
+  (`TLS13.Impl.Client.CertificateVerify.verify_peer_signature`). The local end-to-end theorem
   exposes these assumptions through `CT.local_auth_tcb_projection`, and
   `CT.legal_local_response` now pins the successful validation event to that
   peer and the successful signature event to the parsed CertificateVerify.
@@ -178,8 +187,9 @@ The public client API is buffer/event oriented:
   non-empty local network output. `next_local_action_sound` also proves that
   ready non-external local actions satisfy `local_input_wf` with the empty
   payload; certificate-validation readiness now also proves the parsed
-  Certificate and copied leaf DER are present, while certificate validation and
-  CertificateVerify signature checking remain explicit external TCB actions.
+  Certificate and copied leaf DER are present, while certificate validation remains
+  an explicit external TCB action and CertificateVerify signature checking is
+  verified apart from public-key extraction.
   `TLS13.Spec.StateMachine` now packages
   the layered log invariant, cumulative connection-log view consistency, and
   cumulative raw-event replay as `connection_state_full_log_consistent`.
@@ -287,8 +297,8 @@ The public client API is buffer/event oriented:
   own the concrete `Common.TCP` channel handle, process retained input before
   reading more bytes, call the generated canonical network/local handlers, and
   use endpoint finish hooks to keep the proof layers aligned with emitted bytes.
-  OpenSSL-backed certificate validation and CertificateVerify checks remain
-  isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
+  OpenSSL-backed certificate validation and certificate public-key extraction
+  remain isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
   interop tests exercise this endpoint path with both extracted client and
   extracted server.
 - `TLS13.Impl.ConnectionState` has been split by responsibility: `Repr` owns the
@@ -331,8 +341,9 @@ Other trusted runtime boundaries remain:
 - hacl-pulse crypto wrappers for primitive behavior matching
   `TLS13.Crypto.Spec`;
 - entropy and X25519 key generation;
-- OpenSSL-backed certificate-chain validation and CertificateVerify signature
-  checking, now isolated behind the typed `TLS13.OpenSSL.fsti` interface and
+- OpenSSL-backed certificate-chain validation and extraction of the leaf's raw
+  public key (RSA modulus/exponent or P-256 point) for the verified
+  CertificateVerify check, isolated behind the typed `TLS13.OpenSSL.fsti` interface and
   implemented by `c_stubs/tls13_openssl_custard.*` plus
   `c_stubs/tls13_openssl_stubs.c`; certificate validation hands the verified
   local event only the exact returned identity prefix;

@@ -61,6 +61,20 @@ bool tls13_openssl_validate_leaf_der_with_store_and_chain(
     size_t chain_count,
     tls13_peer_identity **out_peer);
 
+#define TLS13_RAW_PUBLIC_KEY_NONE ((uint8_t)0u)
+#define TLS13_RAW_PUBLIC_KEY_RSA ((uint8_t)1u)
+#define TLS13_RAW_PUBLIC_KEY_P256 ((uint8_t)2u)
+
+uint8_t tls13_openssl_certificate_raw_public_key(
+    const uint8_t *certificate,
+    size_t certificate_len,
+    uint8_t *key,
+    size_t key_capacity,
+    size_t *key_len,
+    uint8_t *exponent,
+    size_t exponent_capacity,
+    size_t *exponent_len);
+
 bool tls13_openssl_peer_verify_signature(
     const tls13_peer_identity *peer,
     uint16_t signature_scheme,

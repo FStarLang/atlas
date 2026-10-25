@@ -15,6 +15,7 @@ module M = TLS13.Messages
 module Sem = TLS13.Wire.Semantics
 module R = TLS13.Record.Spec
 module Seq = FStar.Seq
+module X = TLS13.X509.Spec
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
 module WS = TLS13.Wire.Spec
@@ -347,6 +348,40 @@ fn copy_certificate_chain
                     lens
                     (SZ.v snapshot.CR.certificate_chain_cert_count)
                     (Sem.certificate_entries cert)
+                | None -> False))
+
+fn can_verify_certificate_signature
+  (c:client)
+  requires CR.connection_exactly c 'st0
+  returns ok:bool
+  ensures CR.connection_exactly c 'st0 **
+          pure (ok ==>
+            'st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsCertificateVerifyReceived /\
+            'st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_buffers.CS.hb_certificate_verify_input)
+
+fn copy_validated_peer_public_key
+  (c:client)
+  (out:array U8.t)
+  (out_len:SZ.t)
+  requires CR.connection_exactly c 'st0 **
+           pts_to out 'old_out **
+           pure (B.length 'old_out == SZ.v out_len /\
+                 Bounds.max_public_key_len <= SZ.v out_len /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer)
+  returns copied_len:SZ.t
+  ensures exists* out_bytes.
+          CR.connection_exactly c 'st0 **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == SZ.v out_len /\
+                SZ.v copied_len <= B.length out_bytes /\
+                (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer with
+                | Some peer ->
+                  SZ.v copied_len == B.length peer.X.leaf_public_key /\
+                  Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) peer.X.leaf_public_key
                 | None -> False))
 
 fn copy_certificate_verify_input

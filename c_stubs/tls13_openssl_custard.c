@@ -184,28 +184,26 @@ bool TLS13_OpenSSL_validate_certificate_for_local_event(
   return true;
 }
 
-bool TLS13_OpenSSL_verify_certificate_signature_for_local_event(
-    TLS13_OpenSSL_auth_context ctx,
-    uint8_t *certificate_verify_input,
-    size_t certificate_verify_input_capacity,
-    size_t certificate_verify_input_len,
-    uint16_t signature_scheme,
-    uint8_t *signature,
-    size_t signature_capacity,
-    size_t signature_len) {
-  if (ctx == NULL || ctx->peer == NULL ||
-      certificate_verify_input == NULL || signature == NULL ||
-      certificate_verify_input_len > certificate_verify_input_capacity ||
-      signature_len == 0u || signature_len > signature_capacity) {
-    return false;
+uint8_t TLS13_OpenSSL_certificate_raw_public_key(
+    uint8_t *certificate,
+    size_t certificate_len,
+    uint8_t *key,
+    size_t key_capacity,
+    uint8_t *exponent,
+    size_t exponent_capacity,
+    size_t *lens) {
+  if (lens == NULL) {
+    return TLS13_RAW_PUBLIC_KEY_NONE;
   }
-  return tls13_openssl_peer_verify_signature(
-      ctx->peer,
-      signature_scheme,
-      certificate_verify_input,
-      certificate_verify_input_len,
-      signature,
-      signature_len);
+  return tls13_openssl_certificate_raw_public_key(
+      certificate,
+      certificate_len,
+      key,
+      key_capacity,
+      &lens[0],
+      exponent,
+      exponent_capacity,
+      &lens[1]);
 }
 
 option_server_credentials

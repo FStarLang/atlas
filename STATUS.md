@@ -15,7 +15,7 @@ raw network bytes
   -> application log projection
 ```
 
-The target profile is the implemented TLS 1.3 client profile: X25519, `TLS_CHACHA20_POLY1305_SHA256`, no PSK/0-RTT, certificate validation and CertificateVerify through explicit external TCBs, application data, close_notify, NewSessionTicket ignore, and KeyUpdate handling.
+The target profile is the implemented TLS 1.3 client profile: X25519, `TLS_CHACHA20_POLY1305_SHA256`, no PSK/0-RTT, certificate validation through an explicit external TCB, CertificateVerify signatures (RSA-PSS-SHA256, ECDSA P-256-SHA256) checked by verified hacl-pulse code, application data, close_notify, NewSessionTicket ignore, and KeyUpdate handling.
 
 ## Current status
 
@@ -59,7 +59,7 @@ The network theorem currently exposes:
 The local theorem currently exposes:
 
 - readiness through `next_local_action_sound`;
-- explicit certificate-validation and CertificateVerify-signature TCB assumptions;
+- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is verified, assuming only the extraction of the leaf certificate's public key (`TLS13.Crypto.Spec.certificate_raw_public_key`);
 - local app-send supported-profile projection: successful local app sends are bounded to one protected record;
 - outgoing record parse facts and protected seal/write-key projections for ClientFinished, app data, close_notify, and KeyUpdate.
 
@@ -149,7 +149,7 @@ For the near-term end-to-end theorem, the first option is the right path.
 The active Parser/Serializer hooks are verified F*/Pulse code now, so the final theorem should include a concise audited list of the remaining trusted assumptions:
 
 - HACL/crypto wrappers and entropy/X25519;
-- X509 chain validation and signature verification;
+- X509 chain validation and leaf public-key extraction;
 - Pulse runtime/extraction/runtime shims;
 - the TCP bridge used by the concrete driver for connect/read/write.
 
