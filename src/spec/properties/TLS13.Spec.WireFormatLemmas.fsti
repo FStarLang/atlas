@@ -30,7 +30,7 @@ let supported_client_hello_fields_profile (ch:GCH.clientHello) : prop =
   Sem.clientHello_cipher_suites ch ==
     [T.TLS_CHACHA20_POLY1305_SHA256; T.TLS_AES_128_GCM_SHA256] /\
   Sem.clientHello_sig_algs ch ==
-    Some [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256] /\
+    Some [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384] /\
   (match Sem.clientHello_server_name ch with
    | None -> True
    | Some hostname -> B.length hostname <= 255)
@@ -95,7 +95,7 @@ let supported_client_config_wire_profile (cfg:CS.connection_config) : prop =
   cfg.CS.config_cipher_suites ==
     [T.TLS_CHACHA20_POLY1305_SHA256; T.TLS_AES_128_GCM_SHA256] /\
   cfg.CS.config_signature_schemes ==
-    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256]
+    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384]
 
 noextract
 let client_hello_server_name_wire_equivalent

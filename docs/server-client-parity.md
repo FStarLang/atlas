@@ -62,6 +62,7 @@ insist on:
 | short/empty `legacy_session_id` echo | n/a | yes (G4 closed) | -- |
 | `rsa_pss_rsae_sha256` credentials | yes | yes | -- |
 | `ecdsa_secp256r1_sha256` credentials | verifies | yes (G5 closed) | -- |
+| `ecdsa_secp384r1_sha384` credentials | verifies | no (client-only) | -- |
 | KeyUpdate (send, receive, mandated reply) | yes | yes | -- |
 | ChangeCipherSpec tolerance | yes | yes | -- |
 | TCP short reads / retained buffer | yes | yes | -- |

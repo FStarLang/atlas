@@ -164,4 +164,24 @@ openssl x509 -req -days 30 -sha384 \
 cat "$dest_dir/ecc-leaf.pem" "$dest_dir/ecc-inter256.pem" "$dest_dir/ecc-inter384.pem" \
   > "$dest_dir/ecc-chain.pem"
 
+# A P-384 leaf under the P-384 intermediate: its TLS CertificateVerify is
+# ecdsa_secp384r1_sha384.
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:secp384r1 -nodes \
+  -subj "/CN=localhost" \
+  -keyout "$dest_dir/ecc384-leaf.key" \
+  -out "$dest_dir/ecc384-leaf.csr" \
+  >/dev/null 2>&1
+
+openssl x509 -req -days 30 -sha384 \
+  -in "$dest_dir/ecc384-leaf.csr" \
+  -CA "$dest_dir/ecc-inter384.pem" \
+  -CAkey "$dest_dir/ecc-inter384.key" \
+  -CAcreateserial \
+  -extfile "$dest_dir/leaf.ext" \
+  -out "$dest_dir/ecc384-leaf.pem" \
+  >/dev/null 2>&1
+
+cat "$dest_dir/ecc384-leaf.pem" "$dest_dir/ecc-inter384.pem" \
+  > "$dest_dir/ecc384-chain.pem"
+
 echo "Generated test certificates in $dest_dir"

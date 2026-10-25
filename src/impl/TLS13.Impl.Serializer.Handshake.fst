@@ -149,6 +149,7 @@ fn serialize_finished_handshake_poc
 inline_for_extraction
 let u16_to_sig_scheme (w:U16.t) : GSS.signatureScheme =
   if w = 1027us then GSS.Ecdsa_secp256r1_sha256
+  else if w = 1283us then GSS.Ecdsa_secp384r1_sha384
   else if w = 2052us then GSS.Rsa_pss_rsae_sha256
   else if w = 2055us then GSS.Ed25519
   else GSS.Unknown_signatureScheme w

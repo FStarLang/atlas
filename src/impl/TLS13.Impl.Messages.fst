@@ -382,11 +382,13 @@ let signature_scheme_matches (wire:U16.t) (scheme:T.signature_scheme) : prop =
   match scheme with
   | T.Rsa_pss_rsae_sha256 -> U16.v wire == 0x0804
   | T.Ecdsa_secp256r1_sha256 -> U16.v wire == 0x0403
+  | T.Ecdsa_secp384r1_sha384 -> U16.v wire == 0x0503
   | T.Ed25519 -> U16.v wire == 0x0807
   | T.Unknown_signatureScheme n ->
     U16.v wire == U16.v n /\
     U16.v n <> 0x0804 /\
     U16.v n <> 0x0403 /\
+    U16.v n <> 0x0503 /\
     U16.v n <> 0x0807
 
 noextract

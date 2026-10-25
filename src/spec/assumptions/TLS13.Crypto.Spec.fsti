@@ -734,8 +734,8 @@ val ecdsa_secp256r1_sha384_verify:
   GTot bool
 
 (** ECDSA-VERIFY over P-384 with SHA-384 by the affine point
-    [point = x || y], of a DER-encoded signature.  Used only for certificate
-    signatures. *)
+    [point = x || y], of a DER-encoded signature: TLS [ecdsa_secp384r1_sha384]
+    and certificate [ecdsa-with-SHA384] by a P-384 key. *)
 val ecdsa_secp384r1_sha384_verify:
   point:B.bytes ->
   message:B.bytes ->
@@ -761,6 +761,8 @@ val lemma_verify_signature_def:
          rsa_pss_rsae_sha256_verify modulus exponent message signature
        | T.Ecdsa_secp256r1_sha256, Some (RawP256 point) ->
          ecdsa_secp256r1_sha256_verify point message signature
+       | T.Ecdsa_secp384r1_sha384, Some (RawP384 point) ->
+         ecdsa_secp384r1_sha384_verify point message signature
        | _, _ -> false))
 
 (* The signature scheme a credential can produce, as a function of the

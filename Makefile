@@ -966,7 +966,8 @@ $(TEST_CERT_STAMP): scripts/generate-test-certs.sh
 test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
 test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.der test/certs/ec-leaf.pem \
 test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key \
-test/certs/ecc-chain.pem test/certs/ecc-leaf.key test/certs/ecc-ca.pem: $(TEST_CERT_STAMP)
+test/certs/ecc-chain.pem test/certs/ecc-leaf.key test/certs/ecc-ca.pem \
+  test/certs/ecc384-chain.pem test/certs/ecc384-leaf.key: $(TEST_CERT_STAMP)
 	@test -f $@
 
 # A full-size trust store: the host's system bundle (when present) with the
@@ -1060,6 +1061,7 @@ test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_e
   test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.pem \
   test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key \
   test/certs/ecc-chain.pem test/certs/ecc-leaf.key test/certs/ecc-ca.pem \
+  test/certs/ecc384-chain.pem test/certs/ecc384-leaf.key \
   test/certs/system-store.pem
 	@set -e; \
 	for case in "chain.pem leaf.key localhost ca.pem accept" \
@@ -1070,6 +1072,7 @@ test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_e
 	            "inter-leaf.pem inter-leaf.key localhost ca.pem reject" \
 	            "ecc-chain.pem ecc-leaf.key localhost ecc-ca.pem accept" \
 	            "ecc-chain.pem ecc-leaf.key localhost ca.pem reject" \
+	            "ecc384-chain.pem ecc384-leaf.key localhost ecc-ca.pem accept" \
 	            "chain.pem leaf.key wrong.example ca.pem reject" \
 	            "chain.pem leaf.key localhost ec-leaf.pem reject"; do \
 	  echo "OpenSSL echo server case: $$case"; \

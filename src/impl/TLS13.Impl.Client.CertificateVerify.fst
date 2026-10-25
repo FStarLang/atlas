@@ -71,6 +71,9 @@ fn verify_peer_signature
   } else if (scheme = 0x0403us && kind = 2uy) {
     let point_len = lens.(0sz);
     Cr.verify_ecdsa_secp256r1_sha256 key point_len input input_len sg sg_len
+  } else if (scheme = 0x0503us && kind = 3uy) {
+    let point_len = lens.(0sz);
+    Cr.verify_ecdsa_secp384r1_sha384 key point_len input input_len sg sg_len
   } else {
     false
   }

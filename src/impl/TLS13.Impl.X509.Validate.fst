@@ -348,6 +348,10 @@ let tlv_bounds (r:PK.der_range) (c:B.bytes) (tag:U8.t) (pos limit:nat)
                     | None -> False))
   = ()
 
+let sz_sub_add (a b:SZ.t)
+  : Lemma (requires SZ.v a <= SZ.v b) (ensures SZ.v a + SZ.v (SZ.sub b a) == SZ.v b)
+  = ()
+
 #push-options "--z3rlimit 100"
 fn anchored
   (a:array U8.t) (alen:SZ.t)
@@ -378,7 +382,7 @@ fn anchored
     if (t.ok) {
       tlv_bounds t (cb 'ab alen) 0x30uy (SZ.v vp) (SZ.v alen);
       let n = t.hi -^ vp;
-      assert (pure (SZ.v vp + SZ.v n == SZ.v t.hi));
+      sz_sub_add vp t.hi;
       if (SZ.gt n PK.max_certificate_len) {
         anchored_step (cb 'ab alen) (SZ.v vp) (cb 'b len) (to_pc r) (SZ.v t.hi)
           (Seq.slice (cb 'ab alen) (SZ.v vp) (SZ.v t.hi));

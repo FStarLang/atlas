@@ -137,12 +137,13 @@ The public client API is buffer/event oriented:
   installed, and `LocalVerifyCertificateSignature` assumes
   `TLS13.Crypto.Spec.verify_signature` succeeds over the stored peer key,
   CertificateVerify input, and parsed signature. `verify_signature` is now
-  defined from hacl-pulse's RSASSA-PSS (`rsa_pss_rsae_sha256`) and P-256 ECDSA
-  (`ecdsa_secp256r1_sha256`) specifications, with no assumption left in it:
+  defined from hacl-pulse's RSASSA-PSS (`rsa_pss_rsae_sha256`), P-256 ECDSA
+  (`ecdsa_secp256r1_sha256`) and P-384 ECDSA (`ecdsa_secp384r1_sha384`)
+  specifications, with no assumption left in it:
   `certificate_raw_public_key` specifies the SubjectPublicKeyInfo extraction
   from the leaf DER as a strict definite-length DER walk (rsaEncryption with
-  NULL parameters, or id-ecPublicKey on prime256v1 with an uncompressed
-  point). The driver discharges the predicate itself: it copies the stored
+  NULL parameters, or id-ecPublicKey on prime256v1 or secp384r1 with an
+  uncompressed point). The driver discharges the predicate itself: it copies the stored
   peer key, CertificateVerify input, and signature, extracts the raw public
   key with the verified parser `TLS13.Impl.X509.PublicKey`, and
   checks the signature with the verified verifiers in `TLS13.Crypto`

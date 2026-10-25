@@ -1149,32 +1149,41 @@ fn alloc_default_signature_schemes ()
 {
   let items = V.alloc 0x0804us (max_signature_schemes_sz);
   V.op_Dot_Lparen_Rparen_Less_Minus items 1sz 0x0403us;
-  let contents = Ghost.hide (Seq.upd (Seq.create max_signature_schemes 0x0804us) 1 0x0403us);
-  let len = Box.alloc 2sz;
+  V.op_Dot_Lparen_Rparen_Less_Minus items 2sz 0x0503us;
+  let contents = Ghost.hide
+    (Seq.upd (Seq.upd (Seq.create max_signature_schemes 0x0804us) 1 0x0403us) 2 0x0503us);
+  let len = Box.alloc 3sz;
   let slot = { items; len };
   rewrite (V.pts_to items (Ghost.reveal contents)) as
     (V.pts_to slot.items (Ghost.reveal contents));
-  rewrite (Box.pts_to len 2sz) as (Box.pts_to slot.len 2sz);
+  rewrite (Box.pts_to len 3sz) as (Box.pts_to slot.len 3sz);
   Seq.lemma_index_create max_signature_schemes 0x0804us 0;
   assert (pure (Seq.length (Ghost.reveal contents) == max_signature_schemes));
   assert (pure (Seq.index (Ghost.reveal contents) 0 == 0x0804us));
   assert (pure (Seq.index (Ghost.reveal contents) 1 == 0x0403us));
-  // The tail sequence after dropping the first entry: its head is the ECDSA
-  // offer, and the recursive `signature_schemes_match` on the empty remainder
-  // is discharged by its `len == 0` base case.
+  assert (pure (Seq.index (Ghost.reveal contents) 2 == 0x0503us));
+  // Peel the offers one at a time; the recursive `signature_schemes_match` on
+  // the empty remainder is discharged by its `len == 0` base case.
   let tail = Ghost.hide (Seq.slice (Ghost.reveal contents) 1 (Seq.length (Ghost.reveal contents)));
+  let tail2 = Ghost.hide (Seq.slice (Ghost.reveal tail) 1 (Seq.length (Ghost.reveal tail)));
   assert (pure (Seq.index (Ghost.reveal tail) 0 == 0x0403us));
+  assert (pure (Seq.index (Ghost.reveal tail2) 0 == 0x0503us));
   assert_norm (IM.signature_scheme_matches 0x0804us T.Rsa_pss_rsae_sha256);
   assert_norm (IM.signature_scheme_matches 0x0403us T.Ecdsa_secp256r1_sha256);
+  assert_norm (IM.signature_scheme_matches 0x0503us T.Ecdsa_secp384r1_sha384);
   assert_norm (default_connection_config.CS.config_signature_schemes ==
-    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256]);
+    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384]);
+  assert (pure (IM.signature_schemes_match
+    (Ghost.reveal tail2)
+    1
+    [T.Ecdsa_secp384r1_sha384]));
   assert (pure (IM.signature_schemes_match
     (Ghost.reveal tail)
-    1
-    [T.Ecdsa_secp256r1_sha256]));
+    2
+    [T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384]));
   assert (pure (IM.signature_schemes_match
     (Ghost.reveal contents)
-    2
+    3
     default_connection_config.CS.config_signature_schemes));
   fold (signature_scheme_list_exactly
     slot

@@ -880,6 +880,7 @@ let lemma_cipher_suite_lo_matches (c: GCS.cipherSuite)
 let sig_scheme_lo_to_u16 (s: GSS.signatureScheme) : U16.t =
   match s with
   | GSS.Ecdsa_secp256r1_sha256 -> 0x0403us
+  | GSS.Ecdsa_secp384r1_sha384 -> 0x0503us
   | GSS.Rsa_pss_rsae_sha256 -> 0x0804us
   | GSS.Ed25519 -> 0x0807us
   | GSS.Unknown_signatureScheme v -> v
@@ -892,6 +893,8 @@ let lemma_sig_scheme_lo_matches (s: GSS.signatureScheme)
   match s with
   | GSS.Ecdsa_secp256r1_sha256 ->
     assert_norm (U16.v 0x0403us == 0x0403)
+  | GSS.Ecdsa_secp384r1_sha384 ->
+    assert_norm (U16.v 0x0503us == 0x0503)
   | GSS.Rsa_pss_rsae_sha256 ->
     assert_norm (U16.v 0x0804us == 0x0804)
   | GSS.Ed25519 ->
@@ -900,6 +903,7 @@ let lemma_sig_scheme_lo_matches (s: GSS.signatureScheme)
     assert (not (GSS.known_signatureScheme_repr v));
     assert (U16.v v <> 0x0804);
     assert (U16.v v <> 0x0403);
+    assert (U16.v v <> 0x0503);
     assert (U16.v v <> 0x0807)
 
 (* Step lemma for cipher_suites_match: adding one more element *)
@@ -6620,6 +6624,7 @@ fn parse_handshake_message
           RV.lemma_synth_signature_scheme (fst xcv);
           let scheme_u16 = (match (fst xcv) with
             | GSS.Ecdsa_secp256r1_sha256 -> 1027us
+            | GSS.Ecdsa_secp384r1_sha384 -> 1283us
             | GSS.Rsa_pss_rsae_sha256 -> 2052us
             | GSS.Ed25519 -> 2055us
             | GSS.Unknown_signatureScheme v -> v);

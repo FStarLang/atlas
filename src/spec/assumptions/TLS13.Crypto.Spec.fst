@@ -522,6 +522,8 @@ let verify_signature scheme public_key message signature =
     rsa_pss_rsae_sha256_verify modulus exponent message signature
   | T.Ecdsa_secp256r1_sha256, Some (RawP256 point) ->
     ecdsa_secp256r1_sha256_verify point message signature
+  | T.Ecdsa_secp384r1_sha384, Some (RawP384 point) ->
+    ecdsa_secp384r1_sha384_verify point message signature
   | _, _ -> false
 
 let lemma_verify_signature_def scheme public_key message signature = ()

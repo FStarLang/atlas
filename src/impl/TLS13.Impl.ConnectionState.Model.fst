@@ -146,6 +146,7 @@ let lemma_signature_schemes_match_first_rsa_offer
     (match scheme with
     | T.Rsa_pss_rsae_sha256 -> ()
     | T.Ecdsa_secp256r1_sha256 -> assert False
+    | T.Ecdsa_secp384r1_sha384 -> assert False
     | T.Ed25519 -> assert False
     | T.Unknown_signatureScheme _ -> assert False)
   | [] ->
