@@ -13,7 +13,7 @@ set -euo pipefail
 
 HACL_PULSE_REPO="${HACL_PULSE_REPO:-https://github.com/FStarLang/hacl-pulse}"
 # Pinned hacl-pulse commit.  The build always checks out this exact commit.
-HACL_PULSE_COMMIT="${HACL_PULSE_COMMIT:-4a1b5b7cb4e7d02c0feb1463ea8644efa5b592b0}"
+HACL_PULSE_COMMIT="${HACL_PULSE_COMMIT:-bc226f3c24bbd85ee07f3ad53bba9e33645df050}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HACL_PULSE_HOME="${HACL_PULSE_HOME:-$repo_root/tools/hacl-pulse}"

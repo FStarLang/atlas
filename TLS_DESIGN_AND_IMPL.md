@@ -299,7 +299,8 @@ The public client API is buffer/event oriented:
   own the concrete `Common.TCP` channel handle, process retained input before
   reading more bytes, call the generated canonical network/local handlers, and
   use endpoint finish hooks to keep the proof layers aligned with emitted bytes.
-  OpenSSL-backed certificate chain validation remains isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
+  The client driver validates the server's certificate chain with the
+  verified validator `TLS13.Impl.X509.Validate` (see below). The public OpenSSL
   interop tests exercise this endpoint path with both extracted client and
   extracted server.
 - `TLS13.X509.Spec.validate_chain` is a transparent (ghost) specification of
@@ -318,11 +319,20 @@ The public client API is buffer/event oriented:
   that is itself an anchor is also accepted. Trust anchors are a concatenation
   of DER certificates: the C runtime decodes the caller's PEM bundle
   (`runtime/tls13_pem.h`) and fixes a validation time of zero to the current
-  time before entering verified code. OpenSSL (`X509_verify_cert`) remains the
-  assumed implementation of this specification until the verified validator
-  replaces it; it is more permissive in places (CN fallback when no SAN,
-  partial wildcards, absent EKU checks), so the assumption currently covers
-  those divergences too.
+  time before entering verified code.
+- `TLS13.Impl.X509.Validate` implements `validate_chain` in Pulse and is proved
+  sound against it (`ok ==> accepted ...`): `Fields` (DER fields, times,
+  extensions), `Names` (dNSName/iPAddress matching), `Cert` (certificate
+  parsing and the per-certificate checks), and `Validate` (signatures via
+  hacl-pulse's RSA PKCS#1 v1.5 and P-256 ECDSA, anchor search, and
+  path building through the peer's intermediates).  The client driver
+  (`Driver.Core.driver_validate_certificate`) copies the received chain and
+  the configured server name, trust anchors and validation time out of the
+  connection state and discharges `local_input_wf` for
+  `LocalValidateCertificate` from the validator's postcondition, so the
+  driver path trusts no external certificate validation.  The sans-I/O client
+  engine (`TLS13.Impl.Client.Engine`) still takes the validation result from
+  its host as a precondition.
 - `TLS13.Impl.ConnectionState` has been split by responsibility: `Repr` owns the
   concrete representation and exact predicates, `Queries` owns read-only checks
   and copyouts, `Model`/`Bounds`/`Tags` own pure/proof helpers, and the mutation
@@ -363,12 +373,11 @@ Other trusted runtime boundaries remain:
 - hacl-pulse crypto wrappers for primitive behavior matching
   `TLS13.Crypto.Spec`;
 - entropy and X25519 key generation;
-- OpenSSL-backed certificate-chain validation against the transparent
-  `TLS13.X509.Spec.validate_chain`, isolated behind the typed `TLS13.OpenSSL.fsti` interface and
-  implemented by `c_stubs/tls13_openssl_custard.*` plus
-  `c_stubs/tls13_openssl_stubs.c`; certificate validation hands the verified
-  local event only the exact returned identity prefix, and PEM trust-anchor
-  decoding in `runtime/tls13_pem.h`;
+- for the sans-I/O client engine only, host-side certificate-chain
+  validation against `TLS13.X509.Spec.validate_chain` (the client driver uses
+  the verified `TLS13.Impl.X509.Validate`); server credentials and signing
+  behind `TLS13.OpenSSL.fsti`; PEM trust-anchor decoding in
+  `runtime/tls13_pem.h`;
 - Pulse/F*/KaRaMeL/runtime infrastructure, allocation, and C platform behavior;
 - the TCP bridge in `c_stubs/common_tcp_stubs.c` and
   `c_stubs/common_tcp_custard.*` that connects explicit input/output buffers to

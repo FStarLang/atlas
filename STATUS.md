@@ -59,7 +59,7 @@ The network theorem currently exposes:
 The local theorem currently exposes:
 
 - readiness through `next_local_action_sound`;
-- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.PublicKey` against the DER spec `TLS13.Crypto.Spec.certificate_raw_public_key`), leaving only chain validation to OpenSSL, now held to the transparent RFC 5280/6125 profile `TLS13.X509.Spec.validate_chain` over DER trust anchors;
+- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.PublicKey` against the DER spec `TLS13.Crypto.Spec.certificate_raw_public_key`), and the client driver's certificate-chain validation is verified Pulse code (`TLS13.Impl.X509.Validate`) proved sound against the transparent RFC 5280/6125 profile `TLS13.X509.Spec.validate_chain` over DER trust anchors;
 - local app-send supported-profile projection: successful local app sends are bounded to one protected record;
 - outgoing record parse facts and protected seal/write-key projections for ClientFinished, app data, close_notify, and KeyUpdate.
 
@@ -131,7 +131,7 @@ Remaining work:
 
 - add a public free/close path for an allocated-but-never-connected driver if that lifecycle becomes part of the public API; today failed connect is terminal, and successful connect must be followed by close;
 - decide whether to prove liveness/progress beyond the current fueled workflow status API;
-- keep the typed OpenSSL interface (`TLS13.OpenSSL.fsti`) as the explicit auth TCB, or replace it with verified validation/signature code later;
+- remove the now-inert `auth_config`/`auth_context` handles from the client driver (certificate validation no longer uses them), and move the client engine onto the verified validator;
 - keep TCP connect/read/write in the unverified `Common.TCP` bridge, with stronger raw byte-log specs when we want transport-honesty proofs;
 - preserve the concrete C driver API as the runtime contract while reducing the C wrapper further when practical.
 
@@ -149,7 +149,7 @@ For the near-term end-to-end theorem, the first option is the right path.
 The active Parser/Serializer hooks are verified F*/Pulse code now, so the final theorem should include a concise audited list of the remaining trusted assumptions:
 
 - HACL/crypto wrappers and entropy/X25519;
-- X509 chain validation (OpenSSL, against the transparent `TLS13.X509.Spec.validate_chain`) and PEM trust-anchor decoding;
+- PEM trust-anchor decoding, and host-side X509 chain validation for the sans-I/O client engine only (the client driver's is verified);
 - Pulse runtime/extraction/runtime shims;
 - the TCP bridge used by the concrete driver for connect/read/write.
 

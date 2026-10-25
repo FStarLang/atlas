@@ -602,6 +602,61 @@ fn copy_certificate_leaf_der
   copied_len
 }
 
+fn copy_validation_config
+  (c:connection_state)
+  (name_out:array U8.t)
+  (name_out_len:SZ.t)
+  (anchors_out:array U8.t)
+  (anchors_out_len:SZ.t)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           ArrPts.pts_to name_out 'old_name_out **
+           ArrPts.pts_to anchors_out 'old_anchors_out **
+           pure (B.length 'old_name_out == SZ.v name_out_len /\
+                 max_hostname_len <= SZ.v name_out_len /\
+                 B.length 'old_anchors_out == SZ.v anchors_out_len /\
+                 max_trust_anchors_len <= SZ.v anchors_out_len)
+  returns cfg:validation_config
+  ensures exists* name_bytes anchors_bytes.
+          connection_exactly c st0 **
+          ArrPts.pts_to name_out name_bytes **
+          ArrPts.pts_to anchors_out anchors_bytes **
+          pure (B.length name_bytes == SZ.v name_out_len /\
+                B.length anchors_bytes == SZ.v anchors_out_len /\
+                SZ.v cfg.validation_name_len <= B.length name_bytes /\
+                SZ.v cfg.validation_anchors_len <= B.length anchors_bytes /\
+                Seq.equal (Seq.slice name_bytes 0 (SZ.v cfg.validation_name_len))
+                  st0.CS.cs_model.CS.model_config.CS.config_server_name /\
+                Seq.equal (Seq.slice anchors_bytes 0 (SZ.v cfg.validation_anchors_len))
+                  st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors /\
+                SZ.v cfg.validation_time_seconds ==
+                  st0.CS.cs_model.CS.model_config.CS.config_validation_time.X.seconds_since_epoch /\
+                (cfg.validation_is_client ==>
+                  st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint))
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (connection_config_exactly c.config st0.CS.cs_model.CS.model_config);
+  with role validation_time.
+    assert (Box.pts_to c.config.role_tag role **
+            Box.pts_to c.config.validation_time_seconds validation_time);
+  let name_len =
+    copy_sized_bytes_to_array c.config.server_name name_out name_out_len
+      #(st0.CS.cs_model.CS.model_config.CS.config_server_name);
+  let anchors_len =
+    copy_sized_bytes_to_array c.config.trust_anchors anchors_out anchors_out_len
+      #(st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors);
+  let time = !c.config.validation_time_seconds;
+  fold (connection_config_exactly c.config st0.CS.cs_model.CS.model_config);
+  let is_client = config_role_is_client c.config;
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
+  ({ validation_name_len = name_len;
+     validation_anchors_len = anchors_len;
+     validation_time_seconds = time;
+     validation_is_client = is_client })
+}
+
 fn copy_certificate_chain
   (c:connection_state)
   (chain_out:array U8.t)

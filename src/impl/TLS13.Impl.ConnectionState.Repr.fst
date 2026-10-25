@@ -969,6 +969,42 @@ fn copy_optional_sized_bytes_to_array
 }
 
 
+fn copy_sized_bytes_to_array
+  (#cap:erased nat)
+  (slot:sized_bytes)
+  (dst:array U8.t)
+  (dst_len:SZ.t)
+  (#bytes:erased B.bytes)
+  requires sized_bytes_exactly slot (reveal cap) bytes **
+           ArrPts.pts_to dst 'old_dst **
+           pure (B.length 'old_dst == SZ.v dst_len /\
+                 reveal cap <= SZ.v dst_len)
+  returns copied_len:SZ.t
+  ensures exists* dst_bytes.
+          sized_bytes_exactly slot (reveal cap) bytes **
+          ArrPts.pts_to dst dst_bytes **
+          pure (B.length dst_bytes == SZ.v dst_len /\
+                SZ.v copied_len == B.length (Ghost.reveal bytes) /\
+                SZ.v copied_len <= B.length dst_bytes /\
+                Seq.equal (Seq.slice dst_bytes 0 (SZ.v copied_len)) (Ghost.reveal bytes))
+{
+  unfold (sized_bytes_exactly slot (reveal cap) (Ghost.reveal bytes));
+  with storage len. _;
+  let copy_len = !slot.len;
+  assert (pure (copy_len == len));
+  assert (pure (byte_prefix_matches storage copy_len bytes));
+  ArrPts.pts_to_len dst;
+  V.to_array_pts_to slot.bytes;
+  Arr.memcpy_l copy_len (V.vec_to_array slot.bytes) dst;
+  V.to_vec_pts_to slot.bytes;
+  with dst_bytes. assert (ArrPts.pts_to dst dst_bytes);
+  assert (pure (Seq.equal
+    (Seq.slice dst_bytes 0 (SZ.v copy_len))
+    (Seq.slice storage 0 (SZ.v copy_len))));
+  fold (sized_bytes_exactly slot (reveal cap) (Ghost.reveal bytes));
+  copy_len
+}
+
 fn alloc_empty_optional_fixed32 ()
   requires emp
   returns slot:optional_fixed_bytes

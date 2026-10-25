@@ -964,7 +964,8 @@ $(TEST_CERT_STAMP): scripts/generate-test-certs.sh
 	touch $@
 
 test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
-test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.der: $(TEST_CERT_STAMP)
+test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.der test/certs/ec-leaf.pem \
+test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key: $(TEST_CERT_STAMP)
 	@test -f $@
 
 test/test_extracted_client_openssl_echo: \
@@ -1048,12 +1049,18 @@ test-client:
 
 test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_echo \
   test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
-  test/certs/ec-chain.pem test/certs/ec-leaf.key
+  test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.pem \
+  test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key
 	@set -e; \
-	for creds in "chain.pem leaf.key" "ec-chain.pem ec-leaf.key"; do \
-	  echo "OpenSSL echo server credentials: $$creds"; \
+	for case in "chain.pem leaf.key localhost ca.pem accept" \
+	            "ec-chain.pem ec-leaf.key localhost ca.pem accept" \
+	            "inter-chain.pem inter-leaf.key localhost ca.pem accept" \
+	            "inter-leaf.pem inter-leaf.key localhost ca.pem reject" \
+	            "chain.pem leaf.key wrong.example ca.pem reject" \
+	            "chain.pem leaf.key localhost ec-leaf.pem reject"; do \
+	  echo "OpenSSL echo server case: $$case"; \
 	  rm -f test/openssl_echo_server.port test/openssl_echo_server.log; \
-	  ( set -e; set -- $$creds; \
+	  ( set -e; set -- $$case; \
 	    ./test/openssl_echo_server 0 test/certs/$$1 test/certs/$$2 \
 	      test/openssl_echo_server.port > test/openssl_echo_server.log 2>&1 & \
 	    server_pid=$$!; \
@@ -1068,8 +1075,13 @@ test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_e
 	      exit 1; \
 	    fi; \
 	    port=$$(cat test/openssl_echo_server.port); \
-	    ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/ca.pem; \
-	    wait $$server_pid ); \
+	    if [ "$$5" = accept ]; then \
+	      ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/$$4 $$3; \
+	      wait $$server_pid; \
+	    else \
+	      ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/$$4 $$3 reject; \
+	      wait $$server_pid || true; \
+	    fi ); \
 	done
 
 test-client-engine-openssl-echo: test/openssl_echo_server \

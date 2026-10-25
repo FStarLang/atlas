@@ -60,4 +60,44 @@ openssl x509 -in "$dest_dir/ec-leaf.pem" -outform DER \
 
 cat "$dest_dir/ec-leaf.pem" > "$dest_dir/ec-chain.pem"
 
+# A P-256 intermediate CA under the test CA, and an RSA leaf it issues: the
+# server sends both, so the client must build the path through the
+# intermediate to reach its configured anchor.
+cat > "$dest_dir/inter.ext" <<'EOF'
+basicConstraints = critical, CA:TRUE, pathlen:0
+keyUsage = critical, keyCertSign
+EOF
+
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -subj "/CN=atlas test intermediate" \
+  -keyout "$dest_dir/inter.key" \
+  -out "$dest_dir/inter.csr" \
+  >/dev/null 2>&1
+
+openssl x509 -req -days 30 \
+  -in "$dest_dir/inter.csr" \
+  -CA "$dest_dir/ca.pem" \
+  -CAkey "$dest_dir/ca.key" \
+  -CAcreateserial \
+  -extfile "$dest_dir/inter.ext" \
+  -out "$dest_dir/inter.pem" \
+  >/dev/null 2>&1
+
+openssl req -newkey rsa:2048 -nodes \
+  -subj "/CN=localhost" \
+  -keyout "$dest_dir/inter-leaf.key" \
+  -out "$dest_dir/inter-leaf.csr" \
+  >/dev/null 2>&1
+
+openssl x509 -req -days 30 \
+  -in "$dest_dir/inter-leaf.csr" \
+  -CA "$dest_dir/inter.pem" \
+  -CAkey "$dest_dir/inter.key" \
+  -CAcreateserial \
+  -extfile "$dest_dir/leaf.ext" \
+  -out "$dest_dir/inter-leaf.pem" \
+  >/dev/null 2>&1
+
+cat "$dest_dir/inter-leaf.pem" "$dest_dir/inter.pem" > "$dest_dir/inter-chain.pem"
+
 echo "Generated test certificates in $dest_dir"

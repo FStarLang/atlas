@@ -154,6 +154,47 @@ fn copy_certificate_leaf_der
                   Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) leaf
                 | None -> False))
 
+(** What X.509 path validation reads from the configuration: the server
+    name and trust anchors are copied out alongside these lengths. *)
+type validation_config = {
+  validation_name_len: SZ.t;
+  validation_anchors_len: SZ.t;
+  validation_time_seconds: SZ.t;
+  validation_is_client: bool;
+}
+
+fn copy_validation_config
+  (c:connection_state)
+  (name_out:array U8.t)
+  (name_out_len:SZ.t)
+  (anchors_out:array U8.t)
+  (anchors_out_len:SZ.t)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           ArrPts.pts_to name_out 'old_name_out **
+           ArrPts.pts_to anchors_out 'old_anchors_out **
+           pure (B.length 'old_name_out == SZ.v name_out_len /\
+                 max_hostname_len <= SZ.v name_out_len /\
+                 B.length 'old_anchors_out == SZ.v anchors_out_len /\
+                 max_trust_anchors_len <= SZ.v anchors_out_len)
+  returns cfg:validation_config
+  ensures exists* name_bytes anchors_bytes.
+          connection_exactly c st0 **
+          ArrPts.pts_to name_out name_bytes **
+          ArrPts.pts_to anchors_out anchors_bytes **
+          pure (B.length name_bytes == SZ.v name_out_len /\
+                B.length anchors_bytes == SZ.v anchors_out_len /\
+                SZ.v cfg.validation_name_len <= B.length name_bytes /\
+                SZ.v cfg.validation_anchors_len <= B.length anchors_bytes /\
+                Seq.equal (Seq.slice name_bytes 0 (SZ.v cfg.validation_name_len))
+                  st0.CS.cs_model.CS.model_config.CS.config_server_name /\
+                Seq.equal (Seq.slice anchors_bytes 0 (SZ.v cfg.validation_anchors_len))
+                  st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors /\
+                SZ.v cfg.validation_time_seconds ==
+                  st0.CS.cs_model.CS.model_config.CS.config_validation_time.X.seconds_since_epoch /\
+                (cfg.validation_is_client ==>
+                  st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint))
+
 fn copy_certificate_chain
   (c:connection_state)
   (chain_out:array U8.t)

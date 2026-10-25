@@ -42,8 +42,18 @@ static int read_file(const char *path, uint8_t **out, size_t *out_len) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: %s HOST PORT CA_PEM\n", argv[0]);
+  /* With SERVER_NAME and "reject", the certificate presented must fail
+     validation (wrong name or untrusted anchor): the test passes only if the
+     verified validator rejects it and connect fails. */
+  if (argc != 4 && argc != 5 && argc != 6) {
+    fprintf(stderr, "usage: %s HOST PORT CA_PEM [SERVER_NAME [reject]]\n",
+            argv[0]);
+    return 1;
+  }
+  const char *server_name = argc >= 5 ? argv[4] : "localhost";
+  bool expect_reject = argc == 6 && strcmp(argv[5], "reject") == 0;
+  if (argc == 6 && !expect_reject) {
+    fprintf(stderr, "invalid mode: %s\n", argv[5]);
     return 1;
   }
 
@@ -84,10 +94,25 @@ int main(int argc, char **argv) {
           &driver,
           argv[1],
           (uint16_t)port_long,
-          "localhost",
+          server_name,
           trust_anchor,
           trust_anchor_len,
           0u) == 0;
+  if (expect_reject) {
+    tls13_client_driver_free(driver);
+    free(trust_anchor);
+    if (exchange_ok) {
+      fprintf(stderr,
+              "extracted client accepted a certificate it must reject "
+              "(server name %s, anchors %s)\n",
+              server_name, argv[3]);
+      return 1;
+    }
+    printf("extracted client rejected certificate as expected "
+           "(server name %s, anchors %s)\n",
+           server_name, argv[3]);
+    return 0;
+  }
   for (unsigned round = 0; exchange_ok && round < ECHO_ROUNDS; ++round) {
     received_len = 0;
     memset(received, 0, sizeof received);

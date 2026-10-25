@@ -39,6 +39,7 @@ module SB = Spec.Byte
 module Copy = Hacl.Impl.Copy
 module Sub = Hacl.Impl.Sub
 module Mem = Hacl.Mem
+module IO = Hacl.Impl.InOut
 
 (** {2 Sequence facts} *)
 
@@ -604,8 +605,10 @@ fn chacha20_poly1305_seal
     let ztag : S8.t = S8.classify 0uy;
     let mut tag = [| ztag; 16sz |];
     let ct = Sub.sub (CS.secret out) 0sz plain_len;
+    IO.intro_disjoint ct (CS.secret plain);
     Hacl.Chacha20Poly1305.encrypt ct tag (CS.secret plain) plain_len (CS.secret aad) aad_len
       (CS.secret key) (CS.secret nonce);
+    IO.elim_disjoint ct (CS.secret plain);
     with vct vtag. assert (A.pts_to ct vct ** A.pts_to tag vtag);
     Sub.unsub (CS.secret out) 0 (SZ.v plain_len) ct;
     with w. assert (A.pts_to (CS.secret out) w);
@@ -632,6 +635,7 @@ let chacha_open_post (key nonce aad cipher old: B.bytes) (ok: bool) (vmsg: Seq.s
       let len = n - 16 in
       B.length key == 32 /\ B.length nonce == 12 /\ n >= 16 /\ B.length old == len /\
       C.aead_open_in_range aad cipher /\
+      len <= Spec.Chacha20.max_len 1ul /\
       Seq.length vmsg == len /\
       (ok <==> Spec.Chacha20Poly1305.decrypt_ok (CS.classify_seq key) (CS.classify_seq nonce)
                  (CS.classify_seq aad) (CS.classify_seq (Seq.slice cipher 0 len))
@@ -701,8 +705,10 @@ fn chacha20_poly1305_open
     window_eq (SZ.v len) 16 vtag (CS.classify_seq 'cipher_bytes);
     let ct = Sub.sub (CS.secret cipher) 0sz len;
     CS.classify_slice 'cipher_bytes 0 (SZ.v len);
+    IO.intro_disjoint (CS.secret out) ct;
     let ok = Hacl.Chacha20Poly1305.decrypt (CS.secret out) ct len tag (CS.secret aad) aad_len
                (CS.secret key) (CS.secret nonce);
+    IO.elim_disjoint (CS.secret out) ct;
     Sub.unsub_id (CS.secret cipher) 0 (SZ.v len) ct;
     with vmsg. assert (A.pts_to (CS.secret out) vmsg);
     chacha_open_post 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes 'old ok vmsg;
@@ -758,8 +764,10 @@ fn aes128_gcm_seal
     let ztag : S8.t = S8.classify 0uy;
     let mut tag = [| ztag; 16sz |];
     let m = Sub.sub (CS.secret out) 0sz plain_len;
-    Hacl.AES.GCM.aes128_encrypt tag m plain_len (CS.secret key) (CS.secret nonce) 12sz
+    IO.intro_inplace m;
+    Hacl.AES.GCM.aes128_encrypt m tag m plain_len (CS.secret key) (CS.secret nonce) 12sz
       (CS.secret aad) aad_len;
+    IO.elim_inplace m;
     with vm vtag. assert (A.pts_to m vm ** A.pts_to tag vtag);
     Sub.unsub (CS.secret out) 0 (SZ.v plain_len) m;
     with w. assert (A.pts_to (CS.secret out) w);
@@ -868,8 +876,10 @@ fn aes128_gcm_open
     prefix_eq (SZ.v len) vt0 (CS.classify_seq 'cipher_bytes);
     let m = Sub.sub tmp 0sz len;
     gcm_fits (SZ.v aad_len) (SZ.v len);
-    let ok = Hacl.AES.GCM.aes128_decrypt m len tag (CS.secret key) (CS.secret nonce) 12sz
+    IO.intro_inplace m;
+    let ok = Hacl.AES.GCM.aes128_decrypt m m len tag (CS.secret key) (CS.secret nonce) 12sz
                (CS.secret aad) aad_len;
+    IO.elim_inplace m;
     with vm. assert (A.pts_to m vm);
     gcm_open_post 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes ok vm;
     if ok {
@@ -921,6 +931,7 @@ let der_integer_32_value (w: B.bytes) (off l: nat) (o: Seq.seq U8.t)
     FStar.Classical.forall_intro aux;
     Seq.lemma_eq_intro x o
 
+#push-options "--z3rlimit 60"
 let der_decode_some (w: B.bytes) (n rl sl: nat) (vr vs: Seq.seq U8.t)
   : Lemma (requires n <= Seq.length w /\ 8 <= n /\ n <= 72 /\
                     Seq.index w 0 == 0x30uy /\ U8.v (Seq.index w 1) == n - 2 /\
@@ -944,6 +955,7 @@ let der_decode_some (w: B.bytes) (n rl sl: nat) (vr vs: Seq.seq U8.t)
     assert (Seq.index v 3 == Seq.index w 3);
     assert (Seq.index v (4 + rl) == Seq.index w (4 + rl));
     assert (Seq.index v (5 + rl) == Seq.index w (5 + rl))
+#pop-options
 
 inline_for_extraction
 let u8_to_sz (x: U8.t) : r: SZ.t { SZ.v r == U8.v x } =
@@ -1232,6 +1244,101 @@ fn verify_rsa_pss_rsae_sha256
     }
   } else {
     rsa_pss_verify_false vn ve vm vs;
+    false
+  }
+}
+#pop-options
+
+let rsa_pkcs1_verify_false (h: C.pkcs1_hash) (n e message signature: B.bytes)
+  : Lemma (requires not (C.rsa_pss_args_ok n e message signature))
+          (ensures C.rsa_pkcs1_verify h n e message signature == false)
+  = ()
+
+#push-options "--z3rlimit 80"
+fn verify_rsa_pkcs1
+  (hash: C.pkcs1_hash)
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (exponent: array U8.t)
+  (exponent_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to exponent 'e_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v exponent_len <= B.length 'e_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to modulus 'n_bytes **
+          pts_to exponent 'e_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.rsa_pkcs1_verify hash
+                        (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len))
+                        (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  let vn = Ghost.hide (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len));
+  let ve = Ghost.hide (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len));
+  let vm = Ghost.hide (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len));
+  let vs = Ghost.hide (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len));
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.gte modulus_len 128sz && SZ.lte modulus_len 1024sz && small &&
+      SZ.gt exponent_len 0sz && SZ.lte exponent_len modulus_len &&
+      SZ.eq sg_len modulus_len) {
+    let n0 = modulus.(0sz);
+    if (n0 = 0uy) {
+      rsa_pkcs1_verify_false hash vn ve vm vs;
+      false
+    } else {
+      let bl = byte_bit_length n0;
+      let mbs = SZ.add (SZ.mul 8sz (SZ.sub modulus_len 1sz)) bl;
+      FStar.Math.Lemmas.small_mod (SZ.v mbs) (pow2 32);
+      let mb = SZ.sizet_to_uint32 mbs;
+      assert (pure (U32.v mb == C.rsa_mod_bits vn));
+      C.rsa_pss_args_facts vn ve vm vs;
+      CS.to_secret modulus;
+      CS.to_secret exponent;
+      CS.to_secret msg;
+      CS.to_secret sg;
+      A.pts_to_len (CS.secret modulus);
+      A.pts_to_len (CS.secret exponent);
+      A.pts_to_len (CS.secret msg);
+      A.pts_to_len (CS.secret sg);
+      let nb = Sub.sub (CS.secret modulus) 0sz modulus_len;
+      let eb = Sub.sub (CS.secret exponent) 0sz exponent_len;
+      let mm = Sub.sub (CS.secret msg) 0sz msg_len;
+      let sb = Sub.sub (CS.secret sg) 0sz sg_len;
+      CS.classify_slice 'n_bytes 0 (SZ.v modulus_len);
+      CS.classify_slice 'e_bytes 0 (SZ.v exponent_len);
+      CS.classify_slice 'msg_bytes 0 (SZ.v msg_len);
+      CS.classify_slice 'sg_bytes 0 (SZ.v sg_len);
+      let ok =
+        if (C.Pkcs1Sha256? hash) {
+          Hacl.RSAPKCS1.verify_sha256 mb nb exponent_len eb sb msg_len mm
+        } else if (C.Pkcs1Sha384? hash) {
+          Hacl.RSAPKCS1.verify_sha384 mb nb exponent_len eb sb msg_len mm
+        } else {
+          Hacl.RSAPKCS1.verify_sha512 mb nb exponent_len eb sb msg_len mm
+        };
+      Sub.unsub_id (CS.secret sg) 0 (SZ.v sg_len) sb;
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) mm;
+      Sub.unsub_id (CS.secret exponent) 0 (SZ.v exponent_len) eb;
+      Sub.unsub_id (CS.secret modulus) 0 (SZ.v modulus_len) nb;
+      CS.of_secret modulus;
+      CS.of_secret exponent;
+      CS.of_secret msg;
+      CS.of_secret sg;
+      ok
+    }
+  } else {
+    rsa_pkcs1_verify_false hash vn ve vm vs;
     false
   }
 }

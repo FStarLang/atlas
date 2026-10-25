@@ -1680,6 +1680,25 @@ fn copy_optional_sized_bytes_to_array
                   Seq.equal (Seq.slice dst_bytes 0 (SZ.v copied_len)) bytes
                 | None -> False))
 
+fn copy_sized_bytes_to_array
+  (#cap:erased nat)
+  (slot:sized_bytes)
+  (dst:array U8.t)
+  (dst_len:SZ.t)
+  (#bytes:erased B.bytes)
+  requires sized_bytes_exactly slot (reveal cap) bytes **
+           ArrPts.pts_to dst 'old_dst **
+           pure (B.length 'old_dst == SZ.v dst_len /\
+                 reveal cap <= SZ.v dst_len)
+  returns copied_len:SZ.t
+  ensures exists* dst_bytes.
+          sized_bytes_exactly slot (reveal cap) bytes **
+          ArrPts.pts_to dst dst_bytes **
+          pure (B.length dst_bytes == SZ.v dst_len /\
+                SZ.v copied_len == B.length (Ghost.reveal bytes) /\
+                SZ.v copied_len <= B.length dst_bytes /\
+                Seq.equal (Seq.slice dst_bytes 0 (SZ.v copied_len)) (Ghost.reveal bytes))
+
 fn alloc_empty_optional_fixed32 ()
   requires emp
   returns slot:optional_fixed_bytes

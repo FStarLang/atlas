@@ -418,3 +418,34 @@ fn verify_rsa_pss_rsae_sha256
                         (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
                         (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
                         (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+(** RSASSA-PKCS1-v1_5 verification, by hacl-pulse's [Hacl.RSAPKCS1]; only
+    for certificate signatures. *)
+fn verify_rsa_pkcs1
+  (hash: C.pkcs1_hash)
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (exponent: array U8.t)
+  (exponent_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to exponent 'e_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v exponent_len <= B.length 'e_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to modulus 'n_bytes **
+          pts_to exponent 'e_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.rsa_pkcs1_verify hash
+                        (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len))
+                        (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
