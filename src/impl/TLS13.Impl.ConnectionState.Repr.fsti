@@ -667,6 +667,12 @@ let signature_scheme_list_exactly
           SZ.v len <= cap /\
           IM.signature_schemes_match items (SZ.v len) schemes)
 
+(** The trust-anchor store is allocated at its exact size (at least one
+    byte) rather than at [max_trust_anchors_len], which is large enough for
+    a full system root store. *)
+let trust_anchors_cap (anchors:B.bytes) : nat =
+  if B.length anchors = 0 then 1 else B.length anchors
+
 let connection_config_exactly
   ([@@@mkey] cfg:connection_config_storage)
   (spec:CS.connection_config)
@@ -674,7 +680,9 @@ let connection_config_exactly
   exists* role validation_time.
     Box.pts_to cfg.role_tag role **
     sized_bytes_exactly cfg.server_name max_hostname_len spec.CS.config_server_name **
-    sized_bytes_exactly cfg.trust_anchors max_trust_anchors_len spec.CS.config_trust_store.X.anchors **
+    sized_bytes_exactly cfg.trust_anchors
+      (trust_anchors_cap spec.CS.config_trust_store.X.anchors)
+      spec.CS.config_trust_store.X.anchors **
     Box.pts_to cfg.validation_time_seconds validation_time **
     cipher_suite_list_exactly cfg.cipher_suites max_cipher_suites spec.CS.config_cipher_suites **
     signature_scheme_list_exactly cfg.signature_schemes max_signature_schemes spec.CS.config_signature_schemes **

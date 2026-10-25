@@ -317,9 +317,13 @@ The public client API is buffer/event oriented:
   signature (sha{256,384,512}WithRSAEncryption via
   `TLS13.Crypto.Spec.rsa_pkcs1_verify`, or ecdsa-with-SHA256 on P-256); a leaf
   that is itself an anchor is also accepted. Trust anchors are a concatenation
-  of DER certificates: the C runtime decodes the caller's PEM bundle
-  (`runtime/tls13_pem.h`) and fixes a validation time of zero to the current
-  time before entering verified code.
+  of DER certificates (up to `Bounds.max_trust_anchors_len`, 1 MiB, enough for
+  a full system root store; the configuration stores them at their exact
+  size): the C runtime decodes the caller's PEM bundle (`runtime/tls13_pem.h`),
+  or, when the caller passes none, the system bundle (`SSL_CERT_FILE`, else
+  the first of the usual distribution paths), and fixes a validation time of
+  zero to the current time before entering verified code. Which roots are
+  trusted is therefore configuration, not something the proofs constrain.
 - `TLS13.Impl.X509.Validate` implements `validate_chain` in Pulse and is proved
   sound against it (`ok ==> accepted ...`): `Fields` (DER fields, times,
   extensions), `Names` (dNSName/iPAddress matching), `Cert` (certificate

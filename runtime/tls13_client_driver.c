@@ -13,7 +13,12 @@
 #define TLS13_DRIVER_LOCAL_FUEL ((size_t)100u)
 
 #define TLS13_CLIENT_MAX_SERVER_NAME_LEN ((size_t)255u)
-#define TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN ((size_t)65535u)
+/* TLS13.Impl.ConnectionState.Bounds.max_trust_anchors_len: the bound on the
+   decoded DER store the verified client accepts. */
+#define TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN ((size_t)1048576u)
+/* Bound on a PEM bundle read from disk (PEM is ~4/3 the DER size, plus any
+   comments the distribution adds). */
+#define TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN ((size_t)4194304u)
 
 struct tls13_client_driver_s {
   TLS13_Impl_Client_Driver_client_driver verified_driver;
@@ -86,6 +91,57 @@ static void abort_connected_driver(tls13_client_driver *driver) {
   }
 }
 
+/* System trust-store bundles, in the order tried when the caller supplies no
+   PEM bundle; SSL_CERT_FILE, when set, is used instead (as with OpenSSL). */
+static const char *const tls13_system_trust_store_paths[] = {
+  "/etc/ssl/certs/ca-certificates.crt",                /* Debian, Ubuntu, Arch */
+  "/etc/pki/tls/certs/ca-bundle.crt",                  /* Fedora, RHEL */
+  "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL, CentOS */
+  "/etc/ssl/ca-bundle.pem",                            /* openSUSE */
+  "/etc/ssl/cert.pem",                                 /* Alpine, macOS, BSDs */
+};
+
+static int read_pem_file(const char *path, uint8_t **out, size_t *out_len) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    return 1;
+  }
+  uint8_t *buffer = malloc(TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN);
+  if (buffer == NULL) {
+    fclose(file);
+    return 1;
+  }
+  size_t got = fread(buffer, 1u, TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN, file);
+  /* A bundle that fills the buffer may be truncated: reject it. */
+  int bad = ferror(file) || got == 0u ||
+            got == TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN;
+  fclose(file);
+  if (bad) {
+    free(buffer);
+    return 1;
+  }
+  *out = buffer;
+  *out_len = got;
+  return 0;
+}
+
+/* Loads the system trust store as a PEM bundle (caller frees). */
+static int read_system_trust_store(uint8_t **out, size_t *out_len) {
+  const char *override = getenv("SSL_CERT_FILE");
+  if (override != NULL && override[0] != '\0') {
+    return read_pem_file(override, out, out_len);
+  }
+  for (size_t i = 0u;
+       i < sizeof tls13_system_trust_store_paths /
+               sizeof tls13_system_trust_store_paths[0];
+       i++) {
+    if (read_pem_file(tls13_system_trust_store_paths[i], out, out_len) == 0) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int tls13_client_config_new(
     tls13_client_config **out,
     const char *server_name,
@@ -104,15 +160,28 @@ int tls13_client_config_new(
   size_t server_name_len = strlen(server_name);
   if (server_name_len == 0u ||
       server_name_len > TLS13_CLIENT_MAX_SERVER_NAME_LEN ||
-      trust_anchor_pem_len > TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN) {
+      trust_anchor_pem_len > TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN) {
     return 1;
   }
 
+  uint8_t *system_pem = NULL;
+  if (trust_anchor_pem_len == 0u) {
+    if (read_system_trust_store(&system_pem, &trust_anchor_pem_len) != 0) {
+      return 1;
+    }
+    trust_anchor_pem = system_pem;
+  }
   uint8_t *trust_anchor_der = NULL;
   size_t trust_anchor_der_len = 0u;
-  if (tls13_pem_certificates_to_der(
-          trust_anchor_pem, trust_anchor_pem_len,
-          &trust_anchor_der, &trust_anchor_der_len) != 0) {
+  int pem_rc = tls13_pem_certificates_to_der(
+      trust_anchor_pem, trust_anchor_pem_len,
+      &trust_anchor_der, &trust_anchor_der_len);
+  free(system_pem);
+  if (pem_rc != 0) {
+    return 1;
+  }
+  if (trust_anchor_der_len > TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN) {
+    free(trust_anchor_der);
     return 1;
   }
   /* Zero means "now"; the verified model validates at the explicit time. */

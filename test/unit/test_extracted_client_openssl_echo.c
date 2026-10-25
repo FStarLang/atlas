@@ -66,7 +66,9 @@ int main(int argc, char **argv) {
 
   uint8_t *trust_anchor = NULL;
   size_t trust_anchor_len = 0;
-  if (read_file(argv[3], &trust_anchor, &trust_anchor_len) != 0) {
+  /* "-" selects the system trust store (SSL_CERT_FILE). */
+  if (strcmp(argv[3], "-") != 0 &&
+      read_file(argv[3], &trust_anchor, &trust_anchor_len) != 0) {
     return 1;
   }
 

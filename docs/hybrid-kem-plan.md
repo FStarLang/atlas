@@ -276,7 +276,6 @@ unconditionally.  Sites that enumerate groups:
 * `test/unit/test_server_interop_matrix.c:74-80,775,815`
 * `test/openssl_{http,echo}_server.c`
 * `test/perf/tls13_bench.c`
-* `test/interop/host_root.py:35`
 * `test/interop/RESULTS.md`
 
 ## 5. Risks

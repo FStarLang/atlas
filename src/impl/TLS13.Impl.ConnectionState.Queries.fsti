@@ -163,6 +163,16 @@ type validation_config = {
   validation_is_client: bool;
 }
 
+(** The capacity [copy_validation_config] needs for the trust anchors. *)
+fn trust_anchors_capacity
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns n:SZ.t
+  ensures connection_exactly c st0 **
+          pure (SZ.v n == trust_anchors_cap
+                  st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors)
+
 fn copy_validation_config
   (c:connection_state)
   (name_out:array U8.t)
@@ -176,7 +186,7 @@ fn copy_validation_config
            pure (B.length 'old_name_out == SZ.v name_out_len /\
                  max_hostname_len <= SZ.v name_out_len /\
                  B.length 'old_anchors_out == SZ.v anchors_out_len /\
-                 max_trust_anchors_len <= SZ.v anchors_out_len)
+                 trust_anchors_cap st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors <= SZ.v anchors_out_len)
   returns cfg:validation_config
   ensures exists* name_bytes anchors_bytes.
           connection_exactly c st0 **

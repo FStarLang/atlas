@@ -968,6 +968,13 @@ test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.der test/certs
 test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key: $(TEST_CERT_STAMP)
 	@test -f $@
 
+# A full-size trust store: the host's system bundle (when present) with the
+# test CA appended last, so validation must scan past every system root.
+SYSTEM_CA_BUNDLE ?= $(firstword $(wildcard /etc/ssl/certs/ca-certificates.crt \
+  /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem))
+test/certs/system-store.pem: test/certs/ca.pem
+	cat $(SYSTEM_CA_BUNDLE) test/certs/ca.pem > $@
+
 test/test_extracted_client_openssl_echo: \
   test/unit/test_extracted_client_openssl_echo.c $(TLS13_BUNDLE_OBJS_STAMP) \
   runtime/tls13_client_driver.c runtime/tls13_client_driver.h runtime/tls13_pem.h \
@@ -1050,9 +1057,12 @@ test-client:
 test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_echo \
   test/certs/chain.pem test/certs/ca.pem test/certs/leaf.key test/certs/leaf.der \
   test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.pem \
-  test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key
+  test/certs/inter-chain.pem test/certs/inter-leaf.pem test/certs/inter-leaf.key \
+  test/certs/system-store.pem
 	@set -e; \
 	for case in "chain.pem leaf.key localhost ca.pem accept" \
+	            "chain.pem leaf.key localhost @system-store.pem accept" \
+	            "chain.pem leaf.key localhost @ec-leaf.pem reject" \
 	            "ec-chain.pem ec-leaf.key localhost ca.pem accept" \
 	            "inter-chain.pem inter-leaf.key localhost ca.pem accept" \
 	            "inter-leaf.pem inter-leaf.key localhost ca.pem reject" \
@@ -1075,11 +1085,13 @@ test-openssl-echo: test/openssl_echo_server test/test_extracted_client_openssl_e
 	      exit 1; \
 	    fi; \
 	    port=$$(cat test/openssl_echo_server.port); \
+	    anchors=test/certs/$$4; \
+	    case $$4 in @*) anchors=-; export SSL_CERT_FILE=test/certs/$${4#@};; esac; \
 	    if [ "$$5" = accept ]; then \
-	      ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/$$4 $$3; \
+	      ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port $$anchors $$3; \
 	      wait $$server_pid; \
 	    else \
-	      ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port test/certs/$$4 $$3 reject; \
+	      ./test/test_extracted_client_openssl_echo 127.0.0.1 $$port $$anchors $$3 reject; \
 	      wait $$server_pid || true; \
 	    fi ); \
 	done

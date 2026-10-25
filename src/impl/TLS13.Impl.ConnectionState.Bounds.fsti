@@ -2,8 +2,11 @@ module TLS13.Impl.ConnectionState.Bounds
 
 noextract
 let max_hostname_len : nat = 255
+(* Capacity of the DER trust-anchor store: room for a full system root store
+   (Mozilla's is about 200 KB).  It is a ghost bound only; the store is
+   allocated at its exact size. *)
 noextract
-let max_trust_anchors_len : nat = 65535
+let max_trust_anchors_len : nat = 1048576
 (* Capacity of the buffer carrying a peer leaf certificate's DER to the
    certificate validator.  Real-world leaf certificates routinely exceed 4 KiB:
    a wildcard certificate covering a few hundred SAN entries (googleapis.com
@@ -47,7 +50,6 @@ inline_for_extraction let max_server_hello_len_sz : SZ.t = 4096sz
 inline_for_extraction let max_handshake_flight_len_sz : SZ.t = 32768sz
 inline_for_extraction let max_transcript_len_sz : SZ.t = 65535sz
 inline_for_extraction let max_certificate_verify_input_len_sz : SZ.t = 256sz
-inline_for_extraction let max_trust_anchors_len_sz : SZ.t = 65535sz
 inline_for_extraction let max_pending_plaintext_len_sz : SZ.t = 32768sz
 inline_for_extraction let max_pending_raw_len_sz : SZ.t = 32768sz
 

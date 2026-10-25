@@ -220,9 +220,14 @@ fn signed_by
 
 (** {2 Trust anchors} *)
 
+(** The anchor store, unlike a certificate, is not capped at
+    [PK.max_certificate_len]: a full system root store is far larger. All
+    offsets into it stay below [alen], so they fit in [SZ.t]. *)
+let a_ok (b:B.bytes) (len:SZ.t) : prop = SZ.v len <= B.length b
+
 fn anchors_wf
   (a:array U8.t) (alen:SZ.t)
-  requires pts_to a 'ab ** pure (ok_len 'ab alen)
+  requires pts_to a 'ab ** pure (a_ok 'ab alen)
   returns r:bool
   ensures pts_to a 'ab ** pure (r == X.anchors_wf (cb 'ab alen) 0)
 {
@@ -251,7 +256,7 @@ fn anchors_wf
 fn is_anchor
   (c:array U8.t) (len:SZ.t)
   (a:array U8.t) (alen:SZ.t)
-  requires pts_to c 'b ** pts_to a 'ab ** pure (ok_len 'b len /\ ok_len 'ab alen)
+  requires pts_to c 'b ** pts_to a 'ab ** pure (ok_len 'b len /\ a_ok 'ab alen)
   returns r:bool
   ensures pts_to c 'b ** pts_to a 'ab **
           pure (r ==> X.is_anchor (cb 'b len) (cb 'ab alen) 0)
@@ -318,7 +323,7 @@ fn anchored
   (a:array U8.t) (alen:SZ.t)
   (c:array U8.t) (len:SZ.t) (r:pcert)
   requires pts_to a 'ab ** pts_to c 'b **
-           pure (ok_len 'ab alen /\ ok_len 'b len /\ pc_ok r (cb 'b len))
+           pure (a_ok 'ab alen /\ ok_len 'b len /\ pc_ok r (cb 'b len))
   returns ok:bool
   ensures pts_to a 'ab ** pts_to c 'b **
           pure (ok ==> X.anchored (cb 'ab alen) 0 (cb 'b len) (to_pc r))
@@ -344,6 +349,11 @@ fn anchored
       tlv_bounds t (cb 'ab alen) 0x30uy (SZ.v vp) (SZ.v alen);
       let n = t.hi -^ vp;
       assert (pure (SZ.v vp + SZ.v n == SZ.v t.hi));
+      if (SZ.gt n PK.max_certificate_len) {
+        anchored_step (cb 'ab alen) (SZ.v vp) (cb 'b len) (to_pc r) (SZ.v t.hi)
+          (Seq.slice (cb 'ab alen) (SZ.v vp) (SZ.v t.hi));
+        p := t.hi;
+      } else {
       PK.copy_range a vp n (V.vec_to_array av) PK.max_certificate_len;
       with d. assert (pts_to (V.vec_to_array av) d);
       copied_slice d 'ab alen (SZ.v vp) (SZ.v t.hi) n;
@@ -365,6 +375,7 @@ fn anchored
         }
       } else {
         p := t.hi;
+      }
       }
     } else {
       p := alen;
@@ -445,7 +456,7 @@ fn chains_from_leaf
   (a:array U8.t) (alen:SZ.t) (t:U64.t)
   (#chain:erased (list B.bytes))
   requires pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab **
-           pure (chain_ok 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain /\ ok_len 'ab alen)
+           pure (chain_ok 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain /\ a_ok 'ab alen)
   returns ok:bool
   ensures pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab **
           pure (Cons? chain /\ (ok ==> goal (cb 'ab alen) (U64.v t) chain))
@@ -560,7 +571,7 @@ fn validate
            pts_to h 'hb **
            pure (IM.certificate_chain_matches 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain /\
                  SZ.v st_len <= SZ.v PK.max_certificate_len /\
-                 ok_len 'ab alen /\ ok_len 'hb hlen)
+                 a_ok 'ab alen /\ ok_len 'hb hlen)
   returns ok:bool
   ensures pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab **
           pts_to h 'hb **
@@ -678,7 +689,7 @@ fn validate_into
 {
   let t64 = SZ.sizet_to_uint64 t;
   size_to_u64_fits t;
-  if (SZ.lte alen PK.max_certificate_len && SZ.uint64_to_sizet t64 = t) {
+  if (SZ.uint64_to_sizet t64 = t) {
     let valid = validate st st_len offsets lens count a alen h hlen t64 #chain;
     if valid {
       copy_leaf st st_len offsets lens count out out_len #chain

@@ -334,6 +334,24 @@ fn driver_copy_certificate_chain
   snapshot
 }
 
+fn driver_trust_anchors_capacity
+  (d:driver)
+  requires driver_exactly d 'st0 'buffered 'pending_len
+  returns n:SZ.t
+  ensures driver_exactly d 'st0 'buffered 'pending_len **
+          pure (SZ.v n == CR.trust_anchors_cap
+                  'st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors)
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let n = CQ.trust_anchors_capacity d.driver_client;
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  n
+}
+
 fn driver_copy_validation_config
   (d:driver)
   (name_out:array U8.t)
@@ -346,7 +364,9 @@ fn driver_copy_validation_config
            pure (B.length 'old_name_out == SZ.v name_out_len /\
                  Bounds.max_hostname_len <= SZ.v name_out_len /\
                  B.length 'old_anchors_out == SZ.v anchors_out_len /\
-                 Bounds.max_trust_anchors_len <= SZ.v anchors_out_len)
+                 CR.trust_anchors_cap
+                   'st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors
+                   <= SZ.v anchors_out_len)
   returns cfg:CQ.validation_config
   ensures exists* name_bytes anchors_bytes.
           driver_exactly d 'st0 'buffered 'pending_len **
@@ -421,7 +441,8 @@ fn driver_validate_certificate
   let offsets_scratch = V.alloc 0sz L.max_certificate_chain_entries_sz;
   let lens_scratch = V.alloc 0sz L.max_certificate_chain_entries_sz;
   let name_scratch = V.alloc 0uy Bounds.max_hostname_len_sz;
-  let anchors_scratch = V.alloc 0uy Bounds.max_trust_anchors_len_sz;
+  let anchors_cap = driver_trust_anchors_capacity d;
+  let anchors_scratch = V.alloc 0uy anchors_cap;
   V.to_array_pts_to chain_scratch;
   V.to_array_pts_to offsets_scratch;
   V.to_array_pts_to lens_scratch;
@@ -446,7 +467,7 @@ fn driver_validate_certificate
       (V.vec_to_array name_scratch)
       Bounds.max_hostname_len_sz
       (V.vec_to_array anchors_scratch)
-      Bounds.max_trust_anchors_len_sz;
+      anchors_cap;
   with name_bytes anchors_bytes.
     assert (pts_to (V.vec_to_array name_scratch) name_bytes **
             pts_to (V.vec_to_array anchors_scratch) anchors_bytes);

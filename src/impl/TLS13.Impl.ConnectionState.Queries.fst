@@ -602,6 +602,31 @@ fn copy_certificate_leaf_der
   copied_len
 }
 
+fn trust_anchors_capacity
+  (c:connection_state)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0
+  returns n:SZ.t
+  ensures connection_exactly c st0 **
+          pure (SZ.v n == trust_anchors_cap
+                  st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors)
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (connection_config_exactly c.config st0.CS.cs_model.CS.model_config);
+  unfold (sized_bytes_exactly c.config.trust_anchors
+    (trust_anchors_cap st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors)
+    st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors);
+  let n = !c.config.trust_anchors.len;
+  fold (sized_bytes_exactly c.config.trust_anchors
+    (trust_anchors_cap st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors)
+    st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors);
+  fold (connection_config_exactly c.config st0.CS.cs_model.CS.model_config);
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
+  (if n = 0sz then 1sz else n)
+}
+
 fn copy_validation_config
   (c:connection_state)
   (name_out:array U8.t)
@@ -615,7 +640,7 @@ fn copy_validation_config
            pure (B.length 'old_name_out == SZ.v name_out_len /\
                  max_hostname_len <= SZ.v name_out_len /\
                  B.length 'old_anchors_out == SZ.v anchors_out_len /\
-                 max_trust_anchors_len <= SZ.v anchors_out_len)
+                 trust_anchors_cap st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors <= SZ.v anchors_out_len)
   returns cfg:validation_config
   ensures exists* name_bytes anchors_bytes.
           connection_exactly c st0 **

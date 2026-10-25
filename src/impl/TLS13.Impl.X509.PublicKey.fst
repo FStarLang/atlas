@@ -51,8 +51,7 @@ fn der_tlv_impl
   (len:SZ.t)
   (tag:U8.t)
   (pos limit:SZ.t)
-  requires pts_to cert 'b **
-           pure (SZ.v len <= B.length 'b /\ SZ.v len <= SZ.v max_certificate_len)
+  requires pts_to cert 'b ** pure (SZ.v len <= B.length 'b)
   returns r:der_range
   ensures pts_to cert 'b **
           pure (der_tlv_matches r (cert_bytes 'b len) tag (SZ.v pos) (SZ.v limit))
@@ -384,6 +383,11 @@ fn spki_raw_impl
 }
 #pop-options
 
+let copy_range_fits (lo n:SZ.t)
+  : Lemma (requires SZ.v lo + SZ.v n <= SZ.v max_certificate_len \/ SZ.fits (SZ.v lo + SZ.v n))
+          (ensures SZ.fits (SZ.v lo + SZ.v n))
+  = if SZ.v lo + SZ.v n <= SZ.v max_certificate_len then SZ.fits_at_least_16 (SZ.v lo + SZ.v n)
+
 fn copy_range
   (src:array U8.t)
   (lo n:SZ.t)
@@ -392,7 +396,7 @@ fn copy_range
   requires pts_to src 's **
            pts_to dst 'd **
            pure (SZ.v lo + SZ.v n <= B.length 's /\
-                 SZ.v lo + SZ.v n <= SZ.v max_certificate_len /\
+                 (SZ.v lo + SZ.v n <= SZ.v max_certificate_len \/ SZ.fits (SZ.v lo + SZ.v n)) /\
                  SZ.v n <= SZ.v dst_len /\
                  B.length 'd == SZ.v dst_len)
   ensures exists* d.
@@ -403,6 +407,7 @@ fn copy_range
 {
   A.pts_to_len src;
   A.pts_to_len dst;
+  copy_range_fits lo n;
   let mut i = 0sz;
   while (let vi = !i; SZ.lt vi n)
   invariant exists* (vi:SZ.t) (d:Seq.seq U8.t).

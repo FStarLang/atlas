@@ -104,7 +104,7 @@ fn range_eq2
   (d:array U8.t) (dlen:SZ.t) (b0 b1:SZ.t)
   requires pts_to c 'b ** pts_to d 'e **
            pure (ok_len 'b len /\ SZ.v a1 <= SZ.v len /\
-                 ok_len 'e dlen /\ SZ.v b1 <= SZ.v dlen)
+                 SZ.v dlen <= B.length 'e /\ SZ.v b1 <= SZ.v dlen)
   returns r:bool
   ensures pts_to c 'b ** pts_to d 'e **
           pure (r == X.range_eq (cb 'b len) (SZ.v a0) (SZ.v a1) (cb 'e dlen) (SZ.v b0) (SZ.v b1))
