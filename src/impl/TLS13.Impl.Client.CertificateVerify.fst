@@ -2,11 +2,10 @@ module TLS13.Impl.Client.CertificateVerify
 
 (** The client's check of the server's CertificateVerify signature.
 
-    The public key is read out of the leaf certificate by the OpenSSL TCB
-    ([TLS13.OpenSSL.certificate_raw_public_key], specified by the assumed
-    [TLS13.Crypto.Spec.certificate_raw_public_key]); the signature itself is
-    checked by the verified hacl-pulse verifiers in [TLS13.Crypto], against
-    [TLS13.Crypto.Spec.verify_signature]. *)
+    The public key is read out of the leaf certificate by the verified DER
+    parser [TLS13.Impl.X509.PublicKey.certificate_raw_public_key]; the
+    signature itself is checked by the verified hacl-pulse verifiers in
+    [TLS13.Crypto]; both against [TLS13.Crypto.Spec.verify_signature]. *)
 
 #lang-pulse
 
@@ -18,7 +17,7 @@ module C = TLS13.Crypto.Spec
 module CL = TLS13.ConnectionLog
 module Cr = TLS13.Crypto
 module L = TLS13.Impl.Messages
-module O = TLS13.OpenSSL
+module PK = TLS13.Impl.X509.PublicKey
 module SZ = FStar.SizeT
 module T = TLS13.Types
 module U16 = FStar.UInt16
@@ -58,7 +57,7 @@ fn verify_peer_signature
   let mut exponent = [| 0uy; raw_key_capacity |];
   let mut lens = [| 0sz; 2sz |];
   let kind =
-    O.certificate_raw_public_key
+    PK.certificate_raw_public_key
       certificate certificate_len key raw_key_capacity exponent raw_key_capacity lens;
   C.lemma_verify_signature_def (reveal sch)
     (CL.raw_slice 'certificate_bytes 0 (SZ.v certificate_len))

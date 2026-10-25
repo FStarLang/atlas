@@ -138,11 +138,13 @@ The public client API is buffer/event oriented:
   `TLS13.Crypto.Spec.verify_signature` succeeds over the stored peer key,
   CertificateVerify input, and parsed signature. `verify_signature` is now
   defined from hacl-pulse's RSASSA-PSS (`rsa_pss_rsae_sha256`) and P-256 ECDSA
-  (`ecdsa_secp256r1_sha256`) specifications; the only assumption left in it is
-  `certificate_raw_public_key`, the SubjectPublicKeyInfo extraction from the
-  leaf DER. The driver discharges the predicate itself: it copies the stored
-  peer key, CertificateVerify input, and signature, asks the OpenSSL TCB only
-  for the raw public key (`TLS13.OpenSSL.certificate_raw_public_key`), and
+  (`ecdsa_secp256r1_sha256`) specifications, with no assumption left in it:
+  `certificate_raw_public_key` specifies the SubjectPublicKeyInfo extraction
+  from the leaf DER as a strict definite-length DER walk (rsaEncryption with
+  NULL parameters, or id-ecPublicKey on prime256v1 with an uncompressed
+  point). The driver discharges the predicate itself: it copies the stored
+  peer key, CertificateVerify input, and signature, extracts the raw public
+  key with the verified parser `TLS13.Impl.X509.PublicKey`, and
   checks the signature with the verified verifiers in `TLS13.Crypto`
   (`TLS13.Impl.Client.CertificateVerify.verify_peer_signature`). The local end-to-end theorem
   exposes these assumptions through `CT.local_auth_tcb_projection`, and
@@ -297,8 +299,7 @@ The public client API is buffer/event oriented:
   own the concrete `Common.TCP` channel handle, process retained input before
   reading more bytes, call the generated canonical network/local handlers, and
   use endpoint finish hooks to keep the proof layers aligned with emitted bytes.
-  OpenSSL-backed certificate validation and certificate public-key extraction
-  remain isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
+  OpenSSL-backed certificate chain validation remains isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
   interop tests exercise this endpoint path with both extracted client and
   extracted server.
 - `TLS13.Impl.ConnectionState` has been split by responsibility: `Repr` owns the
@@ -341,9 +342,7 @@ Other trusted runtime boundaries remain:
 - hacl-pulse crypto wrappers for primitive behavior matching
   `TLS13.Crypto.Spec`;
 - entropy and X25519 key generation;
-- OpenSSL-backed certificate-chain validation and extraction of the leaf's raw
-  public key (RSA modulus/exponent or P-256 point) for the verified
-  CertificateVerify check, isolated behind the typed `TLS13.OpenSSL.fsti` interface and
+- OpenSSL-backed certificate-chain validation, isolated behind the typed `TLS13.OpenSSL.fsti` interface and
   implemented by `c_stubs/tls13_openssl_custard.*` plus
   `c_stubs/tls13_openssl_stubs.c`; certificate validation hands the verified
   local event only the exact returned identity prefix;

@@ -406,12 +406,8 @@ let lemma_aead_open_seal alg key nonce aad plaintext =
 
 (** {2 Signatures}
 
-    Signature verification is hacl-pulse's.  Only the extraction of a
-    certificate's public key is assumed; see the interface. *)
-
-assume val certificate_raw_public_key_ax: certificate:public_key -> Tot (option raw_public_key)
-
-let certificate_raw_public_key = certificate_raw_public_key_ax
+    Signature verification is hacl-pulse's, by the public key the interface
+    reads out of the certificate. *)
 
 module RP = Spec.RSAPSS
 module RF = Spec.RSAPSS.Fermat
