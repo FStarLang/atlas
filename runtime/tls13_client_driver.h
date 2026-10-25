@@ -10,6 +10,9 @@ typedef struct tls13_client_config_s tls13_client_config;
 
 #define TLS13_CLIENT_DRIVER_RECEIVE_BUFFER_SIZE ((size_t)16640u)
 
+/* [trust_anchor_pem] is a PEM bundle of trusted certificates; it is decoded
+ * here into the concatenated DER form the verified client validates against.
+ * A [validation_time_seconds] of zero means the current time. */
 int tls13_client_config_new(
     tls13_client_config **out,
     const char *server_name,

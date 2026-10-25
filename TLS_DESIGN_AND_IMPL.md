@@ -302,6 +302,27 @@ The public client API is buffer/event oriented:
   OpenSSL-backed certificate chain validation remains isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
   interop tests exercise this endpoint path with both extracted client and
   extracted server.
+- `TLS13.X509.Spec.validate_chain` is a transparent (ghost) specification of
+  the accepted certificate profile, a strict subset of RFC 5280/6125: every
+  path certificate is v3, its inner and outer signature algorithms agree, it is
+  within its validity window at the configured time (UTCTime/GeneralizedTime
+  with `Z`), it has no duplicate or unrecognised critical extension and no
+  nameConstraints, and any extKeyUsage permits serverAuth. The leaf must match
+  the server name through a subjectAltName dNSName (case-insensitive, `*.` only
+  as a whole left-most label) or IPv4 iPAddress, with no CN fallback, and allow
+  digitalSignature. Each issuer must be a CA (basicConstraints cA, pathLen
+  respected) allowing keyCertSign. The chain ends at a trust anchor whose
+  subject matches the issuer name exactly and whose key verifies the
+  signature (sha{256,384,512}WithRSAEncryption via
+  `TLS13.Crypto.Spec.rsa_pkcs1_verify`, or ecdsa-with-SHA256 on P-256); a leaf
+  that is itself an anchor is also accepted. Trust anchors are a concatenation
+  of DER certificates: the C runtime decodes the caller's PEM bundle
+  (`runtime/tls13_pem.h`) and fixes a validation time of zero to the current
+  time before entering verified code. OpenSSL (`X509_verify_cert`) remains the
+  assumed implementation of this specification until the verified validator
+  replaces it; it is more permissive in places (CN fallback when no SAN,
+  partial wildcards, absent EKU checks), so the assumption currently covers
+  those divergences too.
 - `TLS13.Impl.ConnectionState` has been split by responsibility: `Repr` owns the
   concrete representation and exact predicates, `Queries` owns read-only checks
   and copyouts, `Model`/`Bounds`/`Tags` own pure/proof helpers, and the mutation
@@ -342,10 +363,12 @@ Other trusted runtime boundaries remain:
 - hacl-pulse crypto wrappers for primitive behavior matching
   `TLS13.Crypto.Spec`;
 - entropy and X25519 key generation;
-- OpenSSL-backed certificate-chain validation, isolated behind the typed `TLS13.OpenSSL.fsti` interface and
+- OpenSSL-backed certificate-chain validation against the transparent
+  `TLS13.X509.Spec.validate_chain`, isolated behind the typed `TLS13.OpenSSL.fsti` interface and
   implemented by `c_stubs/tls13_openssl_custard.*` plus
   `c_stubs/tls13_openssl_stubs.c`; certificate validation hands the verified
-  local event only the exact returned identity prefix;
+  local event only the exact returned identity prefix, and PEM trust-anchor
+  decoding in `runtime/tls13_pem.h`;
 - Pulse/F*/KaRaMeL/runtime infrastructure, allocation, and C platform behavior;
 - the TCP bridge in `c_stubs/common_tcp_stubs.c` and
   `c_stubs/common_tcp_custard.*` that connects explicit input/output buffers to

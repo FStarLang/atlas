@@ -466,6 +466,63 @@ let rsa_pss_rsae_sha256_verify n e message signature =
   FStar.IndefiniteDescription.strong_excluded_middle
     (rsa_pss_rsae_sha256_valid n e message signature)
 
+module S64 = Hacl.Secret.UInt64
+
+let sha2_64_facts ()
+  : Lemma (SHA.max_input #S64.t == pow2 125 /\
+           SHA.hash_bytes SC.sha2_384 == 48 /\ SHA.hash_bytes SC.sha2_512 == 64)
+  = assert_norm (SHA.max_input #S64.t == pow2 125);
+    assert_norm (SHA.hash_bytes SC.sha2_384 == 48);
+    assert_norm (SHA.hash_bytes SC.sha2_512 == 64)
+
+(** [DigestInfo] (RFC 8017 9.2, note 1) of a message, if the message is
+    short enough to hash. *)
+noextract
+let pkcs1_digest_info (h:pkcs1_hash) (message:B.bytes) : GTot (option B.bytes) =
+  sha2_facts ();
+  sha2_64_facts ();
+  if B.length message >= pow2 61 then None
+  else
+    let prefix (b1 last len:U8.t) : B.bytes =
+      Seq.seq_of_list [0x30uy; b1; 0x30uy; 0x0duy; 0x06uy; 0x09uy;
+                       0x60uy; 0x86uy; 0x48uy; 0x01uy; 0x65uy; 0x03uy; 0x04uy;
+                       0x02uy; last; 0x05uy; 0x00uy; 0x04uy; len] in
+    match h with
+    | Pkcs1Sha256 ->
+      Some (Seq.append (prefix 0x31uy 0x01uy 0x20uy) (d (SHA.hash SC.sha2_256 (c message))))
+    | Pkcs1Sha384 ->
+      FStar.Math.Lemmas.pow2_lt_compat 125 61;
+      Some (Seq.append (prefix 0x41uy 0x02uy 0x30uy) (d (SHA.hash SC.sha2_384 (c message))))
+    | Pkcs1Sha512 ->
+      FStar.Math.Lemmas.pow2_lt_compat 125 61;
+      Some (Seq.append (prefix 0x51uy 0x03uy 0x40uy) (d (SHA.hash SC.sha2_512 (c message))))
+
+(** [EM = 0x00 || 0x01 || PS || 0x00 || T] of length [k], with [PS] at least
+    eight [0xff] bytes. *)
+noextract
+let emsa_pkcs1_v1_5 (t:B.bytes) (k:nat) : option B.bytes =
+  if k < B.length t + 11 then None
+  else
+    Some (Seq.append (Seq.seq_of_list [0x00uy; 0x01uy])
+           (Seq.append (Seq.create (k - B.length t - 3) 0xffuy)
+             (Seq.append (Seq.create 1 0x00uy) t)))
+
+let rsa_pkcs1_verify h n e message signature =
+  if rsa_modulus_ok n && 0 < B.length e && B.length e <= B.length n &&
+     B.length signature = B.length n
+  then
+    match pkcs1_digest_info h message with
+    | None -> false
+    | Some t ->
+      match emsa_pkcs1_v1_5 t (B.length n) with
+      | None -> false
+      | Some em ->
+        let vn = HB.be_nat (c n) in
+        let vs = HB.be_nat (c signature) in
+        1 < vn && vn % 2 = 1 && vs < vn &&
+        HB.be_nat (c em) = RF.rsa_pow vs (HB.be_nat (c e)) vn
+  else false
+
 let ecdsa_secp256r1_sha256_verify point message signature =
   if B.length point = 64 && B.length message < pow2 61 then
     match ecdsa_signature_der_decode signature with

@@ -2,10 +2,12 @@
 
 #include "TLS13.h"
 #include "atlas_trace.h"
+#include "tls13_pem.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define TLS13_DRIVER_WORKFLOW_FUEL ((size_t)1000u)
 #define TLS13_DRIVER_LOCAL_FUEL ((size_t)100u)
@@ -26,8 +28,9 @@ struct tls13_client_config_s {
   TLS13_Impl_Client_Driver_client_auth_config verified_config;
   uint8_t *server_name;
   size_t server_name_len;
-  uint8_t *trust_anchor_pem;
-  size_t trust_anchor_pem_len;
+  /* Concatenated DER certificates, decoded from the caller's PEM. */
+  uint8_t *trust_anchor_der;
+  size_t trust_anchor_der_len;
   size_t validation_time_seconds;
 };
 
@@ -105,32 +108,43 @@ int tls13_client_config_new(
     return 1;
   }
 
+  uint8_t *trust_anchor_der = NULL;
+  size_t trust_anchor_der_len = 0u;
+  if (tls13_pem_certificates_to_der(
+          trust_anchor_pem, trust_anchor_pem_len,
+          &trust_anchor_der, &trust_anchor_der_len) != 0) {
+    return 1;
+  }
+  /* Zero means "now"; the verified model validates at the explicit time. */
+  if (validation_time_seconds == 0u) {
+    time_t now = time(NULL);
+    if (now <= (time_t)0) {
+      free(trust_anchor_der);
+      return 1;
+    }
+    validation_time_seconds = (size_t)now;
+  }
+
   tls13_client_config *config = calloc(1u, sizeof *config);
   uint8_t *server_name_copy = malloc(server_name_len);
-  uint8_t *trust_anchor_copy =
-      malloc(trust_anchor_pem_len == 0u ? 1u : trust_anchor_pem_len);
-  if (config == NULL || server_name_copy == NULL ||
-      trust_anchor_copy == NULL) {
-    free(trust_anchor_copy);
+  if (config == NULL || server_name_copy == NULL) {
+    free(trust_anchor_der);
     free(server_name_copy);
     free(config);
     return 1;
   }
   memcpy(server_name_copy, server_name, server_name_len);
-  if (trust_anchor_pem_len != 0u) {
-    memcpy(trust_anchor_copy, trust_anchor_pem, trust_anchor_pem_len);
-  }
 
   config->verified_config = TLS13_Impl_Client_Driver_new_auth_config(
       server_name_copy,
       server_name_len,
-      trust_anchor_copy,
-      trust_anchor_pem_len,
+      trust_anchor_der,
+      trust_anchor_der_len,
       validation_time_seconds);
   config->server_name = server_name_copy;
   config->server_name_len = server_name_len;
-  config->trust_anchor_pem = trust_anchor_copy;
-  config->trust_anchor_pem_len = trust_anchor_pem_len;
+  config->trust_anchor_der = trust_anchor_der;
+  config->trust_anchor_der_len = trust_anchor_der_len;
   config->validation_time_seconds = validation_time_seconds;
   *out = config;
   return 0;
@@ -141,7 +155,7 @@ void tls13_client_config_free(tls13_client_config *config) {
     return;
   }
   TLS13_Impl_Client_Driver_free_auth_config(config->verified_config);
-  free(config->trust_anchor_pem);
+  free(config->trust_anchor_der);
   free(config->server_name);
   free(config);
 }
@@ -183,8 +197,8 @@ static int connect_with_config_reporting(
           config->verified_config,
           config->server_name,
           config->server_name_len,
-          config->trust_anchor_pem,
-          config->trust_anchor_pem_len,
+          config->trust_anchor_der,
+          config->trust_anchor_der_len,
           config->validation_time_seconds);
 
   TLS13_Impl_Client_Driver_driver_workflow_status status =

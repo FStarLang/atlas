@@ -1,6 +1,7 @@
 #include "chromium/tls13_client_socket.h"
 #include "tls13_client_engine.h"
 #include "tls13_openssl_stubs.h"
+#include "tls13_pem.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -477,9 +478,17 @@ int main(int argc, char** argv) {
   if (end == argv[2] || *end != '\0' || port <= 0 || port > 65535) {
     return 1;
   }
-  std::vector<uint8_t> trust_anchor;
-  if (ReadFile(argv[3], trust_anchor) != 0) {
+  std::vector<uint8_t> trust_anchor_pem;
+  if (ReadFile(argv[3], trust_anchor_pem) != 0) {
     return 1;
   }
+  uint8_t* der = nullptr;
+  size_t der_len = 0u;
+  if (tls13_pem_certificates_to_der(
+          trust_anchor_pem.data(), trust_anchor_pem.size(), &der, &der_len) != 0) {
+    return 1;
+  }
+  std::vector<uint8_t> trust_anchor(der, der + der_len);
+  free(der);
   return RunDemo(argv[1], static_cast<uint16_t>(port), trust_anchor);
 }

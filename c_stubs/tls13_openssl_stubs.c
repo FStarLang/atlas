@@ -119,14 +119,13 @@ static bool validate_leaf_cert(
        X509_VERIFY_PARAM_set1_host(param, hostname, 0) != 1)) {
     goto done;
   }
-  if (validation_time_seconds != 0u) {
-    time_t validation_time = (time_t)validation_time_seconds;
-    if (validation_time < (time_t)0 ||
-        (size_t)validation_time != validation_time_seconds) {
-      goto done;
-    }
-    X509_VERIFY_PARAM_set_time(param, validation_time);
+  /* Always validate at the explicit time the verified model was given. */
+  time_t validation_time = (time_t)validation_time_seconds;
+  if (validation_time < (time_t)0 ||
+      (size_t)validation_time != validation_time_seconds) {
+    goto done;
   }
+  X509_VERIFY_PARAM_set_time(param, validation_time);
   if (X509_verify_cert(ctx) != 1) {
     goto done;
   }
@@ -144,14 +143,12 @@ done:
   return ok;
 }
 
-tls13_trust_store *tls13_openssl_trust_store_new(
-    const uint8_t *trust_anchor_pem,
-    size_t trust_anchor_pem_len) {
-  if (trust_anchor_pem == NULL || trust_anchor_pem_len == 0u ||
-      trust_anchor_pem_len > INT_MAX) {
-    return NULL;
-  }
-
+/* Builds a store from the certificates [next] yields.  `X509_V_FLAG_PARTIAL_CHAIN`
+   lets a configured anchor that is not itself self-signed (an intermediate,
+   say) terminate the chain, which is what "these certificates are trusted"
+   means here. */
+static tls13_trust_store *trust_store_from(
+    X509 *(*next)(void *state), void *state) {
   X509_STORE *raw = X509_STORE_new();
   tls13_trust_store *trust_store = calloc(1u, sizeof *trust_store);
   if (raw == NULL || trust_store == NULL) {
@@ -160,22 +157,13 @@ tls13_trust_store *tls13_openssl_trust_store_new(
     return NULL;
   }
 
-  /* A trust-anchor bundle normally holds many roots, so read every certificate
-     in the PEM rather than only the first.  `X509_V_FLAG_PARTIAL_CHAIN` lets a
-     configured anchor that is not itself self-signed (an intermediate, say)
-     terminate the chain, which is what "these certificates are trusted" means
-     here. */
   size_t added = 0u;
-  BIO *bio = BIO_new_mem_buf(trust_anchor_pem, (int)trust_anchor_pem_len);
-  if (bio != NULL) {
-    X509 *anchor = NULL;
-    while ((anchor = PEM_read_bio_X509(bio, NULL, NULL, NULL)) != NULL) {
-      if (X509_STORE_add_cert(raw, anchor) == 1) {
-        added++;
-      }
-      X509_free(anchor);
+  X509 *anchor = NULL;
+  while ((anchor = next(state)) != NULL) {
+    if (X509_STORE_add_cert(raw, anchor) == 1) {
+      added++;
     }
-    BIO_free(bio);
+    X509_free(anchor);
   }
   ERR_clear_error();
 
@@ -190,6 +178,66 @@ tls13_trust_store *tls13_openssl_trust_store_new(
   trust_store->raw = raw;
   return trust_store;
 }
+
+typedef struct {
+  const unsigned char *cursor;
+  const unsigned char *end;
+  bool failed;
+} der_anchor_reader;
+
+static X509 *next_der_anchor(void *state) {
+  der_anchor_reader *reader = state;
+  if (reader->failed || reader->cursor >= reader->end) {
+    return NULL;
+  }
+  long remaining = (long)(reader->end - reader->cursor);
+  X509 *anchor = d2i_X509(NULL, &reader->cursor, remaining);
+  if (anchor == NULL) {
+    reader->failed = true;
+  }
+  return anchor;
+}
+
+static X509 *next_pem_anchor(void *state) {
+  return PEM_read_bio_X509((BIO *)state, NULL, NULL, NULL);
+}
+
+/* [trust_anchors_der] is a concatenation of DER certificates, the form of
+   TLS13.X509.Spec.trust_store; any trailing bytes that do not parse reject the
+   whole set. */
+tls13_trust_store *tls13_openssl_trust_store_new(
+    const uint8_t *trust_anchors_der,
+    size_t trust_anchors_der_len) {
+  if (trust_anchors_der == NULL || trust_anchors_der_len == 0u ||
+      trust_anchors_der_len > LONG_MAX) {
+    return NULL;
+  }
+  der_anchor_reader reader = {
+    trust_anchors_der, trust_anchors_der + trust_anchors_der_len, false};
+  tls13_trust_store *trust_store = trust_store_from(next_der_anchor, &reader);
+  if (trust_store != NULL && reader.failed) {
+    tls13_openssl_trust_store_free(trust_store);
+    return NULL;
+  }
+  return trust_store;
+}
+
+static tls13_trust_store *trust_store_from_pem(
+    const uint8_t *trust_anchor_pem,
+    size_t trust_anchor_pem_len) {
+  if (trust_anchor_pem == NULL || trust_anchor_pem_len == 0u ||
+      trust_anchor_pem_len > INT_MAX) {
+    return NULL;
+  }
+  BIO *bio = BIO_new_mem_buf(trust_anchor_pem, (int)trust_anchor_pem_len);
+  if (bio == NULL) {
+    return NULL;
+  }
+  tls13_trust_store *trust_store = trust_store_from(next_pem_anchor, bio);
+  BIO_free(bio);
+  return trust_store;
+}
+
 bool tls13_openssl_validate_leaf_der_with_store(
     const char *hostname,
     const tls13_trust_store *trust_store,
@@ -284,9 +332,11 @@ bool tls13_openssl_validate_leaf_der(
   }
 
   tls13_trust_store *trust_store =
-      tls13_openssl_trust_store_new(trust_anchor_pem, trust_anchor_pem_len);
-  bool ok = tls13_openssl_validate_leaf_der_with_store(
-      hostname, trust_store, 0u, leaf_der, leaf_der_len, out_peer);
+      trust_store_from_pem(trust_anchor_pem, trust_anchor_pem_len);
+  time_t now = time(NULL);
+  bool ok = now > (time_t)0 &&
+      tls13_openssl_validate_leaf_der_with_store(
+          hostname, trust_store, (size_t)now, leaf_der, leaf_der_len, out_peer);
   tls13_openssl_trust_store_free(trust_store);
   return ok;
 }

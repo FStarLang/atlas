@@ -24,9 +24,10 @@ bool tls13_openssl_validate_leaf_der(
     size_t leaf_der_len,
     tls13_peer_identity **out_peer);
 
+/* [trust_anchors_der] is a concatenation of DER certificates. */
 tls13_trust_store *tls13_openssl_trust_store_new(
-    const uint8_t *trust_anchor_pem,
-    size_t trust_anchor_pem_len);
+    const uint8_t *trust_anchors_der,
+    size_t trust_anchors_der_len);
 
 bool tls13_openssl_validate_leaf_der_with_store(
     const char *hostname,

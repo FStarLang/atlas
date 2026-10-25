@@ -672,6 +672,25 @@ val rsa_pss_rsae_sha256_verify:
   signature:signature ->
   GTot bool
 
+(** The hash of an RSASSA-PKCS1-v1_5 certificate signature. *)
+type pkcs1_hash =
+  | Pkcs1Sha256
+  | Pkcs1Sha384
+  | Pkcs1Sha512
+
+(** RSASSA-PKCS1-V1_5-VERIFY (RFC 8017 8.2.2) by an [rsaEncryption] key
+    [(modulus, exponent)]: the signature, read as a big-endian integer below
+    the modulus, raised to the exponent, is exactly the EMSA-PKCS1-v1_5
+    encoding (RFC 8017 9.2) of the message's DigestInfo.  Used only for
+    certificate signatures; TLS 1.3 never signs handshakes with it. *)
+val rsa_pkcs1_verify:
+  hash:pkcs1_hash ->
+  modulus:B.bytes ->
+  exponent:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
 (** ECDSA-VERIFY over P-256 with SHA-256 -- [ecdsa_secp256r1_sha256] -- by the
     affine point [point = x || y], of a DER-encoded signature. *)
 val ecdsa_secp256r1_sha256_verify:

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <limits>
 #include <utility>
 
@@ -56,6 +57,15 @@ class Tls13ClientSocket::Impl {
         config_.trust_context.size() >
             TLS13_CLIENT_ENGINE_MAX_TRUST_CONTEXT_LEN) {
       return kErrorInvalidArgument;
+    }
+    // Zero means "now". Fix it once so the engine and the authenticator
+    // validate at the same explicit time.
+    if (config_.validation_time_seconds == 0u) {
+      std::time_t now = std::time(nullptr);
+      if (now <= 0) {
+        return kErrorInvalidArgument;
+      }
+      config_.validation_time_seconds = static_cast<uint64_t>(now);
     }
 
     int error = tls13_client_engine_new(

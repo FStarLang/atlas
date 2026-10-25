@@ -59,7 +59,7 @@ The network theorem currently exposes:
 The local theorem currently exposes:
 
 - readiness through `next_local_action_sound`;
-- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.PublicKey` against the DER spec `TLS13.Crypto.Spec.certificate_raw_public_key`), leaving only chain validation (`TLS13.X509.Spec.validate_chain`) to OpenSSL;
+- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.PublicKey` against the DER spec `TLS13.Crypto.Spec.certificate_raw_public_key`), leaving only chain validation to OpenSSL, now held to the transparent RFC 5280/6125 profile `TLS13.X509.Spec.validate_chain` over DER trust anchors;
 - local app-send supported-profile projection: successful local app sends are bounded to one protected record;
 - outgoing record parse facts and protected seal/write-key projections for ClientFinished, app data, close_notify, and KeyUpdate.
 
@@ -149,7 +149,7 @@ For the near-term end-to-end theorem, the first option is the right path.
 The active Parser/Serializer hooks are verified F*/Pulse code now, so the final theorem should include a concise audited list of the remaining trusted assumptions:
 
 - HACL/crypto wrappers and entropy/X25519;
-- X509 chain validation and leaf public-key extraction;
+- X509 chain validation (OpenSSL, against the transparent `TLS13.X509.Spec.validate_chain`) and PEM trust-anchor decoding;
 - Pulse runtime/extraction/runtime shims;
 - the TCP bridge used by the concrete driver for connect/read/write.
 

@@ -856,7 +856,7 @@ define link_benchmark
 endef
 
 $(BENCHMARK_BINARY): test/perf/tls13_bench.c $(BENCHMARK_OBJ_STAMP) \
-  runtime/tls13_client_driver.c runtime/tls13_client_driver.h \
+  runtime/tls13_client_driver.c runtime/tls13_client_driver.h runtime/tls13_pem.h \
   runtime/tls13_server_driver.c runtime/tls13_server_driver.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_BENCHMARK_OBJECTS) | check-deps
@@ -864,7 +864,7 @@ $(BENCHMARK_BINARY): test/perf/tls13_bench.c $(BENCHMARK_OBJ_STAMP) \
 
 $(BENCHMARK_PROFILE_BINARY): test/perf/tls13_bench.c \
   $(BENCHMARK_PROFILE_OBJ_STAMP) \
-  runtime/tls13_client_driver.c runtime/tls13_client_driver.h \
+  runtime/tls13_client_driver.c runtime/tls13_client_driver.h runtime/tls13_pem.h \
   runtime/tls13_server_driver.c runtime/tls13_server_driver.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_PROFILE_OBJECTS) | check-deps
@@ -969,7 +969,7 @@ test/certs/ec-chain.pem test/certs/ec-leaf.key test/certs/ec-leaf.der: $(TEST_CE
 
 test/test_extracted_client_openssl_echo: \
   test/unit/test_extracted_client_openssl_echo.c $(TLS13_BUNDLE_OBJS_STAMP) \
-  runtime/tls13_client_driver.c runtime/tls13_client_driver.h \
+  runtime/tls13_client_driver.c runtime/tls13_client_driver.h runtime/tls13_pem.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_TEST_OBJECTS) | check-deps
 	$(CC) $(CFLAGS_COMMON) \
@@ -995,7 +995,7 @@ test-extracted-client-openssl-echo: test-openssl-echo
 # explicitly via test/interop/sweep.sh.
 test/test_interop_client: \
   test/unit/test_interop_client.c $(TLS13_BUNDLE_OBJS_STAMP) \
-  runtime/tls13_client_driver.c runtime/tls13_client_driver.h \
+  runtime/tls13_client_driver.c runtime/tls13_client_driver.h runtime/tls13_pem.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_TEST_OBJECTS) | check-deps
 	$(CC) $(CFLAGS_COMMON) \
@@ -1020,7 +1020,7 @@ interop-client: test/test_interop_client
 test/test_extracted_client_engine_openssl_echo: \
   test/unit/test_extracted_client_engine_openssl_echo.c \
   $(TLS13_BUNDLE_OBJS_STAMP) \
-  runtime/tls13_client_engine.c runtime/tls13_client_engine.h \
+  runtime/tls13_client_engine.c runtime/tls13_client_engine.h runtime/tls13_pem.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_TEST_OBJECTS) | check-deps
 	$(CC) $(CFLAGS_COMMON) \
@@ -1283,7 +1283,7 @@ test/test_chromium_client_socket_demo: \
   test/unit/test_chromium_client_socket_demo.cc \
   runtime/chromium/tls13_client_socket.cc \
   runtime/chromium/tls13_client_socket.h \
-  runtime/tls13_client_engine.h \
+  runtime/tls13_client_engine.h runtime/tls13_pem.h \
   $(TLS13_PROVIDER_ARCHIVE) $(CHROMIUM_DEMO_OBJ_STAMP) | check-deps
 	$(CXX) -std=c++17 $(CFLAGS_COMMON) \
 	  runtime/chromium/tls13_client_socket.cc \
@@ -1476,7 +1476,7 @@ test-openssl-sclient: test/test_extracted_server_openssl_client \
 # test is the one ATLAS actually sends.
 test/test_atlas_loopback: \
   test/unit/test_atlas_loopback.c $(TLS13_BUNDLE_OBJS_STAMP) \
-  runtime/tls13_client_driver.c runtime/tls13_client_driver.h \
+  runtime/tls13_client_driver.c runtime/tls13_client_driver.h runtime/tls13_pem.h \
   runtime/tls13_server_driver.c runtime/tls13_server_driver.h \
   $(ECHO_STUB_SOURCES) $(ECHO_STUB_HEADERS) $(HACL_RANDOM_SOURCES) \
   $(HACL_TEST_OBJECTS) | check-deps

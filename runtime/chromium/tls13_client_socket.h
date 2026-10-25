@@ -65,7 +65,9 @@ class ServerAuthenticator {
 
 struct ClientSocketConfig {
   std::string hostname;
+  // Concatenated DER trust anchors the authenticator is held to.
   std::vector<uint8_t> trust_context;
+  // Zero means the current time at Connect.
   uint64_t validation_time_seconds = 0;
 };
 
