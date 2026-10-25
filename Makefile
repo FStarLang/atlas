@@ -904,13 +904,13 @@ $(TLS13_BUNDLE_OBJS_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_INIT) $(ECHO_ST
   test test-extracted-client-openssl-echo test-openssl-echo \
   test-client-engine-openssl-echo test-chromium-client-demo \
   test-openssl-http-preconnect test-openssl-sclient test-crypto \
-  test-atlas-loopback test-server-matrix \
+  test-atlas-loopback test-server-matrix test-hybrid-interop \
   test-key-schedule-bindings check-c-stubs
 
 test: verify verify-samples check-c-stubs test-crypto test-key-schedule-bindings \
   test-openssl-echo test-client-engine-openssl-echo \
   test-chromium-client-demo test-openssl-http-preconnect test-openssl-sclient \
-  test-atlas-loopback test-server-matrix
+  test-atlas-loopback test-server-matrix test-hybrid-interop
 
 # ── Echo C Stub Syntax Check ───────────────────────────────────────
 check-c-stubs: | check-deps
@@ -1531,8 +1531,7 @@ test-server-matrix: test/test_server_interop_matrix \
 
 # ── X25519MLKEM768 (RFC 10024) interop with OpenSSL 3.5 ────────────
 # Both verified endpoints against an OpenSSL 3.5 peer pinned to the hybrid
-# group.  Skipped (not failed) without tools/openssl-3.5; build it with
-# scripts/build-openssl35.sh.  See test/interop/hybrid.sh.
+# group, using the system OpenSSL (>= 3.5).  See test/interop/hybrid.sh.
 test/test_hybrid_server_peer: \
   test/unit/test_hybrid_server_peer.c $(TLS13_BUNDLE_OBJS_STAMP) \
   runtime/tls13_server_driver.c runtime/tls13_server_driver.h \

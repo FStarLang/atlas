@@ -1,11 +1,11 @@
 {
-  "name": "agentic-tls",
+  "name": "atlas",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "workspaceFolder": "/workspaces/agentic-tls",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/agentic-tls,type=bind",
+  "workspaceFolder": "/workspaces/atlas",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/atlas,type=bind",
   "remoteUser": "vscode",
 
   // Build the EverParse/QuackyDucky toolchain (F*, KaRaMeL, QuackyDucky,

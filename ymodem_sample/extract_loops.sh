@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Extract the verified YMODEM driver loops (+ their deps) to a single C bundle.
 set -e
-EP=${EVERPARSE_HOME:-/home/taramana/agentic-tls/tools/everparse}
+EP=${EVERPARSE_HOME:-/workspaces/atlas/tools/everparse}
 FS=$EP/opt/FStar/bin/fstar.exe
 LP=$EP/lib/everparse/lowparse
 cd "$(dirname "$0")"

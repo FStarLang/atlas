@@ -214,7 +214,7 @@ fn serialize_server_hello
 **Resolve opam fetch blocker**, then:
 
 ```bash
-cd /home/nswamy/workspace/agentic-tls
+cd /home/nswamy/workspace/atlas
 ./setup.sh  # Retry - may succeed if network/repo issue resolved
 # OR
 cd tools/everparse && make quackyducky -j$(nproc)  # Manual build

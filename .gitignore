@@ -1,7 +1,6 @@
 tools/FStar/
 tools/everparse/
 tools/hacl-pulse/
-tools/openssl-3.5/
 _cache/
 _output/
 _extract/
@@ -9,7 +8,7 @@ generated-checked.tar.gz
 *.checked
 *.krml
 *.smt2
-.depend
+.depend*
 test/test_crypto
 test/test_openssl_stubs
 test/test_wire_stubs

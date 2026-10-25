@@ -64,7 +64,7 @@ still missing to interoperate with arbitrary real-world HTTP/1.1 peers.
 - Request-target forms: query strings, percent-encoding, absolute-form (proxy),
   authority-form (`CONNECT`), asterisk-form (`OPTIONS`).
 - HTTP/1.0 fallback; HTTP/2 / HTTP/3.
-- **HTTP-over-TLS** integration (this lives in `agentic-tls`).
+- **HTTP-over-TLS** integration (this lives in `atlas`).
 
 ## Priority
 

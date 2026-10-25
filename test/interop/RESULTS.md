@@ -20,7 +20,7 @@ The sweep tables below were recorded before the X25519MLKEM768 offer was
 added (H10 of `docs/hybrid-kem-plan.md`), when the offer was X25519 and
 secp256r1 only.  The hybrid share makes the ClientHello about 1.2 KB larger
 and has not been swept against this catalog yet.  Locally,
-`make test-hybrid-interop` checks it against OpenSSL 3.5.
+`make test-hybrid-interop` checks it against the system OpenSSL 3.5.
 
 The **oracle** column is OpenSSL constrained to *exactly* that offer, with
 hostname verification on.  A host that the oracle cannot reach is out of reach
