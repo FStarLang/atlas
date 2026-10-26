@@ -55,6 +55,7 @@ unmaintained and does not fit the Comparse-based wire formats.
 | `TLS13.Security.Oracle` | done | `key_oracle` (secrets by index), `real_oracle` over a (EC)DHE table, and `true_dhe_table`. `session_coherent o st` says every secret of a session is the oracle's value. The real oracle is coherent with every reachable session. |
 | `TLS13.Security.Game` | done | Stage 2 multi-session key-indistinguishability game, parametric in the key oracle and the Test answer (see below). |
 | `TLS13.Security.KeyIndistinguishability` | done | Stage 2 theorems: oracle locality, freshness/authentication invariant, ideal-world key indistinguishability. |
+| `TLS13.Security.Faithfulness` | done | Stage 0c: every reachable spec client/server is an honest game session run on its own messages against the real oracle (see below). |
 
 Indices use transcript bytes, not hashes. Collapsing them to hashes is
 exactly the SHA-256 collision-resistance step, so keeping bytes makes that
@@ -82,9 +83,14 @@ The game is a multi-session key exchange with server authentication.
 - **Ideal signatures (H5).** A server logs `(identity, {exchange; transcript
   up to CV})`. A client accepts a CertificateVerify for an uncorrupted
   identity only if that entry is logged; for a corrupted identity it accepts
-  anything.
-- **Finished MACs.** These are `HMAC(fk, Hash(transcript))`, with `fk` from
-  the oracle at `IdxFinishedKey`.
+  anything. The client's signature decision is a parameter of
+  `step_server_flight_with`. `step` uses the ideal one, and faithfulness is
+  stated for any decision that accepts the spec's (valid) signature.
+- **Finished messages.** A Finished carries `HMAC(fk, Hash(transcript))`,
+  with `fk` from the oracle at `IdxFinishedKey`. It is serialized exactly as
+  in the spec transcript. A **received Finished is not checked**, because
+  the spec does not check it either (see Known limitations). Key secrecy does
+  not depend on that check.
 - **Oracle use.** Every key the game uses is an oracle query at a public
   index, logged in the game state. Each query is one of:
   - finished keys;
@@ -126,13 +132,42 @@ the other coordinates. Hence the real-key and random-key worlds are
 from the theorem to the probability statement is the only part argued on
 paper.
 
-### Relation to the spec (stage 0)
+### Relation to the spec (stage 0c, `TLS13.Security.Faithfulness`)
 
-The game is an abstraction of the spec's handshake. `TLS13.Security.Oracle`
-and `TLS13.Security.KeyIndex` show that the spec's keys are the real oracle's
-values at the same public indices, so with `real_oracle` the game's keys are
-the spec's keys. The game does not yet replay full spec traces; see the
-roadmap.
+`TLS13.Security.Oracle` and `TLS13.Security.KeyIndex` show that the spec's
+keys are the real oracle's values at the state's public indices. The
+faithfulness lemmas show that the game computes the same indices and outputs
+as the spec.
+
+- **Transcripts.** `spec_flight_of` serializes the messages an endpoint
+  holds. The game's byte transcripts built from them are exactly the spec's
+  checkpoints (`lemma_flight_transcripts`). So the game session's traffic
+  indices equal `state_traffic_index`, and with `real_oracle` the game's keys
+  are the spec's keys.
+- **Server** (`lemma_server_faithful`). Take a reachable, non-failed server
+  that has sent its Finished, with game coins `n` equal to its ephemeral
+  key. Fed its own messages, `step_start_server` answers with the spec's
+  server share and **the spec's Finished message**, and reaches
+  `SWaitFinished` at the spec's transcripts. This needs the server's
+  handshake traffic *secret* at its index (`lemma_server_hs_secret_at_index`),
+  not just its key and IV.
+- **Client** (`lemma_client_faithful`). Take a reachable client that accepted
+  the server Finished, with game coins `s` equal to its ephemeral key. Its
+  game session reaches `CAccepted` at the spec's transcripts. The spec's
+  CertificateVerify is a valid signature by the validated peer over the
+  game's CertificateVerify transcript, so the real signature check accepts
+  it. Hop H5 replaces that check by the ideal one.
+
+The proofs rest on a new reachability invariant `fin_inv`, private to the
+module. It combines:
+- the spec's checkpoint-ready invariant, reached via `friend
+  TLS13.ConnectionState.Lemmas`;
+- client CertificateVerify validity over TH_before_CV;
+- the server's stored Finished, and its handshake write secret at TH_SH.
+
+These lemmas are per session. Composing them into "a network attacker
+against many spec endpoints is a game adversary" is a direct simulation and
+is argued on paper.
 
 ## Paper reductions (the hops)
 
@@ -143,7 +178,7 @@ Each hop replaces a real oracle by an ideal one at honest indices.
 | H1 | X25519 / P-256 | PRF-ODH (or GDH in ROM) for HKDF-Extract keyed by DHE | `IdxHandshake k` for honest `k` (both shares from honest ephemerals) |
 | H2 | HKDF-Extract / Expand | dual-PRF / PRF | `IdxMaster`, `IdxTraffic`, `IdxAeadKey`, `IdxAeadIV`, `IdxFinishedKey` |
 | H3 | SHA-256 | collision resistance | distinct transcripts ⇒ distinct hash inputs (justifies byte indices) |
-| H4 | HMAC-SHA256 | PRF / EUF-CMA | Finished verification by table |
+| H4 | HMAC-SHA256 | PRF / EUF-CMA | Finished verification by table (needed only once the spec checks a received Finished; see Known limitations) |
 | H5 | Signature scheme | EUF-CMA | CertificateVerify verification for uncorrupted keys. Also uses the fact that the CV-signed transcript encodes both key shares (injective message formats), so signing `Hash(transcript)` determines the game's `{exchange; transcript}` content (with H3) |
 | H6 | ChaCha20-Poly1305 | IND-CPA + INT-CTXT | (optional) record layer, for AEAD-key secrecy beyond key indistinguishability |
 
@@ -154,14 +189,15 @@ Each hop replaces a real oracle by an ideal one at honest indices.
 3. ~~Stage 2a: game, ideal oracle, honest indices.~~
 4. ~~Stage 2b: authentication (tested exchange is honest via ideal signatures).~~
 5. ~~Stage 2c: non-interference / key indistinguishability in the ideal world.~~
-6. Stage 0c: faithfulness. Show that a real-oracle game run corresponds to
-   legal spec executions of its honest sessions (`connection_state_consistent`
-   shadows). This means constructing spec events from game steps, using
-   `KeyIndex` for the key-dependent fields.
+6. ~~Stage 0c: faithfulness. Spec endpoints are honest game sessions on
+   their own messages (`TLS13.Security.Faithfulness`).~~
 7. Matching conversations: an accepting client has a unique honest server
    session with the same transcript. This needs distinct ephemeral shares,
    a bad event of negligible probability.
-8. Optional: ideal AEAD, for record-layer confidentiality and integrity, and
+8. Spec/impl fix: verify a received Finished on the reachable paths, and pin
+   the client's sent Finished. Then restore the Finished checks in the game,
+   with H4.
+9. Optional: ideal AEAD, for record-layer confidentiality and integrity, and
    KeyUpdate epochs.
 
 ## Known limitations
@@ -170,6 +206,21 @@ Each hop replaces a real oracle by an ideal one at honest indices.
   A server can fail between deriving the shared secret and sending the
   ServerHello, and then the exchange has no public index. Such a session
   never emits keyed output, so the game need not route it.
+- **Finished is not verified by the spec.** The atomic `Received Finished`
+  arms reached in practice have no MAC check:
+  - client at `HsCertificateVerifyVerified`;
+  - server at `HsServerFinishedSent`.
+
+  Only key-presence guards apply. The `LocalVerifyFinished` /
+  `LocalVerifyClientFinished` arms that do check are unreachable. The impl
+  mirrors this: `can_receive_server_finished` checks stage, keys and
+  lengths only. The spec also does not pin the client's *sent* Finished,
+  although the impl computes it correctly.
+
+  Key secrecy is unaffected: Finished values derive from handshake secrets
+  that are never revealed. But there is no key confirmation. In the game,
+  the server accepts any client Finished, and a client's acceptance rests
+  on the CertificateVerify alone. Roadmap item 8 fixes this.
 - **KeyUpdate.** After a KeyUpdate the application slots hold iterates of the
   first-epoch secret (`KeyMaterial.application_traffic_secret_after`). These
   are not indexed yet.
@@ -179,6 +230,7 @@ Each hop replaces a real oracle by an ideal one at honest indices.
 ## Validation
 
 ```
-make _cache/TLS13.Security.KeyIndistinguishability.fst.checked   # checks all security modules
+make _cache/TLS13.Security.KeyIndistinguishability.fst.checked   # game and theorems
+make _cache/TLS13.Security.Faithfulness.fst.checked              # stage 0c
 make check-admits                                # must report 0
 ```
