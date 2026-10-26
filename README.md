@@ -13,6 +13,10 @@ A proof of a TLS server is in progress and its design is currently in
 
 - `TLS_SERVER_DESIGN_AND_IMPL.md` - TLS design extended to server with a key derivation agreement theorem
 
+Computational key secrecy (in progress, layered over the spec in `src/spec/security/`):
+
+- `SECURITY_DESIGN_AND_IMPL.md` - security game design, assumptions, and status
+
 ## Scope
 
 The TLS proof target is the supported client profile: TLS 1.3, X25519,
