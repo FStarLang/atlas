@@ -1896,7 +1896,7 @@ fn can_receive_client_hello
     false
   }
 }
-fn can_receive_client_finished
+fn can_receive_client_finished_pre
   (c:connection_state)
   (#fin:erased GFin.finished)
   (#st0:erased CS.connection_state)
@@ -1915,12 +1915,17 @@ fn can_receive_client_finished
             B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 36 <=
               max_transcript_len /\
             U64.fits (st0.CS.cs_model.CS.model_record.CS.record_read.R.seq + 1) /\
-            CS.legal_event
+            ((match st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic with
+              | Some hs ->
+                H.verify_finished hs.CS.traffic_secret
+                  (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript) (Ghost.reveal fin)
+              | None -> False) ==>
+             CS.legal_event
               st0.CS.cs_model
               (CS.ConnNetworkEvent {
                 CL.message_direction = CL.Received;
                 CL.message_value = M.TlsHandshake (M.Finished (Ghost.reveal fin));
-              }))
+              })))
 {
   unfold (connection_exactly c st0);
   unfold (connection_model_exactly c st0.CS.cs_model);
@@ -2031,12 +2036,17 @@ fn can_receive_client_finished
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic));
   assert (pure (ok ==>
     U64.fits (st0.CS.cs_model.CS.model_record.CS.record_read.R.seq + 1)));
-  assert (pure (ok ==> CS.legal_event
+  assert (pure (ok ==> ((match st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic with
+              | Some hs ->
+                H.verify_finished hs.CS.traffic_secret
+                  (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript) (Ghost.reveal fin)
+              | None -> False) ==>
+             CS.legal_event
     st0.CS.cs_model
     (CS.ConnNetworkEvent {
       CL.message_direction = CL.Received;
       CL.message_value = M.TlsHandshake (M.Finished (Ghost.reveal fin));
-    })));
+    }))));
 
   fold (sized_bytes_exactly
     c.handshake.transcript
@@ -2067,6 +2077,157 @@ fn can_receive_client_finished
   fold (connection_model_exactly c st0.CS.cs_model);
   fold (connection_exactly c st0);
   ok
+}
+
+fn client_finished_mac_matches
+  (c:connection_state)
+  (lfin:IM.finished)
+  (#fin:erased GFin.finished)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           IM.is_valid_finished lfin (Ghost.reveal fin) **
+           pure (Some?
+             st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic)
+  returns ok: bool
+  ensures connection_exactly c st0 **
+          IM.is_valid_finished lfin (Ghost.reveal fin) **
+          pure (ok ==>
+            (match st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic with
+             | Some hs ->
+               H.verify_finished hs.CS.traffic_secret
+                 (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript) (Ghost.reveal fin)
+             | None -> False))
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  with cv_verified server_finished_verified. _;
+  unfold (IM.is_valid_finished lfin (Ghost.reveal fin));
+  with received_verify_data. _;
+  assert (pure (Seq.equal received_verify_data (Sem.finished_verify_data (Ghost.reveal fin))));
+
+  unfold (key_schedule_exactly
+    c.handshake.keys
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+  unfold (traffic_key_material_exactly
+    c.handshake.keys.client_handshake_traffic
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic);
+  with hs_present hs_secret hs_alg hs_key hs_iv. _;
+  lemma_traffic_key_material_match_present_of_some
+    hs_present
+    hs_secret
+    hs_alg
+    hs_key
+    hs_iv
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic;
+  assert (pure (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic ==
+    Some {
+      CS.traffic_secret = hs_secret;
+      CS.traffic_alg = hs_alg;
+      CS.traffic_key = CryptoSpec.logical_key hs_alg hs_key;
+      CS.traffic_iv = hs_iv;
+    }));
+
+  unfold (sized_bytes_exactly
+    c.handshake.transcript
+    max_transcript_len
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+  with transcript_storage transcript_len. _;
+  let transcript_len_runtime = !c.handshake.transcript.len;
+  assert (pure (transcript_len_runtime == transcript_len));
+  assert (pure (byte_prefix_matches
+    transcript_storage
+    transcript_len_runtime
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript));
+  Seq.lemma_eq_intro
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript
+    (Seq.slice transcript_storage 0 (SZ.v transcript_len_runtime));
+
+  V.to_array_pts_to c.handshake.transcript.bytes;
+  let mut transcript_hash = [| 0uy; 32sz |];
+  Crypto.sha256_prefix
+    (V.vec_to_array c.handshake.transcript.bytes)
+    transcript_len_runtime
+    transcript_hash;
+  V.to_vec_pts_to c.handshake.transcript.bytes;
+  with transcript_hash_bytes. assert (ArrPts.pts_to transcript_hash transcript_hash_bytes);
+  assert (pure (transcript_hash_bytes == Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript));
+
+  V.to_array_pts_to c.handshake.keys.client_handshake_traffic.traffic_secret;
+  let mut expected_verify_data = [| 0uy; 32sz |];
+  KS.finished_verify_data
+    (V.vec_to_array c.handshake.keys.client_handshake_traffic.traffic_secret)
+    transcript_hash
+    expected_verify_data;
+  V.to_vec_pts_to c.handshake.keys.client_handshake_traffic.traffic_secret;
+  with expected_verify_data_bytes.
+    assert (ArrPts.pts_to expected_verify_data expected_verify_data_bytes);
+  assert (pure (expected_verify_data_bytes ==
+    K.finished_verify_data
+      hs_secret
+      (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript)));
+
+  V.to_array_pts_to lfin.IM.finished_verify_data;
+  let ok = Crypto.equal32 expected_verify_data (V.vec_to_array lfin.IM.finished_verify_data);
+  V.to_vec_pts_to lfin.IM.finished_verify_data;
+  assert (pure (ok ==> Seq.equal expected_verify_data_bytes received_verify_data));
+  assert (pure (ok ==> Seq.equal
+    (Sem.finished_verify_data (Ghost.reveal fin))
+    (K.finished_verify_data
+      hs_secret
+      (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript))));
+
+  fold (sized_bytes_exactly
+    c.handshake.transcript
+    max_transcript_len
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+  fold (traffic_key_material_exactly
+    c.handshake.keys.client_handshake_traffic
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic);
+  fold (key_schedule_exactly
+    c.handshake.keys
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+  fold (IM.is_valid_finished lfin (Ghost.reveal fin));
+  fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
+  ok
+}
+
+fn can_receive_client_finished
+  (c:connection_state)
+  (lfin:IM.finished)
+  (#fin:erased GFin.finished)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           IM.is_valid_finished lfin (Ghost.reveal fin)
+  returns ok: bool
+  ensures connection_exactly c st0 **
+          IM.is_valid_finished lfin (Ghost.reveal fin) **
+          pure (ok ==> st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsServerFinishedSent /\
+            st0.CS.cs_model.CS.model_config.CS.config_role == CS.ServerEndpoint /\
+            st0.CS.cs_model.CS.model_handshake.CS.hs_client_finished == None /\
+            Some?
+              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_client_handshake_traffic /\
+            Some?
+              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_master_secret /\
+            B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 36 <=
+              max_transcript_len /\
+            U64.fits (st0.CS.cs_model.CS.model_record.CS.record_read.R.seq + 1) /\
+            CS.legal_event
+              st0.CS.cs_model
+              (CS.ConnNetworkEvent {
+                CL.message_direction = CL.Received;
+                CL.message_value = M.TlsHandshake (M.Finished (Ghost.reveal fin));
+              }))
+{
+  let ready = can_receive_client_finished_pre c #fin;
+  if ready {
+    client_finished_mac_matches c lfin #fin
+  } else {
+    false
+  }
 }
 
 (**
@@ -5212,7 +5373,7 @@ fn can_verify_certificate_signature
   fold (connection_exactly c st0);
   ok
 }
-fn can_receive_server_finished
+fn can_receive_server_finished_pre
   (c:connection_state)
   (#fin:erased GFin.finished)
   (#st0:erased CS.connection_state)
@@ -5230,12 +5391,17 @@ fn can_receive_server_finished
             B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 36 <=
               max_transcript_len /\
             U64.fits (st0.CS.cs_model.CS.model_record.CS.record_read.R.seq + 1) /\
-            CS.legal_event
+            ((match st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic with
+              | Some hs ->
+                H.verify_finished hs.CS.traffic_secret
+                  (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript) (Ghost.reveal fin)
+              | None -> False) ==>
+             CS.legal_event
               st0.CS.cs_model
               (CS.ConnNetworkEvent {
                 CL.message_direction = CL.Received;
                 CL.message_value = M.TlsHandshake (M.Finished (Ghost.reveal fin));
-              }))
+              })))
 {
   unfold (connection_exactly c st0);
   unfold (connection_model_exactly c st0.CS.cs_model);
@@ -5333,12 +5499,17 @@ fn can_receive_server_finished
     st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic));
   assert (pure (ok ==>
     U64.fits (st0.CS.cs_model.CS.model_record.CS.record_read.R.seq + 1)));
-  assert (pure (ok ==> CS.legal_event
+  assert (pure (ok ==> ((match st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic with
+              | Some hs ->
+                H.verify_finished hs.CS.traffic_secret
+                  (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript) (Ghost.reveal fin)
+              | None -> False) ==>
+             CS.legal_event
     st0.CS.cs_model
     (CS.ConnNetworkEvent {
       CL.message_direction = CL.Received;
       CL.message_value = M.TlsHandshake (M.Finished (Ghost.reveal fin));
-    })));
+    }))));
 
   fold (sized_bytes_exactly
     c.handshake.transcript
@@ -5366,6 +5537,156 @@ fn can_receive_server_finished
   fold (connection_model_exactly c st0.CS.cs_model);
   fold (connection_exactly c st0);
   ok
+}
+
+fn server_finished_mac_matches
+  (c:connection_state)
+  (lfin:IM.finished)
+  (#fin:erased GFin.finished)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           IM.is_valid_finished lfin (Ghost.reveal fin) **
+           pure (Some?
+             st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic)
+  returns ok: bool
+  ensures connection_exactly c st0 **
+          IM.is_valid_finished lfin (Ghost.reveal fin) **
+          pure (ok ==>
+            (match st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic with
+             | Some hs ->
+               H.verify_finished hs.CS.traffic_secret
+                 (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript) (Ghost.reveal fin)
+             | None -> False))
+{
+  unfold (connection_exactly c st0);
+  unfold (connection_model_exactly c st0.CS.cs_model);
+  unfold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  with cv_verified server_finished_verified. _;
+  unfold (IM.is_valid_finished lfin (Ghost.reveal fin));
+  with received_verify_data. _;
+  assert (pure (Seq.equal received_verify_data (Sem.finished_verify_data (Ghost.reveal fin))));
+
+  unfold (key_schedule_exactly
+    c.handshake.keys
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+  unfold (traffic_key_material_exactly
+    c.handshake.keys.server_handshake_traffic
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic);
+  with hs_present hs_secret hs_alg hs_key hs_iv. _;
+  lemma_traffic_key_material_match_present_of_some
+    hs_present
+    hs_secret
+    hs_alg
+    hs_key
+    hs_iv
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic;
+  assert (pure (st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic ==
+    Some {
+      CS.traffic_secret = hs_secret;
+      CS.traffic_alg = hs_alg;
+      CS.traffic_key = CryptoSpec.logical_key hs_alg hs_key;
+      CS.traffic_iv = hs_iv;
+    }));
+
+  unfold (sized_bytes_exactly
+    c.handshake.transcript
+    max_transcript_len
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+  with transcript_storage transcript_len. _;
+  let transcript_len_runtime = !c.handshake.transcript.len;
+  assert (pure (transcript_len_runtime == transcript_len));
+  assert (pure (byte_prefix_matches
+    transcript_storage
+    transcript_len_runtime
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript));
+  Seq.lemma_eq_intro
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript
+    (Seq.slice transcript_storage 0 (SZ.v transcript_len_runtime));
+
+  V.to_array_pts_to c.handshake.transcript.bytes;
+  let mut transcript_hash = [| 0uy; 32sz |];
+  Crypto.sha256_prefix
+    (V.vec_to_array c.handshake.transcript.bytes)
+    transcript_len_runtime
+    transcript_hash;
+  V.to_vec_pts_to c.handshake.transcript.bytes;
+  with transcript_hash_bytes. assert (ArrPts.pts_to transcript_hash transcript_hash_bytes);
+  assert (pure (transcript_hash_bytes == Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript));
+
+  V.to_array_pts_to c.handshake.keys.server_handshake_traffic.traffic_secret;
+  let mut expected_verify_data = [| 0uy; 32sz |];
+  KS.finished_verify_data
+    (V.vec_to_array c.handshake.keys.server_handshake_traffic.traffic_secret)
+    transcript_hash
+    expected_verify_data;
+  V.to_vec_pts_to c.handshake.keys.server_handshake_traffic.traffic_secret;
+  with expected_verify_data_bytes.
+    assert (ArrPts.pts_to expected_verify_data expected_verify_data_bytes);
+  assert (pure (expected_verify_data_bytes ==
+    K.finished_verify_data
+      hs_secret
+      (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript)));
+
+  V.to_array_pts_to lfin.IM.finished_verify_data;
+  let ok = Crypto.equal32 expected_verify_data (V.vec_to_array lfin.IM.finished_verify_data);
+  V.to_vec_pts_to lfin.IM.finished_verify_data;
+  assert (pure (ok ==> Seq.equal expected_verify_data_bytes received_verify_data));
+  assert (pure (ok ==> Seq.equal
+    (Sem.finished_verify_data (Ghost.reveal fin))
+    (K.finished_verify_data
+      hs_secret
+      (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript))));
+
+  fold (sized_bytes_exactly
+    c.handshake.transcript
+    max_transcript_len
+    st0.CS.cs_model.CS.model_handshake.CS.hs_transcript);
+  fold (traffic_key_material_exactly
+    c.handshake.keys.server_handshake_traffic
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic);
+  fold (key_schedule_exactly
+    c.handshake.keys
+    st0.CS.cs_model.CS.model_handshake.CS.hs_keys);
+  fold (IM.is_valid_finished lfin (Ghost.reveal fin));
+  fold (handshake_exactly c.handshake st0.CS.cs_model.CS.model_handshake);
+  fold (connection_model_exactly c st0.CS.cs_model);
+  fold (connection_exactly c st0);
+  ok
+}
+
+fn can_receive_server_finished
+  (c:connection_state)
+  (lfin:IM.finished)
+  (#fin:erased GFin.finished)
+  (#st0:erased CS.connection_state)
+  requires connection_exactly c st0 **
+           IM.is_valid_finished lfin (Ghost.reveal fin)
+  returns ok: bool
+  ensures connection_exactly c st0 **
+          IM.is_valid_finished lfin (Ghost.reveal fin) **
+          pure (ok ==> st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsCertificateVerifyVerified /\
+            st0.CS.cs_model.CS.model_handshake.CS.hs_server_finished == None /\
+            Some?
+              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic /\
+            Some?
+              st0.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_master_secret /\
+            B.length st0.CS.cs_model.CS.model_handshake.CS.hs_transcript + 36 <=
+              max_transcript_len /\
+            U64.fits (st0.CS.cs_model.CS.model_record.CS.record_read.R.seq + 1) /\
+            CS.legal_event
+              st0.CS.cs_model
+              (CS.ConnNetworkEvent {
+                CL.message_direction = CL.Received;
+                CL.message_value = M.TlsHandshake (M.Finished (Ghost.reveal fin));
+              }))
+{
+  let ready = can_receive_server_finished_pre c #fin;
+  if ready {
+    server_finished_mac_matches c lfin #fin
+  } else {
+    false
+  }
 }
 fn can_verify_server_finished
   (c:connection_state)

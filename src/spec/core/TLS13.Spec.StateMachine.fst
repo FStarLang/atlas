@@ -2044,14 +2044,28 @@ let legal_handshake_message
   | CL.Received, M.CertificateVerify _, ControlHandshaking HsCertificateValidated ->
     model.model_config.config_role == ClientEndpoint /\
     Some? hs.hs_validated_peer
-  | CL.Received, M.Finished _, ControlHandshaking HsCertificateVerifyVerified ->
+  | CL.Received, M.Finished fin, ControlHandshaking HsCertificateVerifyVerified ->
     model.model_config.config_role == ClientEndpoint /\
     Some? hs.hs_keys.ks_server_handshake_traffic /\
-    Some? hs.hs_keys.ks_master_secret
-  | CL.Received, M.Finished _, ControlHandshaking HsServerFinishedSent ->
+    Some? hs.hs_keys.ks_master_secret /\
+    // RFC 8446 §4.4.4: the server Finished must be the HMAC, under the server
+    // handshake traffic secret's finished key, of the transcript through the
+    // CertificateVerify.
+    (match hs.hs_keys.ks_server_handshake_traffic with
+     | Some server_hs ->
+       H.verify_finished server_hs.traffic_secret (Tr.hash hs.hs_transcript) fin
+     | None -> False)
+  | CL.Received, M.Finished fin, ControlHandshaking HsServerFinishedSent ->
     model.model_config.config_role == ServerEndpoint /\
     Some? hs.hs_keys.ks_client_handshake_traffic /\
     Some? hs.hs_keys.ks_master_secret /\
+    // RFC 8446 §4.4.4: the client Finished must be the HMAC, under the client
+    // handshake traffic secret's finished key, of the transcript through the
+    // server Finished.
+    (match hs.hs_keys.ks_client_handshake_traffic with
+     | Some client_hs ->
+       H.verify_finished client_hs.traffic_secret (Tr.hash hs.hs_transcript) fin
+     | None -> False) /\
     // Stream-integrity fix: a server may not accept the client Finished (and
     // thereby atomically enter ControlApplicationData) until it has installed its
     // own application WRITE key.  Faithful to TLS 1.3 (both application traffic
@@ -2062,8 +2076,15 @@ let legal_handshake_message
     // it can process the client Finished, so this guard is always satisfied by the
     // implementation.
     Some? hs.hs_keys.ks_server_application_traffic
-  | CL.Sent, M.Finished _, ControlHandshaking HsServerFinishedVerified ->
+  | CL.Sent, M.Finished fin, ControlHandshaking HsServerFinishedVerified ->
     model.model_config.config_role == ClientEndpoint /\
+    // RFC 8446 §4.4.4: the client Finished is the HMAC, under the client
+    // handshake traffic secret's finished key, of the transcript through the
+    // server Finished.
+    (match hs.hs_keys.ks_client_handshake_traffic with
+     | Some client_hs ->
+       H.verify_finished client_hs.traffic_secret (Tr.hash hs.hs_transcript) fin
+     | None -> False) /\
     // The client may not declare the handshake finished while it still holds
     // unconsumed protected-handshake plaintext.  Without this guard the client
     // reaches ControlApplicationData with a non-empty pending buffer, and

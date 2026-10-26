@@ -819,7 +819,7 @@ fn handle_handshake_message
             (M.TlsHandshake (M.Finished fin))
             (Ghost.reveal 'raw_bytes)));
 
-          let ready = CQ.can_receive_server_finished c #fin;
+          let ready = CQ.can_receive_server_finished c lfin #fin;
           if ready {
             CN.mark_received_server_finished c raw lfin #fin;
             let resp = {

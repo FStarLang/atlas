@@ -3635,6 +3635,12 @@ val lemma_received_server_finished_state_evolves
         st.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_server_handshake_traffic /\
       Some?
         st.CS.cs_model.CS.model_handshake.CS.hs_keys.CS.ks_master_secret /\
+      CS.legal_event
+        st.CS.cs_model
+        (CS.ConnNetworkEvent {
+          CL.message_direction = CL.Received;
+          CL.message_value = M.TlsHandshake (M.Finished fin);
+        }) /\
       CS.event_raw_delta_legal
         st.CS.cs_model
                   (CS.ConnNetworkEvent {

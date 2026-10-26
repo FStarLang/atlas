@@ -634,15 +634,20 @@ fn try_send_client_finished
     let written_raw =
       Ser.serialize_client_finished_outputs
         c.records.write
+        #fin
         lfin
         serialized_finished
         network_out
         network_out_len;
-    with sent_fin serialized_finished_bytes network_out_bytes. _;
+    with serialized_finished_bytes network_out_bytes. _;
     fold (record_layer_exactly c.records st0.CS.cs_model.CS.model_record);
     fold (connection_model_exactly c st0.CS.cs_model);
     fold (connection_exactly c st0);
-    let fin_sent = Ghost.hide sent_fin;
+    let fin_sent = fin;
+    assert (pure (H.verify_finished
+      ch_secret
+      (Tr.hash st0.CS.cs_model.CS.model_handshake.CS.hs_transcript)
+      (Ghost.reveal fin_sent)));
     assert (pure (B.length serialized_finished_bytes == 36));
     assert (pure (Seq.equal
       serialized_finished_bytes

@@ -305,6 +305,12 @@ Current phase: **Phase 6 server buffer/event API and theorem surface**.
   new `can_receive_client_finished` query, calls the focused verified handler,
   and exposes the exact `received_client_finished_state` post-state plus the
   consumed-prefix raw-byte equality on successful `StepOk`.
+- [x] Received `Finished` MACs are now part of `legal_handshake_message`
+  (RFC 8446 §4.4.4). Previously the reachable protected-delivery path never
+  checked them, because the `LocalVerify*Finished` arms are unreachable.
+  `can_receive_client_finished` and `can_receive_server_finished` take the
+  parsed `lfin` and compare it with HMAC(finished_key, transcript hash). The
+  client's sent `Finished` is likewise pinned to its expected value.
 - [x] Began factoring the oversized server Pulse implementation: receive-event
   handlers and public byte dispatch now live in
   `TLS13.Impl.Server.Network.fsti`/`.fst` behind a focused interface, while

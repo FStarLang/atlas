@@ -1368,13 +1368,14 @@ fn serialize_protected_handshake_record
 
 fn serialize_client_finished_outputs
   (write_state: Rec.record_state)
+  (#fin: erased GFin.finished)
   (lfin: L.finished)
   (handshake_out: array U8.t)
   (network_out: array U8.t)
   (network_out_len: SZ.t)
   requires Rec.is_record_state write_state 'record_write **
-           (exists* fin. L.is_valid_finished lfin fin **
-             pure (Some? (R.seal
+           L.is_valid_finished lfin (Ghost.reveal fin) **
+           pure (Some? (R.seal
                'record_write
                (TLS13.Spec.StateMachine.Canonical.application_data_record_header 53)
                {
@@ -1382,16 +1383,16 @@ fn serialize_client_finished_outputs
                  R.fragment =
                    TLS13.Spec.StateMachine.Canonical.sent_tls_inner_plaintext_fragment
                      (M.TlsHandshake (M.Finished fin));
-               }))) **
+               })) **
            pts_to handshake_out 'old_handshake **
            pts_to network_out 'old_network **
            pure (B.length 'old_handshake == 36 /\
                 B.length 'old_network == SZ.v network_out_len /\
                 58 <= SZ.v network_out_len)
   returns written: (n:SZ.t{SZ.v n <= SZ.v network_out_len})
-  ensures exists* fin handshake_bytes network_bytes.
+  ensures exists* handshake_bytes network_bytes.
           Rec.is_record_state write_state 'record_write **
-          L.is_valid_finished lfin fin **
+          L.is_valid_finished lfin (Ghost.reveal fin) **
           pts_to handshake_out handshake_bytes **
           pts_to network_out network_bytes **
           pure (B.length handshake_bytes == 36 /\
