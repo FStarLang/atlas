@@ -46,48 +46,107 @@ let client_cv_ok (m:connection_model) : prop =
          Some (H.certificate_verify_input (Tr.hash th))
      | None -> False))
 
-(** A server's Finished is the correct MAC under its handshake traffic
-    secret over the transcript up to the CertificateVerify. *)
-let server_fin_ok (m:connection_model) : prop =
+(** For either role, a stored server Finished (sent or received) is the
+    correct MAC under the server handshake traffic secret over the transcript
+    up to the CertificateVerify, and a stored client Finished is the correct
+    MAC under the client handshake traffic secret over the transcript up to
+    the server Finished. *)
+let fin_ok (m:connection_model) : prop =
   let hs = m.model_handshake in
-  match hs.hs_server_finished with
-  | None -> True
-  | Some sf ->
-    (match hs.hs_keys.ks_server_handshake_traffic, th_at TH_before_SF m with
-     | Some shs, Some th -> H.verify_finished shs.traffic_secret (Tr.hash th) sf == true
-     | _, _ -> False)
+  (match hs.hs_server_finished with
+   | None -> True
+   | Some sf ->
+     (match hs.hs_keys.ks_server_handshake_traffic, th_at TH_before_SF m with
+      | Some shs, Some th -> H.verify_finished shs.traffic_secret (Tr.hash th) sf == true
+      | _, _ -> False)) /\
+  (match hs.hs_client_finished with
+   | None -> True
+   | Some cf ->
+     (match hs.hs_keys.ks_client_handshake_traffic, th_at TH_SF m with
+      | Some chs, Some th -> H.verify_finished chs.traffic_secret (Tr.hash th) cf == true
+      | _, _ -> False))
 
-(** A server's handshake write secret is the one at its handshake secret and
-    the transcript up to the ServerHello. *)
-let server_hs_secret_ok (m:connection_model) : prop =
+(** The handshake secret is derived only with the shared secret, and the
+    handshake traffic secrets are the ones at the handshake secret and the
+    transcript up to the ServerHello. *)
+let hs_secrets_ok (m:connection_model) : prop =
   let keys = m.model_handshake.hs_keys in
-  match keys.ks_server_handshake_traffic with
-  | None -> True
-  | Some shs ->
-    (match keys.ks_handshake_secret, th_at TH_SH m with
-     | Some hsec, Some th ->
-       shs.traffic_secret == K.server_handshake_traffic_secret hsec (Tr.hash th)
-     | _, _ -> False)
+  (None? keys.ks_shared_secret ==> None? keys.ks_handshake_secret) /\
+  (match keys.ks_server_handshake_traffic with
+   | None -> True
+   | Some shs ->
+     (match keys.ks_handshake_secret, th_at TH_SH m with
+      | Some hsec, Some th ->
+        shs.traffic_secret == K.server_handshake_traffic_secret hsec (Tr.hash th)
+      | _, _ -> False)) /\
+  (match keys.ks_client_handshake_traffic with
+   | None -> True
+   | Some chs ->
+     (match keys.ks_handshake_secret, th_at TH_SH m with
+      | Some hsec, Some th ->
+        chs.traffic_secret == K.client_handshake_traffic_secret hsec (Tr.hash th)
+      | _, _ -> False))
 
 let fin_inv (m:connection_model) : prop =
   let role = m.model_config.config_role in
   application_traffic_install_checkpoint_ready_for_role role m /\
   (role == ClientEndpoint ==> client_cv_ok m) /\
-  (role == ServerEndpoint ==> server_hs_secret_ok m /\ server_fin_ok m)
+  hs_secrets_ok m /\ fin_ok m
 
 #push-options "--z3rlimit 100 --fuel 1 --ifuel 1"
+let lemma_step_checkpoint (m0:connection_model) (ev:conn_event) (m1:connection_model)
+  : Lemma
+      (requires fin_inv m0 /\ legal_event m0 ev /\ step_model m0 ev == Some m1)
+      (ensures m1.model_config == m0.model_config /\
+               application_traffic_install_checkpoint_ready_for_role m0.model_config.config_role m1)
+=
+  lemma_step_model_preserves_config m0 ev m1;
+  lemma_step_model_preserves_application_traffic_install_checkpoint_ready_for_role
+    m0.model_config.config_role m0 ev m1
+
+let lemma_step_client_cv (m0:connection_model) (ev:conn_event) (m1:connection_model)
+  : Lemma
+      (requires fin_inv m0 /\ legal_event m0 ev /\ step_model m0 ev == Some m1 /\
+                m0.model_config.config_role == ClientEndpoint)
+      (ensures client_cv_ok m1)
+=
+  lemma_step_checkpoint m0 ev m1;
+  match ev with
+  | ConnLocalEvent local -> ()
+  | ConnNetworkEvent msg -> ()
+  | ConnProtectedHandshake step -> ()
+
+let lemma_step_hs_secrets (m0:connection_model) (ev:conn_event) (m1:connection_model)
+  : Lemma
+      (requires fin_inv m0 /\ legal_event m0 ev /\ step_model m0 ev == Some m1)
+      (ensures hs_secrets_ok m1)
+=
+  lemma_step_checkpoint m0 ev m1;
+  match ev with
+  | ConnLocalEvent local -> ()
+  | ConnNetworkEvent msg -> ()
+  | ConnProtectedHandshake step -> ()
+
+let lemma_step_fin_ok (m0:connection_model) (ev:conn_event) (m1:connection_model)
+  : Lemma
+      (requires fin_inv m0 /\ legal_event m0 ev /\ step_model m0 ev == Some m1)
+      (ensures fin_ok m1)
+=
+  lemma_step_checkpoint m0 ev m1;
+  match ev with
+  | ConnLocalEvent local -> ()
+  | ConnNetworkEvent msg -> ()
+  | ConnProtectedHandshake step -> ()
+
 let lemma_step_fin_inv (m0:connection_model) (ev:conn_event) (m1:connection_model)
   : Lemma
       (requires fin_inv m0 /\ legal_event m0 ev /\ step_model m0 ev == Some m1)
       (ensures fin_inv m1)
 =
-  let role = m0.model_config.config_role in
-  lemma_step_model_preserves_config m0 ev m1;
-  lemma_step_model_preserves_application_traffic_install_checkpoint_ready_for_role role m0 ev m1;
-  match ev with
-  | ConnLocalEvent local -> ()
-  | ConnNetworkEvent msg -> ()
-  | ConnProtectedHandshake step -> ()
+  lemma_step_checkpoint m0 ev m1;
+  if m0.model_config.config_role = ClientEndpoint then lemma_step_client_cv m0 ev m1;
+  lemma_step_hs_secrets m0 ev m1;
+  lemma_step_fin_ok m0 ev m1
 #pop-options
 
 let lemma_initial_fin_inv (cfg:connection_config)
@@ -157,21 +216,19 @@ let lemma_session_indices
 
 (** {1 Server} *)
 
-(** A server's handshake write secret is the real one at its index. *)
-let lemma_server_hs_secret_at_index (st:connection_state)
+let lemma_hs_secret_at_index (st:connection_state) (label:traffic_label)
   : Lemma
       (requires
         connection_state_consistent st /\
-        st.cs_model.model_config.config_role == ServerEndpoint /\
         Some? st.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? (state_kex_index st) /\
-        Some? st.cs_model.model_handshake.hs_keys.ks_server_handshake_traffic /\
+        Some? (hs_traffic st.cs_model.model_handshake.hs_keys label) /\
         Some? (th_at TH_SH st.cs_model))
       (ensures (
         let keys = st.cs_model.model_handshake.hs_keys in
-        (Some?.v keys.ks_server_handshake_traffic).traffic_secret ==
+        (Some?.v (hs_traffic keys label)).traffic_secret ==
           real_traffic (Some?.v keys.ks_shared_secret)
-            (hs_index (Some?.v (state_kex_index st)) ServerTraffic
+            (hs_index (Some?.v (state_kex_index st)) label
                       (Some?.v (th_at TH_SH st.cs_model)))))
 =
   lemma_consistent_fin_inv st;
@@ -202,7 +259,14 @@ let lemma_server_faithful
           r == RServerFlight (k.kx_server_share, f.f_sf) /\
           session_at gst' n == Some x /\
           (forall (e:traffic_epoch) (l:traffic_label).
-            session_traffic_index x e l == state_traffic_index st e l)
+            session_traffic_index x e l == state_traffic_index st e l) /\
+          (match st.cs_model.model_handshake.hs_client_finished with
+           | Some cf ->
+             let (gst'', r') = step_client_finished (real_oracle dhe) gst' n (finished_msg cf) in
+             r' == RAccept true /\
+             session_at gst'' n ==
+               Some (ServerSession (k.kx_group, id, SAccepted (k, f_th_sh f, f_th_sf f)))
+           | None -> True)
         | _, _ -> False))
 =
   let hs = st.cs_model.model_handshake in
@@ -213,7 +277,7 @@ let lemma_server_faithful
   assert (Some? (spec_flight_of hs));
   let Some f = spec_flight_of hs in
   lemma_flight_transcripts hs;
-  lemma_server_hs_secret_at_index st;
+  lemma_hs_secret_at_index st ServerTraffic;
   let Some shs = hs.hs_keys.ks_server_handshake_traffic in
   let fk = K.finished_key shs.traffic_secret in
   Seq.lemma_eq_elim sf (K.finished_verify_data shs.traffic_secret (Tr.hash (f_th_pre f)));
@@ -222,7 +286,20 @@ let lemma_server_faithful
   lemma_snoc_index gst.sessions
     (ServerSession (k.kx_group, id, SWaitFinished (k, f_th_sh f, f_th_sf f))) n;
   lemma_session_indices st k (f_th_sh f) (f_th_sf f)
-    (ServerSession (k.kx_group, id, SWaitFinished (k, f_th_sh f, f_th_sf f)))
+    (ServerSession (k.kx_group, id, SWaitFinished (k, f_th_sh f, f_th_sf f)));
+  match hs.hs_client_finished with
+  | Some cf ->
+    lemma_hs_secret_at_index st ClientTraffic;
+    let Some chs = hs.hs_keys.ks_client_handshake_traffic in
+    Seq.lemma_eq_elim cf (K.finished_verify_data chs.traffic_secret (Tr.hash (f_th_sf f)));
+    assert (cf == mac (K.finished_key chs.traffic_secret) (f_th_sf f));
+    assert (real_oracle dhe (IdxFinishedKey (hs_index k ClientTraffic (f_th_sh f))) ==
+            Some (K.finished_key chs.traffic_secret <: B.bytes));
+    let gst' = fst (step_start_server cs (real_oracle dhe) gst k.kx_group id
+                      k.kx_client_share f.f_ch f.f_sh f.f_ee_cert f.f_cv) in
+    lemma_update_nth_index gst'.sessions n
+      (ServerSession (k.kx_group, id, SAccepted (k, f_th_sh f, f_th_sf f))) n
+  | None -> ()
 
 
 (** {1 Client} *)
@@ -252,15 +329,18 @@ let lemma_client_faithful
           client_signature_valid st.cs_model.model_handshake f /\
           (forall (sc:sig_check).
             sc gst1 peer k (f_th_cv f) f.f_cv == true ==>
-            (match session_at
-                     (fst (step_server_flight_with sc (real_oracle dhe) gst1 s
-                             f.f_ee_cert f.f_cv f.f_sf)) s with
-             | Some x ->
-               x == ClientSession (k.kx_group, peer,
-                      CAccepted (k, f_th_sh f, f_th_sf f, not (L.mem peer gst1.corrupted))) /\
-               (forall (e:traffic_epoch) (l:traffic_label).
-                 session_traffic_index x e l == state_traffic_index st e l)
-             | None -> False))
+            (let (gst2, r2) =
+               step_server_flight_with sc (real_oracle dhe) gst1 s f.f_ee_cert f.f_cv f.f_sf in
+             (match session_at gst2 s with
+              | Some x ->
+                x == ClientSession (k.kx_group, peer,
+                       CAccepted (k, f_th_sh f, f_th_sf f, not (L.mem peer gst1.corrupted))) /\
+                (forall (e:traffic_epoch) (l:traffic_label).
+                  session_traffic_index x e l == state_traffic_index st e l)
+              | None -> False) /\
+             (match st.cs_model.model_handshake.hs_client_finished with
+              | Some cf -> r2 == RClientFinished (finished_msg cf)
+              | None -> True)))
         | _, _ -> False))
 =
   let hs = st.cs_model.model_handshake in
@@ -270,6 +350,22 @@ let lemma_client_faithful
   assert (Some? (spec_flight_of hs));
   let Some f = spec_flight_of hs in
   lemma_flight_transcripts hs;
+  let Some sf = hs.hs_server_finished in
+  lemma_hs_secret_at_index st ServerTraffic;
+  let Some shs = hs.hs_keys.ks_server_handshake_traffic in
+  Seq.lemma_eq_elim sf (K.finished_verify_data shs.traffic_secret (Tr.hash (f_th_pre f)));
+  assert (sf == mac (K.finished_key shs.traffic_secret) (f_th_pre f));
+  assert (real_oracle dhe (IdxFinishedKey (hs_index k ServerTraffic (f_th_sh f))) ==
+          Some (K.finished_key shs.traffic_secret <: B.bytes));
+  (match hs.hs_client_finished with
+   | Some cf ->
+     lemma_hs_secret_at_index st ClientTraffic;
+     let Some chs = hs.hs_keys.ks_client_handshake_traffic in
+     Seq.lemma_eq_elim cf (K.finished_verify_data chs.traffic_secret (Tr.hash (f_th_sf f)));
+     assert (cf == mac (K.finished_key chs.traffic_secret) (f_th_sf f));
+     assert (real_oracle dhe (IdxFinishedKey (hs_index k ClientTraffic (f_th_sh f))) ==
+             Some (K.finished_key chs.traffic_secret <: B.bytes))
+   | None -> ());
   lemma_update_nth_index gst.sessions s
     (ClientSession (k.kx_group, peer, CWaitFlight (k, f_th_sh f))) s;
   let gst1 = fst (step_server_hello cs gst s k.kx_server_share f.f_sh) in

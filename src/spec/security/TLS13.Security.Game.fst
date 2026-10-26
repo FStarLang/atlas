@@ -20,11 +20,9 @@ module TLS13.Security.Game
     (EUF-CMA) of the design document.
   * Finished MACs are computed with finished keys obtained from the oracle,
     and sent as serialized Finished messages, exactly as in the spec
-    transcript.  A received Finished is NOT checked: the spec state machine
-    (and hence the implementation) accepts any peer Finished on its reachable
-    paths, so the game does the same to remain a faithful abstraction (see
-    [TLS13.Security.Faithfulness] and the design document).  Key secrecy does
-    not depend on the check.
+    transcript.  A received Finished is checked against the MAC under the
+    peer's finished key, as the spec (RFC 8446 §4.4.4) requires; a mismatch
+    fails the session.
   * The client's signature decision is a parameter of
     [step_server_flight_with]: the real game verifies the CertificateVerify
     against the peer's key, the ideal game ([ideal_sig_check]) consults the
@@ -254,8 +252,9 @@ let ideal_sig_check : sig_check =
   fun st peer k th_cv _ ->
     L.mem peer st.corrupted || L.mem (peer, { sig_kex = k; sig_transcript = th_cv }) st.sig_log
 
-(** The client processes the server's encrypted flight.  The server Finished
-    is appended to the transcript but not checked (see the module comment). *)
+(** The client processes the server's encrypted flight: it checks the
+    CertificateVerify with [sc] and the server Finished under the server
+    finished key, then answers with its own Finished. *)
 let step_server_flight_with
   (sc:sig_check) (o:key_oracle) (st:game_state) (s:nat) (ee_cert cv sf:B.bytes)
   : GTot (game_state & response) =
@@ -264,14 +263,18 @@ let step_server_flight_with
     let th_cv = B.append th_sh ee_cert in
     let corrupt = L.mem peer st.corrupted in
     if sc st peer k th_cv cv then
-      let th_sf = B.append (B.append th_cv cv) sf in
-      let i = IdxFinishedKey (hs_index k ClientTraffic th_sh) in
-      let st1 = { st with log = LKey i :: st.log } in
-      (match o i with
-       | Some fkc ->
-         (set_session st1 s (ClientSession (g, peer, CAccepted (k, th_sh, th_sf, not corrupt))),
-          RClientFinished (finished_msg (mac fkc th_sf)))
-       | None -> (set_session st1 s (ClientSession (g, peer, CFailed)), RFail))
+      let th_pre = B.append th_cv cv in
+      let th_sf = B.append th_pre sf in
+      let is = IdxFinishedKey (hs_index k ServerTraffic th_sh) in
+      let ic = IdxFinishedKey (hs_index k ClientTraffic th_sh) in
+      let st1 = { st with log = LKey ic :: LKey is :: st.log } in
+      (match o is, o ic with
+       | Some fks, Some fkc ->
+         if sf = finished_msg (mac fks th_pre) then
+           (set_session st1 s (ClientSession (g, peer, CAccepted (k, th_sh, th_sf, not corrupt))),
+            RClientFinished (finished_msg (mac fkc th_sf)))
+         else (set_session st1 s (ClientSession (g, peer, CFailed)), RFail)
+       | _, _ -> (set_session st1 s (ClientSession (g, peer, CFailed)), RFail))
     else (set_session st s (ClientSession (g, peer, CFailed)), RFail)
   | _ -> (st, RFail)
 
@@ -279,12 +282,19 @@ let step_server_flight (o:key_oracle) (st:game_state) (s:nat) (ee_cert cv sf:B.b
   : GTot (game_state & response) =
   step_server_flight_with ideal_sig_check o st s ee_cert cv sf
 
-(** The server receives the client Finished; like the spec, it does not check it. *)
-let step_client_finished (st:game_state) (s:nat) (cf:B.bytes)
+(** The server checks the client Finished under the client finished key. *)
+let step_client_finished (o:key_oracle) (st:game_state) (s:nat) (cf:B.bytes)
   : GTot (game_state & response) =
   match session_at st s with
   | Some (ServerSession (g, id, SWaitFinished (k, th_sh, th_sf))) ->
-    (set_session st s (ServerSession (g, id, SAccepted (k, th_sh, th_sf))), RAccept true)
+    let i = IdxFinishedKey (hs_index k ClientTraffic th_sh) in
+    let st1 = { st with log = LKey i :: st.log } in
+    (match o i with
+     | Some fkc ->
+       if cf = finished_msg (mac fkc th_sf) then
+         (set_session st1 s (ServerSession (g, id, SAccepted (k, th_sh, th_sf))), RAccept true)
+       else (set_session st1 s (ServerSession (g, id, SFailed)), RFail)
+     | None -> (set_session st1 s (ServerSession (g, id, SFailed)), RFail))
   | _ -> (st, RFail)
 
 (** Reveal of the handshake record key and IV. *)
@@ -336,7 +346,7 @@ let step (cs:coins) (o:key_oracle) (a:answer_oracle) (q:query) (st:game_state)
   | QStartServer (g, id, client_share, ch, sh, ee_cert, cv) ->
     step_start_server cs o st g id client_share ch sh ee_cert cv
   | QServerFlight (s, ee_cert, cv, sf) -> step_server_flight o st s ee_cert cv sf
-  | QClientFinished (s, cf) -> step_client_finished st s cf
+  | QClientFinished (s, cf) -> step_client_finished o st s cf
   | QCorrupt id -> ({ st with corrupted = id :: st.corrupted }, ROk)
   | QRevealRecordKeys (s, label, alg) -> step_reveal_record_keys o st s label alg
   | QReveal (s, label) -> step_reveal o st s label

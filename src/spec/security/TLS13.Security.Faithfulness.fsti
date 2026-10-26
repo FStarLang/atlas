@@ -9,14 +9,12 @@ module TLS13.Security.Faithfulness
   * the transcripts the game computes from the serialized messages are the
     spec's transcript checkpoints, so the game's traffic indices are the
     spec's ([state_traffic_index]) and the game's keys are the spec's keys;
-  * a server's Finished is the game's MAC under the real finished key;
+  * both Finished messages are the game's MACs under the real finished
+    keys, so the game's Finished checks accept exactly the spec's messages
+    and each endpoint's own Finished is the game's response;
   * a client accepts a CertificateVerify only if it is a valid signature by
     the validated peer over the game's CertificateVerify transcript (the
     "real" signature check of [Game.step_server_flight_with]).
-
-  The spec does not check a received Finished on its reachable paths, nor
-  pin a client's own sent Finished; the game is weakened accordingly (see
-  the design document).
 **)
 
 module B = TLS13.Bytes
@@ -92,22 +90,27 @@ val lemma_flight_transcripts (hs:handshake_state)
         transcript_checkpoint_bytes TH_before_SF hs == Some (f_th_pre f) /\
         transcript_checkpoint_bytes TH_SF hs == Some (f_th_sf f)))
 
-(** A server's handshake write secret is the real one at its index (the
-    key-index lemma covers only keys and IVs). *)
-val lemma_server_hs_secret_at_index (st:connection_state)
+(** The handshake traffic material for a direction. *)
+let hs_traffic (keys:key_schedule_state) (label:traffic_label) : option traffic_key_material =
+  match label with
+  | ClientTraffic -> keys.ks_client_handshake_traffic
+  | ServerTraffic -> keys.ks_server_handshake_traffic
+
+(** An endpoint's handshake traffic secrets are the real ones at their
+    indices (the key-index lemma covers only keys and IVs). *)
+val lemma_hs_secret_at_index (st:connection_state) (label:traffic_label)
   : Lemma
       (requires
         connection_state_consistent st /\
-        st.cs_model.model_config.config_role == ServerEndpoint /\
         Some? st.cs_model.model_handshake.hs_keys.ks_shared_secret /\
         Some? (state_kex_index st) /\
-        Some? st.cs_model.model_handshake.hs_keys.ks_server_handshake_traffic /\
+        Some? (hs_traffic st.cs_model.model_handshake.hs_keys label) /\
         Some? (th_at TH_SH st.cs_model))
       (ensures (
         let keys = st.cs_model.model_handshake.hs_keys in
-        (Some?.v keys.ks_server_handshake_traffic).traffic_secret ==
+        (Some?.v (hs_traffic keys label)).traffic_secret ==
           real_traffic (Some?.v keys.ks_shared_secret)
-            (hs_index (Some?.v (state_kex_index st)) ServerTraffic
+            (hs_index (Some?.v (state_kex_index st)) label
                       (Some?.v (th_at TH_SH st.cs_model)))))
 
 (** {1 Faithfulness} *)
@@ -115,8 +118,9 @@ val lemma_server_hs_secret_at_index (st:connection_state)
 (** A reachable server that has sent its Finished is an honest game server
     session run on the spec's messages against the real oracle: the game
     answers with the spec's server share and Finished message, and the
-    session's traffic indices are the spec's.  Coins of session [n] are the
-    server's ephemeral key. *)
+    session's traffic indices are the spec's.  If the server has accepted a
+    client Finished, the game session accepts the same message.  Coins of
+    session [n] are the server's ephemeral key. *)
 val lemma_server_faithful
   (st:connection_state) (cs:coins) (dhe:dhe_table) (gst:game_state) (id:ident)
   : Lemma
@@ -142,7 +146,14 @@ val lemma_server_faithful
           r == RServerFlight (k.kx_server_share, f.f_sf) /\
           session_at gst' n == Some x /\
           (forall (e:traffic_epoch) (l:traffic_label).
-            session_traffic_index x e l == state_traffic_index st e l)
+            session_traffic_index x e l == state_traffic_index st e l) /\
+          (match st.cs_model.model_handshake.hs_client_finished with
+           | Some cf ->
+             let (gst'', r') = step_client_finished (real_oracle dhe) gst' n (finished_msg cf) in
+             r' == RAccept true /\
+             session_at gst'' n ==
+               Some (ServerSession (k.kx_group, id, SAccepted (k, f_th_sh f, f_th_sf f)))
+           | None -> True)
         | _, _ -> False))
 
 (** A reachable client that accepted the server Finished is an honest game
@@ -150,7 +161,9 @@ val lemma_server_faithful
     session reaches [CAccepted] at the spec's transcripts under any signature
     decision that accepts the CertificateVerify, and the spec's
     CertificateVerify is a valid signature by the validated peer over the
-    game's transcript -- so the real signature check accepts it. *)
+    game's transcript -- so the real signature check accepts it.  The game
+    accepts the spec's server Finished, and answers with the client Finished
+    the spec sends. *)
 val lemma_client_faithful
   (st:connection_state) (cs:coins) (dhe:dhe_table) (gst:game_state) (s:nat) (peer:ident)
   : Lemma
@@ -176,13 +189,16 @@ val lemma_client_faithful
           client_signature_valid st.cs_model.model_handshake f /\
           (forall (sc:sig_check).
             sc gst1 peer k (f_th_cv f) f.f_cv == true ==>
-            (match session_at
-                     (fst (step_server_flight_with sc (real_oracle dhe) gst1 s
-                             f.f_ee_cert f.f_cv f.f_sf)) s with
-             | Some x ->
-               x == ClientSession (k.kx_group, peer,
-                      CAccepted (k, f_th_sh f, f_th_sf f, not (L.mem peer gst1.corrupted))) /\
-               (forall (e:traffic_epoch) (l:traffic_label).
-                 session_traffic_index x e l == state_traffic_index st e l)
-             | None -> False))
+            (let (gst2, r2) =
+               step_server_flight_with sc (real_oracle dhe) gst1 s f.f_ee_cert f.f_cv f.f_sf in
+             (match session_at gst2 s with
+              | Some x ->
+                x == ClientSession (k.kx_group, peer,
+                       CAccepted (k, f_th_sh f, f_th_sf f, not (L.mem peer gst1.corrupted))) /\
+                (forall (e:traffic_epoch) (l:traffic_label).
+                  session_traffic_index x e l == state_traffic_index st e l)
+              | None -> False) /\
+             (match st.cs_model.model_handshake.hs_client_finished with
+              | Some cf -> r2 == RClientFinished (finished_msg cf)
+              | None -> True)))
         | _, _ -> False))

@@ -269,6 +269,7 @@ let lemma_inv_start_server
   | None ->
     lemma_inv_add_session cs st1 (ServerSession (g, id, SFailed))
 
+#push-options "--z3rlimit 80"
 let lemma_inv_server_flight
   (cs:coins) (o:key_oracle) (st:game_state) (s:nat) (ee_cert cv sf:B.bytes)
   : Lemma
@@ -291,16 +292,18 @@ let lemma_inv_server_flight
         (ClientSession (g, peer, CAccepted (k, th_sh, th_sf, not corrupt)))
     end
   | _ -> ()
+#pop-options
 
-let lemma_inv_client_finished (cs:coins) (st:game_state) (s:nat) (cf:B.bytes)
+let lemma_inv_client_finished (cs:coins) (o:key_oracle) (st:game_state) (s:nat) (cf:B.bytes)
   : Lemma
       (requires inv cs st)
-      (ensures inv cs (fst (step_client_finished st s cf)))
+      (ensures inv cs (fst (step_client_finished o st s cf)))
 =
   let n = L.length st.sessions in
   match session_at st s with
   | Some (ServerSession (g, id, SWaitFinished (k, th_sh, th_sf))) ->
-    lemma_sessions_ok_update cs n st.sessions s (ServerSession (g, id, SAccepted (k, th_sh, th_sf)))
+    lemma_sessions_ok_update cs n st.sessions s (ServerSession (g, id, SAccepted (k, th_sh, th_sf)));
+    lemma_sessions_ok_update cs n st.sessions s (ServerSession (g, id, SFailed))
   | _ -> ()
 
 let lemma_inv_test (cs:coins) (a:answer_oracle) (st:game_state) (s:nat) (label:traffic_label)
@@ -331,7 +334,7 @@ let lemma_inv_step (cs:coins) (o:key_oracle) (a:answer_oracle) (q:query) (st:gam
   | QStartServer (g, id, client_share, ch, sh, ee_cert, cv) ->
     lemma_inv_start_server cs o st g id client_share ch sh ee_cert cv
   | QServerFlight (s, ee_cert, cv, sf) -> lemma_inv_server_flight cs o st s ee_cert cv sf
-  | QClientFinished (s, cf) -> lemma_inv_client_finished cs st s cf
+  | QClientFinished (s, cf) -> lemma_inv_client_finished cs o st s cf
   | QCorrupt _ -> ()
   | QRevealRecordKeys _ -> ()
   | QReveal _ -> ()
@@ -359,11 +362,12 @@ let lemma_server_flight_length (o:key_oracle) (st:game_state) (s:nat) (ee_cert c
       (ClientSession (g, peer, CAccepted (k, th_sh, th_sf, not (L.mem peer st.corrupted))))
   | _ -> ()
 
-let lemma_client_finished_length (st:game_state) (s:nat) (cf:B.bytes)
-  : Lemma (same_length st (step_client_finished st s cf))
+let lemma_client_finished_length (o:key_oracle) (st:game_state) (s:nat) (cf:B.bytes)
+  : Lemma (same_length st (step_client_finished o st s cf))
 = match session_at st s with
   | Some (ServerSession (g, id, SWaitFinished (k, th_sh, th_sf))) ->
-    lemma_update_nth_length st.sessions s (ServerSession (g, id, SAccepted (k, th_sh, th_sf)))
+    lemma_update_nth_length st.sessions s (ServerSession (g, id, SAccepted (k, th_sh, th_sf)));
+    lemma_update_nth_length st.sessions s (ServerSession (g, id, SFailed))
   | _ -> ()
 
 let lemma_step_sessions_bound (cs:coins) (o:key_oracle) (a:answer_oracle) (q:query) (st:game_state)
@@ -388,7 +392,7 @@ let lemma_step_sessions_bound (cs:coins) (o:key_oracle) (a:answer_oracle) (q:que
   | QServerFlight (s, ee_cert, cv, sf) ->
     lemma_server_flight_length o st s ee_cert cv sf
   | QClientFinished (s, cf) ->
-    lemma_client_finished_length st s cf
+    lemma_client_finished_length o st s cf
   | _ -> ()
 
 let rec lemma_run_inv (cs:coins) (o:key_oracle) (a:answer_oracle) (adv:adversary) (n:nat)
