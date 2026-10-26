@@ -171,6 +171,8 @@ ROOT_FILES = \
   src/spec/properties/TLS13.ConnectionState.AppDataBufferEmpty.fst \
   src/spec/properties/TLS13.ConnectionState.ServerHelloSelectionLink.fst \
   src/spec/properties/TLS13.ConnectionState.HandshakeSeqZero.fst \
+  src/spec/security/TLS13.Security.KeyIndistinguishability.fst \
+  src/spec/security/TLS13.Security.Faithfulness.fst \
   src/impl/TLS13.System.Ordering.fst \
   src/impl/TLS13.Impl.Client.Driver.fst \
   src/impl/TLS13.Impl.Server.Driver.fst \
