@@ -16,7 +16,6 @@ module ES = TLS13.Spec.Endpoint.Server
 module IO = Common.TCP
 module IM = TLS13.Impl.Messages
 module ID = FStar.IndefiniteDescription
-module O = TLS13.OpenSSL
 module Seq = FStar.Seq
 module SeqP = FStar.Seq.Properties
 module S = TLS13.Impl.Server

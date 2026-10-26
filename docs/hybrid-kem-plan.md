@@ -4,7 +4,7 @@ Scope, as agreed: the hybrid group **X25519MLKEM768 (0x11EC)** offered and
 accepted **alongside** X25519 (and the existing secp256r1), on **both the client
 and the server**, with the key-agreement and pairing theorems **fully verified**.
 HelloRetryRequest and SecP256r1MLKEM768 / SecP384r1MLKEM1024 are out of scope
-(hacl-pulse has no P-384).  The staging discipline is G2's
+(hacl-pulse had no P-384 key agreement when this plan was written).  The staging discipline is G2's
 ([server-p256-plan.md](server-p256-plan.md), D5): every commit is green, with
 0 errors and 0 admits, and only the last stage turns the group on.
 
@@ -276,7 +276,6 @@ unconditionally.  Sites that enumerate groups:
 * `test/unit/test_server_interop_matrix.c:74-80,775,815`
 * `test/openssl_{http,echo}_server.c`
 * `test/perf/tls13_bench.c`
-* `test/interop/host_root.py:35`
 * `test/interop/RESULTS.md`
 
 ## 5. Risks

@@ -10,7 +10,6 @@ module C = TLS13.Impl.Client
 module DS = TLS13.Impl.Client.Driver.State
 module IO = Common.TCP
 module MR = Pulse.Lib.MonotonicGhostRef
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module SZ = FStar.SizeT
 
@@ -25,7 +24,6 @@ fn free_disconnected_client_driver
   (d:DS.client_driver)
   requires C.connection_exactly d.DS.client_driver_client 'st0 **
            DS.client_driver_canonical_progress d 'st0 **
-           O.is_auth_context d.DS.client_driver_auth **
            Box.pts_to d.DS.client_driver_channel DS.no_channel **
            (exists* h. MR.pts_to d.DS.client_driver_tcp_history #1.0R h) **
            DS.client_driver_buffers d **

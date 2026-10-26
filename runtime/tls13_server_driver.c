@@ -2,6 +2,7 @@
 
 #include "TLS13.h"
 #include "atlas_trace.h"
+#include "tls13_pem.h"
 
 /* Custard names option specializations after their payload type; alias the
    generated names here so the rest of this file does not depend on them. */
@@ -43,8 +44,8 @@ struct tls13_server_config_s {
   uint16_t port;
   uint8_t *certificate_chain;
   size_t certificate_chain_len;
-  uint8_t *private_key_pem;
-  size_t private_key_pem_len;
+  uint8_t *private_key_der;
+  size_t private_key_der_len;
 };
 
 static int driver_fail(tls13_server_driver *driver, const char *message) {
@@ -102,15 +103,15 @@ int tls13_server_config_new(
     uint16_t port,
     const uint8_t *certificate_chain,
     size_t certificate_chain_len,
-    const uint8_t *private_key_pem,
-    size_t private_key_pem_len) {
+    const uint8_t *private_key,
+    size_t private_key_len) {
   if (out == NULL) {
     return 1;
   }
   *out = NULL;
   if (bind_host == NULL || bind_host[0] == '\0' ||
       (certificate_chain == NULL && certificate_chain_len != 0u) ||
-      private_key_pem == NULL || private_key_pem_len == 0u ||
+      private_key == NULL || private_key_len == 0u ||
       certificate_chain_len >
           TLS13_Impl_ConnectionState_Bounds_max_server_certificate_chain_len_sz) {
     return 1;
@@ -121,10 +122,12 @@ int tls13_server_config_new(
   uint8_t *bind_host_copy = malloc(bind_host_len);
   uint8_t *certificate_copy =
       malloc(certificate_chain_len == 0u ? 1u : certificate_chain_len);
-  uint8_t *private_key_copy = malloc(private_key_pem_len);
+  uint8_t *private_key_copy = NULL;
+  size_t private_key_copy_len = 0u;
   if (config == NULL || bind_host_copy == NULL || certificate_copy == NULL ||
-      private_key_copy == NULL) {
-    free(private_key_copy);
+      tls13_pem_private_key_to_der(
+          private_key, private_key_len,
+          &private_key_copy, &private_key_copy_len) != 0) {
     free(certificate_copy);
     free(bind_host_copy);
     free(config);
@@ -134,15 +137,15 @@ int tls13_server_config_new(
   if (certificate_chain_len != 0u) {
     memcpy(certificate_copy, certificate_chain, certificate_chain_len);
   }
-  memcpy(private_key_copy, private_key_pem, private_key_pem_len);
 
   option_server_credentials credentials =
       TLS13_Impl_Server_Driver_new_server_credentials(
           certificate_copy,
           certificate_chain_len,
           private_key_copy,
-          private_key_pem_len);
+          private_key_copy_len);
   if (credentials.tag != SOME_SERVER_CREDENTIALS) {
+    tls13_pem_wipe(private_key_copy, private_key_copy_len);
     free(private_key_copy);
     free(certificate_copy);
     free(bind_host_copy);
@@ -155,6 +158,7 @@ int tls13_server_config_new(
           bind_host_copy, bind_host_len, port);
   if (listener.tag != SOME_LISTENER) {
     TLS13_Impl_Server_Driver_free_server_credentials(credentials.val.Some);
+    tls13_pem_wipe(private_key_copy, private_key_copy_len);
     free(private_key_copy);
     free(certificate_copy);
     free(bind_host_copy);
@@ -169,8 +173,8 @@ int tls13_server_config_new(
   config->port = port;
   config->certificate_chain = certificate_copy;
   config->certificate_chain_len = certificate_chain_len;
-  config->private_key_pem = private_key_copy;
-  config->private_key_pem_len = private_key_pem_len;
+  config->private_key_der = private_key_copy;
+  config->private_key_der_len = private_key_copy_len;
   *out = config;
   return 0;
 }
@@ -182,7 +186,8 @@ void tls13_server_config_free(tls13_server_config *config) {
   TLS13_Impl_Server_Driver_free_server_listener(config->verified_listener);
   TLS13_Impl_Server_Driver_free_server_credentials(
       config->verified_credentials);
-  free(config->private_key_pem);
+  tls13_pem_wipe(config->private_key_der, config->private_key_der_len);
+  free(config->private_key_der);
   free(config->certificate_chain);
   free(config->bind_host);
   free(config);
@@ -213,8 +218,8 @@ int tls13_server_driver_accept_with_config(
           config->verified_credentials,
           config->certificate_chain,
           config->certificate_chain_len,
-          config->private_key_pem,
-          config->private_key_pem_len);
+          config->private_key_der,
+          config->private_key_der_len);
   if (created.tag != SOME_TOP_SERVER_DRIVER) {
     (void)driver_fail(driver, "verified server driver allocation failed");
     free(driver);
@@ -250,8 +255,8 @@ int tls13_server_driver_accept(
     uint16_t port,
     const uint8_t *certificate_chain,
     size_t certificate_chain_len,
-    const uint8_t *private_key_pem,
-    size_t private_key_pem_len) {
+    const uint8_t *private_key,
+    size_t private_key_len) {
   tls13_server_config *config = NULL;
   if (tls13_server_config_new(
           &config,
@@ -259,8 +264,8 @@ int tls13_server_driver_accept(
           port,
           certificate_chain,
           certificate_chain_len,
-          private_key_pem,
-          private_key_pem_len) != 0) {
+          private_key,
+          private_key_len) != 0) {
     if (out != NULL) {
       *out = NULL;
     }

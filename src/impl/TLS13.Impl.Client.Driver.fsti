@@ -16,13 +16,11 @@ module CW = TLS13.Spec.Endpoint.Wire
 module DS = TLS13.Impl.Client.Driver.State
 module EAPI = TLS13.Spec.Endpoint.API
 module MR = Pulse.Lib.MonotonicGhostRef
-module O = TLS13.OpenSSL
 module SZ = FStar.SizeT
 module U16 = FStar.UInt16
 module U8 = FStar.UInt8
 
 type client_driver = DS.client_driver
-type client_auth_config = O.auth_config
 
 noextract
 let client_driver_wire_logs_match = DS.client_driver_wire_logs_match
@@ -103,7 +101,7 @@ let client_driver_receive_copyout_correct =
 noextract
 let client_driver_receive_correct = DS.client_driver_receive_correct
 
-fn new_auth_config
+fn new_client
   (server_name:array U8.t)
   (server_name_len:SZ.t)
   (trust_anchors:array U8.t)
@@ -112,51 +110,13 @@ fn new_auth_config
   requires pts_to server_name 'server_name_bytes **
            pts_to trust_anchors 'trust_anchors_bytes **
            pure (B.length 'server_name_bytes == SZ.v server_name_len /\
-                 B.length 'trust_anchors_bytes == SZ.v trust_anchors_len)
-  returns config: client_auth_config
-  ensures pts_to server_name 'server_name_bytes **
-          pts_to trust_anchors 'trust_anchors_bytes **
-          O.is_auth_config
-            config
-            (Ghost.reveal 'server_name_bytes)
-            (Ghost.reveal 'trust_anchors_bytes)
-            validation_time_seconds
-
-fn free_auth_config (config:client_auth_config)
-  requires O.is_auth_config
-    config
-    'server_name_bytes
-    'trust_anchors_bytes
-    'validation_time_seconds
-  ensures emp
-
-fn new_client_with_auth_config
-  (config:client_auth_config)
-  (server_name:array U8.t)
-  (server_name_len:SZ.t)
-  (trust_anchors:array U8.t)
-  (trust_anchors_len:SZ.t)
-  (validation_time_seconds:SZ.t)
-  requires O.is_auth_config
-             config
-             (Ghost.reveal 'server_name_bytes)
-             (Ghost.reveal 'trust_anchors_bytes)
-             validation_time_seconds **
-           pts_to server_name 'server_name_bytes **
-           pts_to trust_anchors 'trust_anchors_bytes **
-           pure (B.length 'server_name_bytes == SZ.v server_name_len /\
                  B.length 'trust_anchors_bytes == SZ.v trust_anchors_len /\
                  SZ.v server_name_len <=
                    TLS13.Impl.ConnectionState.Bounds.max_hostname_len /\
                  SZ.v trust_anchors_len <=
                    TLS13.Impl.ConnectionState.Bounds.max_trust_anchors_len)
   returns result: client_driver
-  ensures O.is_auth_config
-            config
-            (Ghost.reveal 'server_name_bytes)
-            (Ghost.reveal 'trust_anchors_bytes)
-            validation_time_seconds **
-          pts_to server_name 'server_name_bytes **
+  ensures pts_to server_name 'server_name_bytes **
           pts_to trust_anchors 'trust_anchors_bytes **
           client_driver_live
             result

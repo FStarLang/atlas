@@ -4,7 +4,8 @@
 
 Build and prove a fully functional TLS 1.3 client for the supported profile:
 TLS 1.3, X25519, `TLS_CHACHA20_POLY1305_SHA256`, no PSK/0-RTT, basic
-certificate validation and CertificateVerify through specified external TCBs,
+certificate validation through a specified external TCB, CertificateVerify
+signatures checked by verified hacl-pulse code,
 application data, close_notify, tickets, and KeyUpdate behavior supported as
 currently implemented.
 
@@ -135,7 +136,18 @@ The public client API is buffer/event oriented:
   assumes `TLS13.X509.Spec.validate_chain` returns the peer identity being
   installed, and `LocalVerifyCertificateSignature` assumes
   `TLS13.Crypto.Spec.verify_signature` succeeds over the stored peer key,
-  CertificateVerify input, and parsed signature. The local end-to-end theorem
+  CertificateVerify input, and parsed signature. `verify_signature` is now
+  defined from hacl-pulse's RSASSA-PSS (`rsa_pss_rsae_sha256`), P-256 ECDSA
+  (`ecdsa_secp256r1_sha256`) and P-384 ECDSA (`ecdsa_secp384r1_sha384`)
+  specifications, with no assumption left in it:
+  `certificate_raw_public_key` specifies the SubjectPublicKeyInfo extraction
+  from the leaf DER as a strict definite-length DER walk (rsaEncryption with
+  NULL parameters, or id-ecPublicKey on prime256v1 or secp384r1 with an
+  uncompressed point). The driver discharges the predicate itself: it copies the stored
+  peer key, CertificateVerify input, and signature, extracts the raw public
+  key with the verified parser `TLS13.Impl.X509.PublicKey`, and
+  checks the signature with the verified verifiers in `TLS13.Crypto`
+  (`TLS13.Impl.Client.CertificateVerify.verify_peer_signature`). The local end-to-end theorem
   exposes these assumptions through `CT.local_auth_tcb_projection`, and
   `CT.legal_local_response` now pins the successful validation event to that
   peer and the successful signature event to the parsed CertificateVerify.
@@ -178,8 +190,9 @@ The public client API is buffer/event oriented:
   non-empty local network output. `next_local_action_sound` also proves that
   ready non-external local actions satisfy `local_input_wf` with the empty
   payload; certificate-validation readiness now also proves the parsed
-  Certificate and copied leaf DER are present, while certificate validation and
-  CertificateVerify signature checking remain explicit external TCB actions.
+  Certificate and copied leaf DER are present, while certificate validation remains
+  an explicit external TCB action and CertificateVerify signature checking is
+  verified apart from public-key extraction.
   `TLS13.Spec.StateMachine` now packages
   the layered log invariant, cumulative connection-log view consistency, and
   cumulative raw-event replay as `connection_state_full_log_consistent`.
@@ -287,10 +300,45 @@ The public client API is buffer/event oriented:
   own the concrete `Common.TCP` channel handle, process retained input before
   reading more bytes, call the generated canonical network/local handlers, and
   use endpoint finish hooks to keep the proof layers aligned with emitted bytes.
-  OpenSSL-backed certificate validation and CertificateVerify checks remain
-  isolated behind `TLS13.OpenSSL.fsti` and its C stubs. The public OpenSSL
+  The client driver validates the server's certificate chain with the
+  verified validator `TLS13.Impl.X509.Validate` (see below). The public OpenSSL
   interop tests exercise this endpoint path with both extracted client and
   extracted server.
+- `TLS13.X509.Spec.validate_chain` is a transparent (ghost) specification of
+  the accepted certificate profile, a strict subset of RFC 5280/6125: every
+  path certificate is v3, its inner and outer signature algorithms agree, it is
+  within its validity window at the configured time (UTCTime/GeneralizedTime
+  with `Z`), it has no duplicate or unrecognised critical extension and no
+  nameConstraints, and any extKeyUsage permits serverAuth. The leaf must match
+  the server name through a subjectAltName dNSName (case-insensitive, `*.` only
+  as a whole left-most label) or IPv4 iPAddress, with no CN fallback, and allow
+  digitalSignature. Each issuer must be a CA (basicConstraints cA, pathLen
+  respected) allowing keyCertSign. The chain ends at a trust anchor whose
+  subject matches the issuer name exactly and whose key verifies the
+  signature (sha{256,384,512}WithRSAEncryption via
+  `TLS13.Crypto.Spec.rsa_pkcs1_verify`, or ecdsa-with-SHA256/SHA-384 on P-256
+  or P-384); a leaf
+  that is itself an anchor is also accepted. Trust anchors are a concatenation
+  of DER certificates (up to `Bounds.max_trust_anchors_len`, 1 MiB, enough for
+  a full system root store; the configuration stores them at their exact
+  size): the C runtime decodes the caller's PEM bundle (`runtime/tls13_pem.h`),
+  or, when the caller passes none, the system bundle (`SSL_CERT_FILE`, else
+  the first of the usual distribution paths), and fixes a validation time of
+  zero to the current time before entering verified code. Which roots are
+  trusted is therefore configuration, not something the proofs constrain.
+- `TLS13.Impl.X509.Validate` implements `validate_chain` in Pulse and is proved
+  sound against it (`ok ==> accepted ...`): `Fields` (DER fields, times,
+  extensions), `Names` (dNSName/iPAddress matching), `Cert` (certificate
+  parsing and the per-certificate checks), and `Validate` (signatures via
+  hacl-pulse's RSA PKCS#1 v1.5 and P-256 ECDSA, anchor search, and
+  path building through the peer's intermediates).  The client driver
+  (`Driver.Core.driver_validate_certificate`) copies the received chain and
+  the configured server name, trust anchors and validation time out of the
+  connection state and discharges `local_input_wf` for
+  `LocalValidateCertificate` from the validator's postcondition, so the
+  driver path trusts no external certificate validation.  The sans-I/O client
+  engine (`TLS13.Impl.Client.Engine`) still takes the validation result from
+  its host as a precondition.
 - `TLS13.Impl.ConnectionState` has been split by responsibility: `Repr` owns the
   concrete representation and exact predicates, `Queries` owns read-only checks
   and copyouts, `Model`/`Bounds`/`Tags` own pure/proof helpers, and the mutation
@@ -331,11 +379,13 @@ Other trusted runtime boundaries remain:
 - hacl-pulse crypto wrappers for primitive behavior matching
   `TLS13.Crypto.Spec`;
 - entropy and X25519 key generation;
-- OpenSSL-backed certificate-chain validation and CertificateVerify signature
-  checking, now isolated behind the typed `TLS13.OpenSSL.fsti` interface and
-  implemented by `c_stubs/tls13_openssl_custard.*` plus
-  `c_stubs/tls13_openssl_stubs.c`; certificate validation hands the verified
-  local event only the exact returned identity prefix;
+- for the sans-I/O client engine only, host-side certificate-chain
+  validation against `TLS13.X509.Spec.validate_chain` (the client driver uses
+  the verified `TLS13.Impl.X509.Validate`); PEM trust-anchor and private-key
+  decoding in `runtime/tls13_pem.h`. Server credentials and CertificateVerify
+  signing are verified (`TLS13.Impl.ServerCredentials`, signing with hacl-pulse
+  and checking each signature with the verified verifier before it is sent);
+  the library does not link OpenSSL;
 - Pulse/F*/KaRaMeL/runtime infrastructure, allocation, and C platform behavior;
 - the TCP bridge in `c_stubs/common_tcp_stubs.c` and
   `c_stubs/common_tcp_custard.*` that connects explicit input/output buffers to

@@ -62,6 +62,7 @@ insist on:
 | short/empty `legacy_session_id` echo | n/a | yes (G4 closed) | -- |
 | `rsa_pss_rsae_sha256` credentials | yes | yes | -- |
 | `ecdsa_secp256r1_sha256` credentials | verifies | yes (G5 closed) | -- |
+| `ecdsa_secp384r1_sha384` credentials | verifies | no (client-only) | -- |
 | KeyUpdate (send, receive, mandated reply) | yes | yes | -- |
 | ChangeCipherSpec tolerance | yes | yes | -- |
 | TCP short reads / retained buffer | yes | yes | -- |
@@ -419,6 +420,12 @@ credential it was configured with, so the two cannot drift.
   keys, the signing stub branches to plain `EVP_DigestSign` with SHA-256 for
   them, and `scripts/generate-test-certs.sh` issues an ECDSA P-256 leaf from the
   same test CA -- so the credential axis varies the leaf key and nothing else.
+
+> **Update.** The OpenSSL credential boundary (`TLS13.OpenSSL`,
+> `tls13_openssl_server_*`) has since been replaced by the verified
+> `TLS13.Impl.ServerCredentials`, which parses the key, signs with hacl-pulse
+> and checks each signature with the verified verifier.  The scheme is
+> `credential_signature_scheme`, now a definition rather than an assumption.
 
 The matrix gained a **credential axis** and eight cells.  `ecdsa-only` is `ok`
 against an ECDSA credential; the two cross cells

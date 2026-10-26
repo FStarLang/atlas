@@ -87,6 +87,28 @@ certificate that does not match the apex hostname, and domaincontrol.com
 serves a self-signed one.  OpenSSL with a maximal modern offer fails on all
 five.
 
+## With verified certificate validation and the system trust store
+
+The sections below were measured while chain validation was still delegated
+to the host.  `sweep.sh` now runs the client driver with its verified X.509
+validator (`TLS13.Impl.X509.Validate`) against the system trust store (120
+roots), so the sweep measures what the verified profile accepts:
+
+| | Sites |
+|---|---|
+| ATLAS OK | **95 / 101** |
+| Correctly rejected (hostname mismatch / self-signed, see below) | 5 |
+| Validation OK, then the server closes the connection (`amazon-adsystem.com`; OpenSSL sees the same) | 1 |
+
+The profile covers RSA PKCS#1 v1.5 (SHA-256/384/512), and ecdsa-with-SHA256
+and ecdsa-with-SHA384 on both P-256 and P-384 keys (the P-384 verifiers are
+FStarLang/hacl-pulse#14 and FStarLang/hacl-pulse#17).  The client also
+accepts `ecdsa_secp384r1_sha384` CertificateVerify signatures from P-384
+leaves.  Every site that reaches validation and serves a valid chain for its
+name now passes, including every Google, Cloudflare (GTS/WE1), Apple, GitHub
+and DigiCert ECC chain, and the chains that end in a cross-certificate (e.g.
+GTS Root R4 signed by GlobalSign).
+
 ## Bugs found and fixed
 
 1. **Certificate chain building.** `X509_STORE_CTX_init` was passed `NULL` for

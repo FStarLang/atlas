@@ -78,6 +78,10 @@ typedef struct tls13_client_engine_certificate_verify_request_s {
  * step. The caller drains network output, retains unconsumed network input, and
  * polls again to discover the next action. Network input may be fed after
  * NEED_NETWORK_INPUT, while READY, or while CLOSING.
+ *
+ * [trust_context] is the trust-anchor set the host's certificate validation is
+ * held to: a concatenation of DER certificates (TLS13.X509.Spec.trust_store).
+ * A [validation_time_seconds] of zero means the current time.
  */
 int tls13_client_engine_new(
     tls13_client_engine **out,

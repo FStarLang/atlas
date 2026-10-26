@@ -230,6 +230,24 @@ let lemma_local_input_wf_auth_tcb_projection
   | LocalVerifyCertificateSignature -> ()
   | _ -> ()
 
+let lemma_local_input_wf_verify_certificate_signature
+  (st:CS.connection_state)
+  : Lemma
+      (requires
+        st.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint /\
+        (match st.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify,
+               st.CS.cs_model.CS.model_handshake.CS.hs_validated_peer,
+               st.CS.cs_model.CS.model_handshake.CS.hs_buffers.CS.hb_certificate_verify_input with
+         | Some cv, Some peer, Some verify_input ->
+           C.verify_signature
+             (Sem.certificateVerify_scheme cv)
+             peer.X.leaf_public_key
+             verify_input
+             (Sem.certificateVerify_signature_bytes cv) == true
+         | _, _, _ -> False))
+      (ensures local_input_wf st LocalVerifyCertificateSignature B.empty)
+= ()
+
 let response_wf
   (resp:client_response)
   (network_out:B.bytes)

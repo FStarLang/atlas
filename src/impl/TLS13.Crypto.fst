@@ -32,11 +32,14 @@ module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U8 = FStar.UInt8
 module U64 = FStar.UInt64
+module U32 = FStar.UInt32
+module Cast = FStar.Int.Cast
 module S8 = Hacl.Secret.UInt8
 module SB = Spec.Byte
 module Copy = Hacl.Impl.Copy
 module Sub = Hacl.Impl.Sub
 module Mem = Hacl.Mem
+module IO = Hacl.Impl.InOut
 
 (** {2 Sequence facts} *)
 
@@ -602,8 +605,10 @@ fn chacha20_poly1305_seal
     let ztag : S8.t = S8.classify 0uy;
     let mut tag = [| ztag; 16sz |];
     let ct = Sub.sub (CS.secret out) 0sz plain_len;
+    IO.intro_disjoint ct (CS.secret plain);
     Hacl.Chacha20Poly1305.encrypt ct tag (CS.secret plain) plain_len (CS.secret aad) aad_len
       (CS.secret key) (CS.secret nonce);
+    IO.elim_disjoint ct (CS.secret plain);
     with vct vtag. assert (A.pts_to ct vct ** A.pts_to tag vtag);
     Sub.unsub (CS.secret out) 0 (SZ.v plain_len) ct;
     with w. assert (A.pts_to (CS.secret out) w);
@@ -630,6 +635,7 @@ let chacha_open_post (key nonce aad cipher old: B.bytes) (ok: bool) (vmsg: Seq.s
       let len = n - 16 in
       B.length key == 32 /\ B.length nonce == 12 /\ n >= 16 /\ B.length old == len /\
       C.aead_open_in_range aad cipher /\
+      len <= Spec.Chacha20.max_len 1ul /\
       Seq.length vmsg == len /\
       (ok <==> Spec.Chacha20Poly1305.decrypt_ok (CS.classify_seq key) (CS.classify_seq nonce)
                  (CS.classify_seq aad) (CS.classify_seq (Seq.slice cipher 0 len))
@@ -699,8 +705,10 @@ fn chacha20_poly1305_open
     window_eq (SZ.v len) 16 vtag (CS.classify_seq 'cipher_bytes);
     let ct = Sub.sub (CS.secret cipher) 0sz len;
     CS.classify_slice 'cipher_bytes 0 (SZ.v len);
+    IO.intro_disjoint (CS.secret out) ct;
     let ok = Hacl.Chacha20Poly1305.decrypt (CS.secret out) ct len tag (CS.secret aad) aad_len
                (CS.secret key) (CS.secret nonce);
+    IO.elim_disjoint (CS.secret out) ct;
     Sub.unsub_id (CS.secret cipher) 0 (SZ.v len) ct;
     with vmsg. assert (A.pts_to (CS.secret out) vmsg);
     chacha_open_post 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes 'old ok vmsg;
@@ -756,8 +764,10 @@ fn aes128_gcm_seal
     let ztag : S8.t = S8.classify 0uy;
     let mut tag = [| ztag; 16sz |];
     let m = Sub.sub (CS.secret out) 0sz plain_len;
-    Hacl.AES.GCM.aes128_encrypt tag m plain_len (CS.secret key) (CS.secret nonce) 12sz
+    IO.intro_inplace m;
+    Hacl.AES.GCM.aes128_encrypt m tag m plain_len (CS.secret key) (CS.secret nonce) 12sz
       (CS.secret aad) aad_len;
+    IO.elim_inplace m;
     with vm vtag. assert (A.pts_to m vm ** A.pts_to tag vtag);
     Sub.unsub (CS.secret out) 0 (SZ.v plain_len) m;
     with w. assert (A.pts_to (CS.secret out) w);
@@ -866,8 +876,10 @@ fn aes128_gcm_open
     prefix_eq (SZ.v len) vt0 (CS.classify_seq 'cipher_bytes);
     let m = Sub.sub tmp 0sz len;
     gcm_fits (SZ.v aad_len) (SZ.v len);
-    let ok = Hacl.AES.GCM.aes128_decrypt m len tag (CS.secret key) (CS.secret nonce) 12sz
+    IO.intro_inplace m;
+    let ok = Hacl.AES.GCM.aes128_decrypt m m len tag (CS.secret key) (CS.secret nonce) 12sz
                (CS.secret aad) aad_len;
+    IO.elim_inplace m;
     with vm. assert (A.pts_to m vm);
     gcm_open_post 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes ok vm;
     if ok {
@@ -892,6 +904,768 @@ fn aes128_gcm_open
     }
   } else {
     aead_open_out_of_range C.AEAD_AES128_GCM 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes;
+    false
+  }
+}
+
+(** {2 Signature verification} *)
+
+(** Byte [k] of the [w]-byte value of the INTEGER contents [src[off .. off+l)]. *)
+let der_int_byte (w: nat) (src: B.bytes) (off l k: nat) : U8.t =
+  if k + l < w then 0uy
+  else if off + l + k - w < Seq.length src then Seq.index src (off + l + k - w)
+  else 0uy
+
+let der_integer_n_value (w: C.ecdsa_width) (src: B.bytes) (off l: nat) (o: Seq.seq U8.t)
+  : Lemma (requires off + l <= Seq.length src /\
+                    Some? (C.der_integer_n w (Seq.slice src off (off + l))) /\
+                    Seq.length o == w /\
+                    (forall (k: nat). k < w ==> Seq.index o k == der_int_byte w src off l k))
+          (ensures Some?.v (C.der_integer_n w (Seq.slice src off (off + l))) == o)
+  = let v = Seq.slice src off (off + l) in
+    let x = Some?.v (C.der_integer_n w v) in
+    let aux (k: nat { k < w }) : Lemma (Seq.index x k == Seq.index o k)
+      = if l = w + 1 then ()
+        else if k + l < w then ()
+        else assert (Seq.index x k == Seq.index v (k - (w - l))) in
+    FStar.Classical.forall_intro aux;
+    Seq.lemma_eq_intro x o
+
+#push-options "--z3rlimit 60"
+let der_decode_some (w: C.ecdsa_width) (src: B.bytes) (n rl sl: nat) (vr vs: Seq.seq U8.t)
+  : Lemma (requires n <= Seq.length src /\ 8 <= n /\ n <= 2 * w + 8 /\
+                    Seq.index src 0 == 0x30uy /\ U8.v (Seq.index src 1) == n - 2 /\
+                    Seq.index src 2 == 0x02uy /\ U8.v (Seq.index src 3) == rl /\
+                    6 + rl <= n /\ Seq.index src (4 + rl) == 0x02uy /\
+                    U8.v (Seq.index src (5 + rl)) == sl /\ 6 + rl + sl == n /\
+                    Some? (C.der_integer_n w (CL.raw_slice src 4 (4 + rl))) /\
+                    Some? (C.der_integer_n w (CL.raw_slice src (6 + rl) n)) /\
+                    Seq.length vr == w /\ Seq.length vs == w /\
+                    (forall (k: nat). k < w ==> Seq.index vr k == der_int_byte w src 4 rl k) /\
+                    (forall (k: nat). k < w ==> Seq.index vs k == der_int_byte w src (6 + rl) sl k))
+          (ensures C.ecdsa_signature_der_decode_n w (CL.raw_slice src 0 n) == Some (vr, vs))
+  = let v = Seq.slice src 0 n in
+    Seq.slice_slice src 0 n 4 (4 + rl);
+    Seq.slice_slice src 0 n (6 + rl) n;
+    der_integer_n_value w src 4 rl vr;
+    der_integer_n_value w src (6 + rl) sl vs;
+    assert (Seq.index v 0 == Seq.index src 0);
+    assert (Seq.index v 1 == Seq.index src 1);
+    assert (Seq.index v 2 == Seq.index src 2);
+    assert (Seq.index v 3 == Seq.index src 3);
+    assert (Seq.index v (4 + rl) == Seq.index src (4 + rl));
+    assert (Seq.index v (5 + rl) == Seq.index src (5 + rl))
+#pop-options
+
+inline_for_extraction
+let u8_to_sz (x: U8.t) : r: SZ.t { SZ.v r == U8.v x } =
+  SZ.uint16_to_sizet (Cast.uint8_to_uint16 x)
+
+let width = w: SZ.t { SZ.v w == 32 \/ SZ.v w == 48 }
+let width_ok (w: SZ.t) : prop = SZ.v w == 32 \/ SZ.v w == 48
+
+(** Whether [src[off .. off+len)] is the contents of a DER INTEGER that
+    [C.der_integer_n w] accepts. *)
+fn der_integer_ok (w: width) (src: array U8.t) (off: SZ.t) (len: SZ.t)
+  requires pts_to src 'v ** pure (width_ok w /\ SZ.v off + SZ.v len <= Seq.length 'v)
+  returns b: bool
+  ensures pts_to src 'v **
+          pure (b == Some? (C.der_integer_n (SZ.v w)
+                              (CL.raw_slice 'v (SZ.v off) (SZ.v off + SZ.v len))))
+{
+  A.pts_to_len src;
+  if (SZ.eq len 0sz || SZ.gt len (SZ.add w 1sz)) {
+    false
+  } else {
+    let b0 = src.(off);
+    if (U8.gte b0 0x80uy) {
+      false
+    } else if (SZ.gt len 1sz && b0 = 0uy) {
+      let b1 = src.(SZ.add off 1sz);
+      not (U8.lt b1 0x80uy)
+    } else {
+      true
+    }
+  }
+}
+
+fn der_int_byte_at (w: width) (src: array U8.t) (off: SZ.t) (len: SZ.t) (k: SZ.t)
+  requires pts_to src 'v **
+           pure (width_ok w /\ SZ.v off + SZ.v len <= Seq.length 'v /\
+                 SZ.v len <= SZ.v w + 1 /\ SZ.v k < SZ.v w)
+  returns x: U8.t
+  ensures pts_to src 'v ** pure (x == der_int_byte (SZ.v w) 'v (SZ.v off) (SZ.v len) (SZ.v k))
+{
+  A.pts_to_len src;
+  if (SZ.lt (SZ.add k len) w) {
+    0uy
+  } else {
+    SZ.fits_lte (SZ.v off + (SZ.v len + SZ.v k - SZ.v w)) (Seq.length 'v);
+    src.(SZ.add off (SZ.sub (SZ.add len k) w))
+  }
+}
+
+(** [out] := the [w]-byte big-endian value of the INTEGER contents
+    [src[off .. off+len)]: left-padded with zeros, or with its leading zero
+    byte dropped when [len = w + 1]. *)
+fn der_integer_load (w: width) (src: array U8.t) (off: SZ.t) (len: SZ.t) (out: array U8.t)
+  requires pts_to src 'v ** pts_to out 'o **
+           pure (width_ok w /\ SZ.v off + SZ.v len <= Seq.length 'v /\ 1 <= SZ.v len /\
+                 SZ.v len <= SZ.v w + 1 /\ Seq.length 'o == SZ.v w)
+  ensures exists* o. pts_to src 'v ** pts_to out o **
+          pure (Seq.length o == SZ.v w /\
+                (forall (k: nat). k < SZ.v w ==>
+                   Seq.index o k == der_int_byte (SZ.v w) 'v (SZ.v off) (SZ.v len) k))
+{
+  A.pts_to_len src;
+  A.pts_to_len out;
+  let mut i = 0sz;
+  while (let vi = !i; SZ.lt vi w)
+  invariant exists* (vi: SZ.t) (o: Seq.seq U8.t).
+    pts_to i vi ** pts_to out o ** pts_to src 'v **
+    pure (SZ.v vi <= SZ.v w /\ Seq.length o == SZ.v w /\
+          (forall (k: nat). k < SZ.v vi ==>
+             Seq.index o k == der_int_byte (SZ.v w) 'v (SZ.v off) (SZ.v len) k))
+  decreases (SZ.v w - SZ.v (!i))
+  {
+    let vi = !i;
+    let x = der_int_byte_at w src off len vi;
+    out.(vi) <- x;
+    i := SZ.add vi 1sz;
+  };
+}
+
+#push-options "--z3rlimit 40"
+fn ecdsa_signature_der_decode_n
+  (w: width)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  (r: array U8.t)
+  (s: array U8.t)
+  requires pts_to sg 'sg_bytes **
+           pts_to r 'old_r **
+           pts_to s 'old_s **
+           pure (width_ok w /\ SZ.v sg_len <= B.length 'sg_bytes /\
+                 B.length 'old_r == SZ.v w /\ B.length 'old_s == SZ.v w)
+  returns ok: bool
+  ensures exists* r_bytes s_bytes.
+          pts_to sg 'sg_bytes **
+          pts_to r r_bytes **
+          pts_to s s_bytes **
+          pure (B.length r_bytes == SZ.v w /\ B.length s_bytes == SZ.v w /\
+                (match C.ecdsa_signature_der_decode_n (SZ.v w)
+                         (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)) with
+                 | Some (er, es) -> ok /\ r_bytes == er /\ s_bytes == es
+                 | None -> ok == false))
+{
+  A.pts_to_len sg;
+  if (SZ.lt sg_len 8sz || SZ.gt sg_len (SZ.add (SZ.add w w) 8sz)) {
+    false
+  } else {
+    let b0 = sg.(0sz);
+    let b1 = sg.(1sz);
+    let b2 = sg.(2sz);
+    let rl = u8_to_sz sg.(3sz);
+    if (b0 <> 0x30uy || u8_to_sz b1 <> SZ.sub sg_len 2sz || b2 <> 0x02uy) {
+      false
+    } else if (SZ.gt (SZ.add 6sz rl) sg_len) {
+      false
+    } else {
+      let t = sg.(SZ.add 4sz rl);
+      let sl = u8_to_sz sg.(SZ.add 5sz rl);
+      if (t <> 0x02uy || SZ.add (SZ.add 6sz rl) sl <> sg_len) {
+        false
+      } else {
+        let soff = SZ.add 6sz rl;
+        let rok = der_integer_ok w sg 4sz rl;
+        let sok = der_integer_ok w sg soff sl;
+        if (rok && sok) {
+          der_integer_load w sg 4sz rl r;
+          der_integer_load w sg soff sl s;
+          with vr. assert (pts_to r vr);
+          with vs. assert (pts_to s vs);
+          der_decode_some (SZ.v w) 'sg_bytes (SZ.v sg_len) (SZ.v rl) (SZ.v sl) vr vs;
+          true
+        } else {
+          false
+        }
+      }
+    }
+  }
+}
+#pop-options
+
+fn ecdsa_signature_der_decode
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  (r: array U8.t)
+  (s: array U8.t)
+  requires pts_to sg 'sg_bytes **
+           pts_to r 'old_r **
+           pts_to s 'old_s **
+           pure (SZ.v sg_len <= B.length 'sg_bytes /\
+                 B.length 'old_r == 32 /\ B.length 'old_s == 32)
+  returns ok: bool
+  ensures exists* r_bytes s_bytes.
+          pts_to sg 'sg_bytes **
+          pts_to r r_bytes **
+          pts_to s s_bytes **
+          pure (B.length r_bytes == 32 /\ B.length s_bytes == 32 /\
+                (match C.ecdsa_signature_der_decode (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)) with
+                 | Some (er, es) -> ok /\ r_bytes == er /\ s_bytes == es
+                 | None -> ok == false))
+{
+  ecdsa_signature_der_decode_n 32sz sg sg_len r s
+}
+
+(** ECDSA over P-256 with SHA-256 ([h384 = false]) or SHA-384. *)
+fn verify_ecdsa_secp256r1
+  (h384: bool)
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == p256_verify h384
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.eq point_len 64sz && small) {
+    let mut r = [| 0uy; 32sz |];
+    let mut s = [| 0uy; 32sz |];
+    let dec = ecdsa_signature_der_decode sg sg_len r s;
+    if dec {
+      with vr. assert (pts_to r vr);
+      with vs. assert (pts_to s vs);
+      CS.to_secret point;
+      CS.to_secret msg;
+      CS.to_secret r;
+      CS.to_secret s;
+      A.pts_to_len (CS.secret point);
+      A.pts_to_len (CS.secret msg);
+      assert (pure (A.length (CS.secret point) == Seq.length 'point_bytes /\
+                    A.length (CS.secret msg) == Seq.length 'msg_bytes));
+      let pt = Sub.sub (CS.secret point) 0sz point_len;
+      let m = Sub.sub (CS.secret msg) 0sz msg_len;
+      CS.classify_slice 'point_bytes 0 (SZ.v point_len);
+      CS.classify_slice 'msg_bytes 0 (SZ.v msg_len);
+      let ok =
+        (if h384
+         then Hacl.P256.ecdsa_verify_sha384 m msg_len pt (CS.secret r) (CS.secret s)
+         else Hacl.P256.ecdsa_verify_sha256 m msg_len pt (CS.secret r) (CS.secret s));
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) m;
+      Sub.unsub_id (CS.secret point) 0 (SZ.v point_len) pt;
+      CS.of_secret point;
+      CS.of_secret msg;
+      CS.of_secret r;
+      CS.of_secret s;
+      ok
+    } else {
+      false
+    }
+  } else {
+    false
+  }
+}
+
+fn verify_ecdsa_secp256r1_sha256
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp256r1_sha256_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  verify_ecdsa_secp256r1 false point point_len msg msg_len sg sg_len
+}
+
+fn verify_ecdsa_secp256r1_sha384
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp256r1_sha384_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  verify_ecdsa_secp256r1 true point point_len msg msg_len sg sg_len
+}
+
+(** [rs] := [r @| s], the raw signature layout [Hacl.P384] takes. *)
+fn concat_rs (r s rs: array U8.t)
+  requires pts_to r 'vr ** pts_to s 'vs ** pts_to rs 'o **
+           pure (Seq.length 'vr == 48 /\ Seq.length 'vs == 48 /\ Seq.length 'o == 96)
+  ensures exists* o. pts_to r 'vr ** pts_to s 'vs ** pts_to rs o **
+          pure (o == Seq.append 'vr 'vs)
+{
+  A.pts_to_len rs;
+  let mut i = 0sz;
+  while (let vi = !i; SZ.lt vi 96sz)
+  invariant exists* (vi: SZ.t) (o: Seq.seq U8.t).
+    pts_to i vi ** pts_to rs o ** pts_to r 'vr ** pts_to s 'vs **
+    pure (SZ.v vi <= 96 /\ Seq.length o == 96 /\
+          (forall (k: nat). k < SZ.v vi ==> Seq.index o k == Seq.index (Seq.append 'vr 'vs) k))
+  decreases (96 - SZ.v (!i))
+  {
+    let vi = !i;
+    let lo = SZ.lt vi 48sz;
+    let j = (if lo then vi else SZ.sub vi 48sz);
+    let xr = r.(if lo then j else 0sz);
+    let xs = s.(if lo then 0sz else j);
+    rs.(vi) <- (if lo then xr else xs);
+    i := SZ.add vi 1sz;
+  };
+  with vi. assert (pts_to i vi);
+  with o. assert (pts_to rs o);
+  assert (pure (SZ.v vi == 96 /\ Seq.length (Seq.append 'vr 'vs) == 96));
+  assert (pure (Seq.equal o (Seq.append 'vr 'vs)));
+}
+
+fn verify_ecdsa_secp384r1
+  (h384: bool)
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == p384_verify h384
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.eq point_len 96sz && small) {
+    let mut r = [| 0uy; 48sz |];
+    let mut s = [| 0uy; 48sz |];
+    let dec = ecdsa_signature_der_decode_n 48sz sg sg_len r s;
+    if dec {
+      with vr. assert (pts_to r vr);
+      with vs. assert (pts_to s vs);
+      let mut rs = [| 0uy; 96sz |];
+      concat_rs r s rs;
+      CS.to_secret point;
+      CS.to_secret msg;
+      CS.to_secret rs;
+      A.pts_to_len (CS.secret point);
+      A.pts_to_len (CS.secret msg);
+      A.pts_to_len (CS.secret rs);
+      assert (pure (A.length (CS.secret point) == Seq.length 'point_bytes /\
+                    A.length (CS.secret msg) == Seq.length 'msg_bytes));
+      let pt = Sub.sub (CS.secret point) 0sz point_len;
+      let m = Sub.sub (CS.secret msg) 0sz msg_len;
+      CS.classify_slice 'point_bytes 0 (SZ.v point_len);
+      CS.classify_slice 'msg_bytes 0 (SZ.v msg_len);
+      let ok =
+        (if h384
+         then Hacl.P384.ecdsa_verify_sha384 m msg_len pt (CS.secret rs)
+         else Hacl.P384.ecdsa_verify_sha256 m msg_len pt (CS.secret rs));
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) m;
+      Sub.unsub_id (CS.secret point) 0 (SZ.v point_len) pt;
+      CS.of_secret point;
+      CS.of_secret msg;
+      CS.of_secret rs;
+      ok
+    } else {
+      false
+    }
+  } else {
+    false
+  }
+}
+
+fn verify_ecdsa_secp384r1_sha384
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp384r1_sha384_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  verify_ecdsa_secp384r1 true point point_len msg msg_len sg sg_len
+}
+
+fn byte_bit_length (x: U8.t)
+  returns n: SZ.t
+  ensures pure (SZ.v n == C.byte_bit_length x)
+{
+  if (U8.gte x 128uy) { 8sz }
+  else if (U8.gte x 64uy) { 7sz }
+  else if (U8.gte x 32uy) { 6sz }
+  else if (U8.gte x 16uy) { 5sz }
+  else if (U8.gte x 8uy) { 4sz }
+  else if (U8.gte x 4uy) { 3sz }
+  else if (U8.gte x 2uy) { 2sz }
+  else if (U8.gte x 1uy) { 1sz }
+  else { 0sz }
+}
+
+let rsa_pss_verify_false (n e message signature: B.bytes)
+  : Lemma (requires not (C.rsa_pss_args_ok n e message signature))
+          (ensures C.rsa_pss_rsae_sha256_verify n e message signature == false)
+  = ()
+
+#push-options "--z3rlimit 80"
+fn verify_rsa_pss_rsae_sha256
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (exponent: array U8.t)
+  (exponent_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to exponent 'e_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v exponent_len <= B.length 'e_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to modulus 'n_bytes **
+          pts_to exponent 'e_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.rsa_pss_rsae_sha256_verify
+                        (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len))
+                        (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  let vn = Ghost.hide (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len));
+  let ve = Ghost.hide (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len));
+  let vm = Ghost.hide (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len));
+  let vs = Ghost.hide (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len));
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.gte modulus_len 128sz && SZ.lte modulus_len 1024sz && small &&
+      SZ.gt exponent_len 0sz && SZ.lte exponent_len modulus_len &&
+      SZ.eq sg_len modulus_len) {
+    let n0 = modulus.(0sz);
+    if (n0 = 0uy) {
+      rsa_pss_verify_false vn ve vm vs;
+      false
+    } else {
+      let bl = byte_bit_length n0;
+      let mbs = SZ.add (SZ.mul 8sz (SZ.sub modulus_len 1sz)) bl;
+      FStar.Math.Lemmas.small_mod (SZ.v mbs) (pow2 32);
+      let mb = SZ.sizet_to_uint32 mbs;
+      assert (pure (U32.v mb == C.rsa_mod_bits vn));
+      C.rsa_pss_args_facts vn ve vm vs;
+      CS.to_secret modulus;
+      CS.to_secret exponent;
+      CS.to_secret msg;
+      CS.to_secret sg;
+      A.pts_to_len (CS.secret modulus);
+      A.pts_to_len (CS.secret exponent);
+      A.pts_to_len (CS.secret msg);
+      A.pts_to_len (CS.secret sg);
+      let nb = Sub.sub (CS.secret modulus) 0sz modulus_len;
+      let eb = Sub.sub (CS.secret exponent) 0sz exponent_len;
+      let mm = Sub.sub (CS.secret msg) 0sz msg_len;
+      let sb = Sub.sub (CS.secret sg) 0sz sg_len;
+      CS.classify_slice 'n_bytes 0 (SZ.v modulus_len);
+      CS.classify_slice 'e_bytes 0 (SZ.v exponent_len);
+      CS.classify_slice 'msg_bytes 0 (SZ.v msg_len);
+      CS.classify_slice 'sg_bytes 0 (SZ.v sg_len);
+      let ok = Hacl.RSAPSS.verify_sha256 mb nb exponent_len eb 32sz sb msg_len mm;
+      Sub.unsub_id (CS.secret sg) 0 (SZ.v sg_len) sb;
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) mm;
+      Sub.unsub_id (CS.secret exponent) 0 (SZ.v exponent_len) eb;
+      Sub.unsub_id (CS.secret modulus) 0 (SZ.v modulus_len) nb;
+      CS.of_secret modulus;
+      CS.of_secret exponent;
+      CS.of_secret msg;
+      CS.of_secret sg;
+      ok
+    }
+  } else {
+    rsa_pss_verify_false vn ve vm vs;
+    false
+  }
+}
+#pop-options
+
+let rsa_pkcs1_verify_false (h: C.pkcs1_hash) (n e message signature: B.bytes)
+  : Lemma (requires not (C.rsa_pss_args_ok n e message signature))
+          (ensures C.rsa_pkcs1_verify h n e message signature == false)
+  = ()
+
+#push-options "--z3rlimit 80"
+fn verify_rsa_pkcs1
+  (hash: C.pkcs1_hash)
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (exponent: array U8.t)
+  (exponent_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to exponent 'e_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v exponent_len <= B.length 'e_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to modulus 'n_bytes **
+          pts_to exponent 'e_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.rsa_pkcs1_verify hash
+                        (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len))
+                        (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+{
+  let vn = Ghost.hide (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len));
+  let ve = Ghost.hide (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len));
+  let vm = Ghost.hide (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len));
+  let vs = Ghost.hide (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len));
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.gte modulus_len 128sz && SZ.lte modulus_len 1024sz && small &&
+      SZ.gt exponent_len 0sz && SZ.lte exponent_len modulus_len &&
+      SZ.eq sg_len modulus_len) {
+    let n0 = modulus.(0sz);
+    if (n0 = 0uy) {
+      rsa_pkcs1_verify_false hash vn ve vm vs;
+      false
+    } else {
+      let bl = byte_bit_length n0;
+      let mbs = SZ.add (SZ.mul 8sz (SZ.sub modulus_len 1sz)) bl;
+      FStar.Math.Lemmas.small_mod (SZ.v mbs) (pow2 32);
+      let mb = SZ.sizet_to_uint32 mbs;
+      assert (pure (U32.v mb == C.rsa_mod_bits vn));
+      C.rsa_pss_args_facts vn ve vm vs;
+      CS.to_secret modulus;
+      CS.to_secret exponent;
+      CS.to_secret msg;
+      CS.to_secret sg;
+      A.pts_to_len (CS.secret modulus);
+      A.pts_to_len (CS.secret exponent);
+      A.pts_to_len (CS.secret msg);
+      A.pts_to_len (CS.secret sg);
+      let nb = Sub.sub (CS.secret modulus) 0sz modulus_len;
+      let eb = Sub.sub (CS.secret exponent) 0sz exponent_len;
+      let mm = Sub.sub (CS.secret msg) 0sz msg_len;
+      let sb = Sub.sub (CS.secret sg) 0sz sg_len;
+      CS.classify_slice 'n_bytes 0 (SZ.v modulus_len);
+      CS.classify_slice 'e_bytes 0 (SZ.v exponent_len);
+      CS.classify_slice 'msg_bytes 0 (SZ.v msg_len);
+      CS.classify_slice 'sg_bytes 0 (SZ.v sg_len);
+      let ok =
+        if (C.Pkcs1Sha256? hash) {
+          Hacl.RSAPKCS1.verify_sha256 mb nb exponent_len eb sb msg_len mm
+        } else if (C.Pkcs1Sha384? hash) {
+          Hacl.RSAPKCS1.verify_sha384 mb nb exponent_len eb sb msg_len mm
+        } else {
+          Hacl.RSAPKCS1.verify_sha512 mb nb exponent_len eb sb msg_len mm
+        };
+      Sub.unsub_id (CS.secret sg) 0 (SZ.v sg_len) sb;
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) mm;
+      Sub.unsub_id (CS.secret exponent) 0 (SZ.v exponent_len) eb;
+      Sub.unsub_id (CS.secret modulus) 0 (SZ.v modulus_len) nb;
+      CS.of_secret modulus;
+      CS.of_secret exponent;
+      CS.of_secret msg;
+      CS.of_secret sg;
+      ok
+    }
+  } else {
+    rsa_pkcs1_verify_false hash vn ve vm vs;
+    false
+  }
+}
+#pop-options
+
+(** {2 Signing} *)
+
+#push-options "--z3rlimit 80"
+fn sign_rsa_pss_rsae_sha256
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (d: array U8.t)
+  (d_len: SZ.t)
+  (salt: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to d 'd_bytes **
+           pts_to salt 'salt_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'old_sg **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v d_len <= B.length 'd_bytes /\
+                 B.length 'salt_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v modulus_len <= B.length 'old_sg)
+  returns ok: bool
+  ensures exists* sg_bytes.
+          pts_to modulus 'n_bytes **
+          pts_to d 'd_bytes **
+          pts_to salt 'salt_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg sg_bytes **
+          pure (B.length sg_bytes == B.length 'old_sg)
+{
+  let small = below_pow2_61_sz msg_len;
+  if (SZ.gte modulus_len 128sz && SZ.lte modulus_len 1024sz && small &&
+      SZ.gt d_len 0sz && SZ.lte d_len modulus_len) {
+    let n0 = modulus.(0sz);
+    if (n0 = 0uy) {
+      false
+    } else {
+      let vn = Ghost.hide (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len));
+      let vd = Ghost.hide (CL.raw_slice 'd_bytes 0 (SZ.v d_len));
+      let vm = Ghost.hide (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len));
+      let bl = byte_bit_length n0;
+      let mbs = SZ.add (SZ.mul 8sz (SZ.sub modulus_len 1sz)) bl;
+      FStar.Math.Lemmas.small_mod (SZ.v mbs) (pow2 32);
+      let mb = SZ.sizet_to_uint32 mbs;
+      assert (pure (U32.v mb == C.rsa_mod_bits vn));
+      C.rsa_pss_args_facts vn vd vm vn;
+      CS.to_secret modulus;
+      CS.to_secret d;
+      CS.to_secret salt;
+      CS.to_secret msg;
+      CS.to_secret sg;
+      A.pts_to_len (CS.secret modulus);
+      A.pts_to_len (CS.secret d);
+      A.pts_to_len (CS.secret salt);
+      A.pts_to_len (CS.secret msg);
+      A.pts_to_len (CS.secret sg);
+      let nb = Sub.sub (CS.secret modulus) 0sz modulus_len;
+      let db = Sub.sub (CS.secret d) 0sz d_len;
+      let mm = Sub.sub (CS.secret msg) 0sz msg_len;
+      let sb = Sub.sub (CS.secret sg) 0sz modulus_len;
+      with vsb. assert (A.pts_to sb vsb);
+      let ok = Hacl.RSAPSS.sign_sha256 mb nb d_len db 32sz (CS.secret salt) msg_len mm sb;
+      with vsb'. assert (A.pts_to sb vsb');
+      Sub.unsub (CS.secret sg) 0 (SZ.v modulus_len) sb;
+      Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) mm;
+      Sub.unsub_id (CS.secret d) 0 (SZ.v d_len) db;
+      Sub.unsub_id (CS.secret modulus) 0 (SZ.v modulus_len) nb;
+      CS.of_secret modulus;
+      CS.of_secret d;
+      CS.of_secret salt;
+      CS.of_secret msg;
+      CS.of_secret sg;
+      ok
+    }
+  } else {
+    false
+  }
+}
+#pop-options
+
+fn sign_ecdsa_secp256r1_sha256
+  (sk: array U8.t)
+  (nonce: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to nonce 'nonce_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to out 'old_out **
+           pure (B.length 'sk_bytes == 32 /\
+                 B.length 'nonce_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 B.length 'old_out == 64)
+  returns ok: bool
+  ensures exists* out_bytes.
+          pts_to sk 'sk_bytes **
+          pts_to nonce 'nonce_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == 64)
+{
+  let small = below_pow2_61_sz msg_len;
+  if small {
+    CS.to_secret sk;
+    CS.to_secret nonce;
+    CS.to_secret msg;
+    CS.to_secret out;
+    A.pts_to_len (CS.secret msg);
+    let m = Sub.sub (CS.secret msg) 0sz msg_len;
+    let ok =
+      Hacl.P256.ecdsa_sign_sha256 (CS.secret out) m msg_len (CS.secret sk) (CS.secret nonce);
+    Sub.unsub_id (CS.secret msg) 0 (SZ.v msg_len) m;
+    CS.of_secret sk;
+    CS.of_secret nonce;
+    CS.of_secret msg;
+    CS.of_secret out;
+    ok
+  } else {
     false
   }
 }

@@ -667,6 +667,12 @@ let signature_scheme_list_exactly
           SZ.v len <= cap /\
           IM.signature_schemes_match items (SZ.v len) schemes)
 
+(** The trust-anchor store is allocated at its exact size (at least one
+    byte) rather than at [max_trust_anchors_len], which is large enough for
+    a full system root store. *)
+let trust_anchors_cap (anchors:B.bytes) : nat =
+  if B.length anchors = 0 then 1 else B.length anchors
+
 let connection_config_exactly
   ([@@@mkey] cfg:connection_config_storage)
   (spec:CS.connection_config)
@@ -674,7 +680,9 @@ let connection_config_exactly
   exists* role validation_time.
     Box.pts_to cfg.role_tag role **
     sized_bytes_exactly cfg.server_name max_hostname_len spec.CS.config_server_name **
-    sized_bytes_exactly cfg.trust_anchors max_trust_anchors_len spec.CS.config_trust_store.X.anchors **
+    sized_bytes_exactly cfg.trust_anchors
+      (trust_anchors_cap spec.CS.config_trust_store.X.anchors)
+      spec.CS.config_trust_store.X.anchors **
     Box.pts_to cfg.validation_time_seconds validation_time **
     cipher_suite_list_exactly cfg.cipher_suites max_cipher_suites spec.CS.config_cipher_suites **
     signature_scheme_list_exactly cfg.signature_schemes max_signature_schemes spec.CS.config_signature_schemes **
@@ -1498,7 +1506,8 @@ let default_connection_config : CS.connection_config = {
   CS.config_trust_store = { X.anchors = B.empty };
   CS.config_validation_time = { X.seconds_since_epoch = 0 };
   CS.config_cipher_suites = [T.TLS_CHACHA20_POLY1305_SHA256; T.TLS_AES_128_GCM_SHA256];
-  CS.config_signature_schemes = [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256];
+  CS.config_signature_schemes =
+    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384];
   CS.config_server = None;
 }
 
@@ -1679,6 +1688,25 @@ fn copy_optional_sized_bytes_to_array
                   SZ.v copied_len == B.length bytes /\
                   Seq.equal (Seq.slice dst_bytes 0 (SZ.v copied_len)) bytes
                 | None -> False))
+
+fn copy_sized_bytes_to_array
+  (#cap:erased nat)
+  (slot:sized_bytes)
+  (dst:array U8.t)
+  (dst_len:SZ.t)
+  (#bytes:erased B.bytes)
+  requires sized_bytes_exactly slot (reveal cap) bytes **
+           ArrPts.pts_to dst 'old_dst **
+           pure (B.length 'old_dst == SZ.v dst_len /\
+                 reveal cap <= SZ.v dst_len)
+  returns copied_len:SZ.t
+  ensures exists* dst_bytes.
+          sized_bytes_exactly slot (reveal cap) bytes **
+          ArrPts.pts_to dst dst_bytes **
+          pure (B.length dst_bytes == SZ.v dst_len /\
+                SZ.v copied_len == B.length (Ghost.reveal bytes) /\
+                SZ.v copied_len <= B.length dst_bytes /\
+                Seq.equal (Seq.slice dst_bytes 0 (SZ.v copied_len)) (Ghost.reveal bytes))
 
 fn alloc_empty_optional_fixed32 ()
   requires emp

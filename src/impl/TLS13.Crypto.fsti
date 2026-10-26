@@ -342,3 +342,274 @@ fn aes128_gcm_open
                         out_bytes == Some?.v (C.aead_open C.AEAD_AES128_GCM 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes)) /\
                 (not ok ==> C.aead_open C.AEAD_AES128_GCM 'key_bytes 'nonce_bytes 'aad_bytes 'cipher_bytes == None /\
                             out_bytes == 'old))
+
+(** {2 Signature verification}
+
+    Each argument is the prefix [arr[0 .. len)] of its array, so callers can
+    pass fixed-capacity buffers.  The result is exactly the specification's
+    verdict; outside the specification's bounds that is [false]. *)
+
+fn ecdsa_signature_der_decode
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  (r: array U8.t)
+  (s: array U8.t)
+  requires pts_to sg 'sg_bytes **
+           pts_to r 'old_r **
+           pts_to s 'old_s **
+           pure (SZ.v sg_len <= B.length 'sg_bytes /\
+                 B.length 'old_r == 32 /\ B.length 'old_s == 32)
+  returns ok: bool
+  ensures exists* r_bytes s_bytes.
+          pts_to sg 'sg_bytes **
+          pts_to r r_bytes **
+          pts_to s s_bytes **
+          pure (B.length r_bytes == 32 /\ B.length s_bytes == 32 /\
+                (match C.ecdsa_signature_der_decode (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)) with
+                 | Some (er, es) -> ok /\ r_bytes == er /\ s_bytes == es
+                 | None -> ok == false))
+
+(** ECDSA over P-256 with SHA-256 ([h384 = false]) or SHA-384. *)
+let p256_verify (h384: bool) (point message signature: B.bytes) : GTot bool =
+  if h384 then C.ecdsa_secp256r1_sha384_verify point message signature
+  else C.ecdsa_secp256r1_sha256_verify point message signature
+
+fn verify_ecdsa_secp256r1
+  (h384: bool)
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == p256_verify h384
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+fn verify_ecdsa_secp256r1_sha256
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp256r1_sha256_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+fn verify_ecdsa_secp256r1_sha384
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp256r1_sha384_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+(** ECDSA over P-384 with SHA-256 ([h384 = false]) or SHA-384. *)
+let p384_verify (h384: bool) (point message signature: B.bytes) : GTot bool =
+  if h384 then C.ecdsa_secp384r1_sha384_verify point message signature
+  else C.ecdsa_secp384r1_sha256_verify point message signature
+
+fn verify_ecdsa_secp384r1
+  (h384: bool)
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == p384_verify h384
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+fn verify_ecdsa_secp384r1_sha384
+  (point: array U8.t)
+  (point_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to point 'point_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v point_len <= B.length 'point_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to point 'point_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.ecdsa_secp384r1_sha384_verify
+                        (CL.raw_slice 'point_bytes 0 (SZ.v point_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+fn verify_rsa_pss_rsae_sha256
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (exponent: array U8.t)
+  (exponent_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to exponent 'e_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v exponent_len <= B.length 'e_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to modulus 'n_bytes **
+          pts_to exponent 'e_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.rsa_pss_rsae_sha256_verify
+                        (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len))
+                        (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+(** RSASSA-PKCS1-v1_5 verification, by hacl-pulse's [Hacl.RSAPKCS1]; only
+    for certificate signatures. *)
+fn verify_rsa_pkcs1
+  (hash: C.pkcs1_hash)
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (exponent: array U8.t)
+  (exponent_len: SZ.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  (sg_len: SZ.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to exponent 'e_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'sg_bytes **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v exponent_len <= B.length 'e_bytes /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v sg_len <= B.length 'sg_bytes)
+  returns ok: bool
+  ensures pts_to modulus 'n_bytes **
+          pts_to exponent 'e_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg 'sg_bytes **
+          pure (ok == C.rsa_pkcs1_verify hash
+                        (CL.raw_slice 'n_bytes 0 (SZ.v modulus_len))
+                        (CL.raw_slice 'e_bytes 0 (SZ.v exponent_len))
+                        (CL.raw_slice 'msg_bytes 0 (SZ.v msg_len))
+                        (CL.raw_slice 'sg_bytes 0 (SZ.v sg_len)))
+
+(** {2 Signing}
+
+    Raw hacl-pulse signing, for the server's CertificateVerify.  Only the
+    output length is specified: the server checks every signature it makes
+    with the verifiers above before sending it
+    ([TLS13.Impl.ServerCredentials.sign_certificate_verify]), so what reaches
+    the peer is justified by [C.verify_signature] alone, and neither these
+    functions nor the private-key parser need a functional specification. *)
+
+(** RSASSA-PSS-SIGN with SHA-256, MGF1-SHA-256 and a 32-byte [salt], by the
+    key with modulus [modulus[0 .. modulus_len)] and private exponent
+    [d[0 .. d_len)].  On success the signature is [sg[0 .. modulus_len)]. *)
+fn sign_rsa_pss_rsae_sha256
+  (modulus: array U8.t)
+  (modulus_len: SZ.t)
+  (d: array U8.t)
+  (d_len: SZ.t)
+  (salt: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (sg: array U8.t)
+  requires pts_to modulus 'n_bytes **
+           pts_to d 'd_bytes **
+           pts_to salt 'salt_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to sg 'old_sg **
+           pure (SZ.v modulus_len <= B.length 'n_bytes /\
+                 SZ.v d_len <= B.length 'd_bytes /\
+                 B.length 'salt_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 SZ.v modulus_len <= B.length 'old_sg)
+  returns ok: bool
+  ensures exists* sg_bytes.
+          pts_to modulus 'n_bytes **
+          pts_to d 'd_bytes **
+          pts_to salt 'salt_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to sg sg_bytes **
+          pure (B.length sg_bytes == B.length 'old_sg)
+
+(** ECDSA over P-256 with SHA-256, by the 32-byte private scalar [sk] with
+    the 32-byte per-signature [nonce].  On success [out] holds [r || s]. *)
+fn sign_ecdsa_secp256r1_sha256
+  (sk: array U8.t)
+  (nonce: array U8.t)
+  (msg: array U8.t)
+  (msg_len: SZ.t)
+  (out: array U8.t)
+  requires pts_to sk 'sk_bytes **
+           pts_to nonce 'nonce_bytes **
+           pts_to msg 'msg_bytes **
+           pts_to out 'old_out **
+           pure (B.length 'sk_bytes == 32 /\
+                 B.length 'nonce_bytes == 32 /\
+                 SZ.v msg_len <= B.length 'msg_bytes /\
+                 B.length 'old_out == 64)
+  returns ok: bool
+  ensures exists* out_bytes.
+          pts_to sk 'sk_bytes **
+          pts_to nonce 'nonce_bytes **
+          pts_to msg 'msg_bytes **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == 64)

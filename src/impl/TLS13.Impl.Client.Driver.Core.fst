@@ -16,6 +16,7 @@ module Bounds = TLS13.Impl.ConnectionState.Bounds
 module CL = TLS13.ConnectionLog
 module CQ = TLS13.Impl.ConnectionState.Queries
 module CR = TLS13.Impl.ConnectionState.Repr
+module CV = TLS13.Impl.Client.CertificateVerify
 module CS = TLS13.Spec.StateMachine
 module CSL = TLS13.ConnectionState.Lemmas
 module CT = TLS13.Impl.Client.Types
@@ -27,7 +28,12 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
-module O = TLS13.OpenSSL
+module X = TLS13.X509.Spec
+module PK = TLS13.Impl.X509.PublicKey
+module U64 = FStar.UInt64
+module XF = TLS13.Impl.X509.Fields
+module XV = TLS13.Impl.X509.Validate
+module GCert = TLS13.Wire.Generated.Certificate
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
 module Seq = FStar.Seq
@@ -257,14 +263,10 @@ fn driver_copy_certificate_leaf_der
   copied_len
 }
 
-(** Copy the peer's certificate chain out of the connection so the external
-    validator can use the intermediates for chain building.  The chain layout
-    (entry [i] at [chain_out[offsets[i] .. offsets[i] + lens[i])], entry 0 the
-    leaf) is the one [C.copy_certificate_chain] establishes.
-
-    Nothing downstream depends on the returned snapshot's relation to the
-    connection state -- the chain is only a hint to the validator -- so this
-    wrapper deliberately keeps a weak postcondition. *)
+(** Copy the peer's certificate chain out of the connection for the
+    certificate validator.  The chain layout (entry [i] at
+    [chain_out[offsets[i] .. offsets[i] + lens[i])], entry 0 the leaf) is the
+    one [C.copy_certificate_chain] establishes. *)
 fn driver_copy_certificate_chain
   (d:driver)
   (chain_out:array U8.t)
@@ -296,7 +298,17 @@ fn driver_copy_certificate_chain
                 SZ.v snapshot.CR.certificate_chain_bytes_len <=
                   B.length chain_bytes /\
                 SZ.v snapshot.CR.certificate_chain_cert_count <=
-                  Seq.length offsets)
+                  Seq.length offsets /\
+                (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate with
+                 | Some cert ->
+                   L.certificate_chain_matches
+                     chain_bytes
+                     (SZ.v snapshot.CR.certificate_chain_bytes_len)
+                     offsets
+                     lens
+                     (SZ.v snapshot.CR.certificate_chain_cert_count)
+                     (Sem.certificate_entries cert)
+                 | None -> False))
 {
   open_driver_connection d;
   rewrite (C.connection_exactly d.driver_client 'st0)
@@ -320,6 +332,182 @@ fn driver_copy_certificate_chain
   close_driver_connection d;
   snapshot
 }
+
+fn driver_trust_anchors_capacity
+  (d:driver)
+  requires driver_exactly d 'st0 'buffered 'pending_len
+  returns n:SZ.t
+  ensures driver_exactly d 'st0 'buffered 'pending_len **
+          pure (SZ.v n == CR.trust_anchors_cap
+                  'st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors)
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let n = CQ.trust_anchors_capacity d.driver_client;
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  n
+}
+
+fn driver_copy_validation_config
+  (d:driver)
+  (name_out:array U8.t)
+  (name_out_len:SZ.t)
+  (anchors_out:array U8.t)
+  (anchors_out_len:SZ.t)
+  requires driver_exactly d 'st0 'buffered 'pending_len **
+           pts_to name_out 'old_name_out **
+           pts_to anchors_out 'old_anchors_out **
+           pure (B.length 'old_name_out == SZ.v name_out_len /\
+                 Bounds.max_hostname_len <= SZ.v name_out_len /\
+                 B.length 'old_anchors_out == SZ.v anchors_out_len /\
+                 CR.trust_anchors_cap
+                   'st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors
+                   <= SZ.v anchors_out_len)
+  returns cfg:CQ.validation_config
+  ensures exists* name_bytes anchors_bytes.
+          driver_exactly d 'st0 'buffered 'pending_len **
+          pts_to name_out name_bytes **
+          pts_to anchors_out anchors_bytes **
+          pure (B.length name_bytes == SZ.v name_out_len /\
+                B.length anchors_bytes == SZ.v anchors_out_len /\
+                SZ.v cfg.CQ.validation_name_len <= B.length name_bytes /\
+                SZ.v cfg.CQ.validation_anchors_len <= B.length anchors_bytes /\
+                Seq.equal (Seq.slice name_bytes 0 (SZ.v cfg.CQ.validation_name_len))
+                  'st0.CS.cs_model.CS.model_config.CS.config_server_name /\
+                Seq.equal (Seq.slice anchors_bytes 0 (SZ.v cfg.CQ.validation_anchors_len))
+                  'st0.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors /\
+                SZ.v cfg.CQ.validation_time_seconds ==
+                  'st0.CS.cs_model.CS.model_config.CS.config_validation_time.X.seconds_since_epoch /\
+                (cfg.CQ.validation_is_client ==>
+                  'st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint))
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let cfg =
+    CQ.copy_validation_config d.driver_client name_out name_out_len anchors_out anchors_out_len;
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  cfg
+}
+
+let validation_accepted
+  (st:CS.connection_state)
+  (cert:GCert.certificate)
+  (hostname anchors payload:B.bytes)
+  (t:nat)
+  : Lemma
+    (requires
+      st.CS.cs_model.CS.model_handshake.CS.hs_certificate == Some cert /\
+      st.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint /\
+      hostname == st.CS.cs_model.CS.model_config.CS.config_server_name /\
+      anchors == st.CS.cs_model.CS.model_config.CS.config_trust_store.X.anchors /\
+      t == st.CS.cs_model.CS.model_config.CS.config_validation_time.X.seconds_since_epoch /\
+      XV.accepted hostname t anchors (Sem.certificate_entries cert) /\
+      payload == FStar.List.Tot.hd (Sem.certificate_entries cert))
+    (ensures CT.local_input_wf st CT.LocalValidateCertificate payload)
+  = let cfg = st.CS.cs_model.CS.model_config in
+    assert (cfg.CS.config_validation_time == { X.seconds_since_epoch = t });
+    assert (cfg.CS.config_trust_store == { X.anchors = anchors })
+
+(** Validate the peer's certificate chain against the configured trust
+    anchors, server name and validation time -- with the verified validator
+    [TLS13.Impl.X509.Validate] -- and on success copy the leaf, the validated
+    peer's public key, into [payload]. *)
+#push-options "--z3rlimit 100"
+fn driver_validate_certificate
+  (d:driver)
+  (payload:array U8.t)
+  (payload_len:SZ.t)
+  requires driver_exactly d 'st0 'buffered 'pending_len **
+           pts_to payload 'old_payload **
+           pure (B.length 'old_payload == SZ.v payload_len /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate)
+  returns ok:bool
+  ensures exists* payload_bytes.
+          driver_exactly d 'st0 'buffered 'pending_len **
+          pts_to payload payload_bytes **
+          pure (B.length payload_bytes == SZ.v payload_len /\
+                (ok ==> CT.local_input_wf 'st0 CT.LocalValidateCertificate payload_bytes))
+{
+  let cert : erased GCert.certificate =
+    Some?.v 'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate;
+  let chain_scratch = V.alloc 0uy L.max_certificate_chain_bytes_sz;
+  let offsets_scratch = V.alloc 0sz L.max_certificate_chain_entries_sz;
+  let lens_scratch = V.alloc 0sz L.max_certificate_chain_entries_sz;
+  let name_scratch = V.alloc 0uy Bounds.max_hostname_len_sz;
+  let anchors_cap = driver_trust_anchors_capacity d;
+  let anchors_scratch = V.alloc 0uy anchors_cap;
+  V.to_array_pts_to chain_scratch;
+  V.to_array_pts_to offsets_scratch;
+  V.to_array_pts_to lens_scratch;
+  V.to_array_pts_to name_scratch;
+  V.to_array_pts_to anchors_scratch;
+  let snap =
+    driver_copy_certificate_chain
+      d
+      (V.vec_to_array chain_scratch)
+      L.max_certificate_chain_bytes_sz
+      (V.vec_to_array offsets_scratch)
+      L.max_certificate_chain_entries_sz
+      (V.vec_to_array lens_scratch)
+      L.max_certificate_chain_entries_sz;
+  with chain_bytes offsets lens.
+    assert (pts_to (V.vec_to_array chain_scratch) chain_bytes **
+            pts_to (V.vec_to_array offsets_scratch) offsets **
+            pts_to (V.vec_to_array lens_scratch) lens);
+  let cfg =
+    driver_copy_validation_config
+      d
+      (V.vec_to_array name_scratch)
+      Bounds.max_hostname_len_sz
+      (V.vec_to_array anchors_scratch)
+      anchors_cap;
+  with name_bytes anchors_bytes.
+    assert (pts_to (V.vec_to_array name_scratch) name_bytes **
+            pts_to (V.vec_to_array anchors_scratch) anchors_bytes);
+  let valid =
+    XV.validate_into
+      (V.vec_to_array chain_scratch)
+      snap.CR.certificate_chain_bytes_len
+      (V.vec_to_array offsets_scratch)
+      (V.vec_to_array lens_scratch)
+      snap.CR.certificate_chain_cert_count
+      (V.vec_to_array anchors_scratch)
+      cfg.CQ.validation_anchors_len
+      (V.vec_to_array name_scratch)
+      cfg.CQ.validation_name_len
+      cfg.CQ.validation_time_seconds
+      payload
+      payload_len
+      #(Sem.certificate_entries cert);
+  with payload_bytes. assert (pts_to payload payload_bytes);
+  let ok = valid && cfg.CQ.validation_is_client;
+  if ok {
+    validation_accepted 'st0 cert
+      (XF.cb name_bytes cfg.CQ.validation_name_len)
+      (XF.cb anchors_bytes cfg.CQ.validation_anchors_len)
+      payload_bytes
+      (SZ.v cfg.CQ.validation_time_seconds);
+    ()
+  };
+  V.to_vec_pts_to chain_scratch;
+  V.to_vec_pts_to offsets_scratch;
+  V.to_vec_pts_to lens_scratch;
+  V.to_vec_pts_to name_scratch;
+  V.to_vec_pts_to anchors_scratch;
+  V.free chain_scratch;
+  V.free offsets_scratch;
+  V.free lens_scratch;
+  V.free name_scratch;
+  V.free anchors_scratch;
+  ok
+}
+#pop-options
 
 fn driver_copy_certificate_verify_input
   (d:driver)
@@ -400,6 +588,63 @@ fn driver_copy_certificate_verify_signature
     as (C.connection_exactly d.driver_client 'st0);
   close_driver_connection d;
   snapshot
+}
+
+fn driver_can_verify_certificate_signature
+  (d:driver)
+  requires driver_exactly d 'st0 'buffered 'pending_len
+  returns ok:bool
+  ensures driver_exactly d 'st0 'buffered 'pending_len **
+          pure (ok ==>
+            'st0.CS.cs_model.CS.model_control ==
+              CS.ControlHandshaking CS.HsCertificateVerifyReceived /\
+            'st0.CS.cs_model.CS.model_config.CS.config_role == CS.ClientEndpoint /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify /\
+            Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_buffers.CS.hb_certificate_verify_input)
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let ok = C.can_verify_certificate_signature d.driver_client;
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  ok
+}
+
+fn driver_copy_validated_peer_public_key
+  (d:driver)
+  (out:array U8.t)
+  (out_len:SZ.t)
+  requires driver_exactly d 'st0 'buffered 'pending_len **
+           pts_to out 'old_out **
+           pure (B.length 'old_out == SZ.v out_len /\
+                 Bounds.max_public_key_len <= SZ.v out_len /\
+                 Some? 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer)
+  returns copied_len:SZ.t
+  ensures exists* out_bytes.
+          driver_exactly d 'st0 'buffered 'pending_len **
+          pts_to out out_bytes **
+          pure (B.length out_bytes == SZ.v out_len /\
+                SZ.v copied_len <= B.length out_bytes /\
+                (match 'st0.CS.cs_model.CS.model_handshake.CS.hs_validated_peer with
+                 | Some peer ->
+                   SZ.v copied_len == B.length peer.X.leaf_public_key /\
+                   Seq.equal (Seq.slice out_bytes 0 (SZ.v copied_len)) peer.X.leaf_public_key
+                 | None -> False))
+{
+  open_driver_connection d;
+  rewrite (C.connection_exactly d.driver_client 'st0)
+    as (CR.connection_exactly d.driver_client 'st0);
+  let copied_len = C.copy_validated_peer_public_key d.driver_client out out_len;
+  with out_bytes.
+    assert (CR.connection_exactly d.driver_client 'st0 **
+            pts_to out out_bytes);
+  rewrite (CR.connection_exactly d.driver_client 'st0)
+    as (C.connection_exactly d.driver_client 'st0);
+  close_driver_connection d;
+  copied_len
 }
 
 fn process_ready_internal_local_action_once
@@ -1064,41 +1309,6 @@ fn top_driver_process_one_local_action
           st1.CS.cs_model.CS.model_handshake.CS.hs_buffers.CS.hb_certificate_leaf_der));
         assert (pure (Some?
           st1.CS.cs_model.CS.model_handshake.CS.hs_certificate));
-        // Hand the validator the whole chain the peer sent.  Public CAs sign
-        // end-entity certificates with intermediates, so without these the
-        // leaf has no path to any configured anchor and every real server is
-        // rejected.  The buffers are scratch for one call; the validator
-        // copies what it keeps.
-        let chain_scratch = V.alloc 0uy L.max_certificate_chain_bytes_sz;
-        let offsets_scratch = V.alloc 0sz L.max_certificate_chain_entries_sz;
-        let lens_scratch = V.alloc 0sz L.max_certificate_chain_entries_sz;
-        V.to_array_pts_to chain_scratch;
-        V.to_array_pts_to offsets_scratch;
-        V.to_array_pts_to lens_scratch;
-        let chain_snapshot =
-          driver_copy_certificate_chain
-            d.top_driver_core
-            (V.vec_to_array chain_scratch)
-            L.max_certificate_chain_bytes_sz
-            (V.vec_to_array offsets_scratch)
-            L.max_certificate_chain_entries_sz
-            (V.vec_to_array lens_scratch)
-            L.max_certificate_chain_entries_sz;
-        O.set_peer_certificate_chain
-          d.top_driver_auth
-          (V.vec_to_array chain_scratch)
-          L.max_certificate_chain_bytes_sz
-          chain_snapshot.CR.certificate_chain_bytes_len
-          (V.vec_to_array offsets_scratch)
-          (V.vec_to_array lens_scratch)
-          L.max_certificate_chain_entries_sz
-          chain_snapshot.CR.certificate_chain_cert_count;
-        V.to_vec_pts_to chain_scratch;
-        V.to_vec_pts_to offsets_scratch;
-        V.to_vec_pts_to lens_scratch;
-        V.free chain_scratch;
-        V.free offsets_scratch;
-        V.free lens_scratch;
         let leaf_len =
           driver_copy_certificate_leaf_der
             d.top_driver_core
@@ -1129,17 +1339,12 @@ fn top_driver_process_one_local_action
             assert (pts_to auth_payload_prefix auth_payload_prefix_bytes_before);
           assert (pure (B.length auth_payload_prefix_bytes_before == SZ.v leaf_len));
           let ok =
-            O.validate_certificate_for_local_event
-              d.top_driver_auth
-              #(st1)
-              auth_leaf_der
-              auth_leaf_der_len
-              leaf_len
+            driver_validate_certificate
+              d.top_driver_core
               auth_payload_prefix
               leaf_len;
           with auth_payload_prefix_bytes.
-            assert (O.is_auth_context d.top_driver_auth **
-                    pts_to auth_payload_prefix auth_payload_prefix_bytes);
+            assert (pts_to auth_payload_prefix auth_payload_prefix_bytes);
           assert (pure (B.length auth_payload_prefix_bytes == SZ.v leaf_len));
           if ok {
             assert (pure (CT.local_input_wf
@@ -1307,6 +1512,8 @@ fn top_driver_process_one_local_action
             'st0.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify));
           assert (pure (Some?
             st1.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify));
+          let ready =
+            driver_can_verify_certificate_signature d.top_driver_core;
           let input_len =
             driver_copy_certificate_verify_input
               d.top_driver_core
@@ -1323,18 +1530,28 @@ fn top_driver_process_one_local_action
           with auth_signature_bytes.
             assert (driver_exactly d.top_driver_core st1 (Ghost.reveal 'buffered) (Ghost.reveal 'pending_len) **
                     pts_to auth_signature auth_signature_bytes);
-          let ok =
-            O.verify_certificate_signature_for_local_event
-              d.top_driver_auth
-              #(st1)
-              auth_cv_input
-              auth_cv_input_len
-              input_len
+          let public_key_len =
+            driver_copy_validated_peer_public_key
+              d.top_driver_core
+              auth_leaf_der
+              auth_leaf_der_len;
+          with auth_leaf_der_bytes.
+            assert (driver_exactly d.top_driver_core st1 (Ghost.reveal 'buffered) (Ghost.reveal 'pending_len) **
+                    pts_to auth_leaf_der auth_leaf_der_bytes);
+          let signature_ok =
+            CV.verify_peer_signature
+              auth_leaf_der
+              public_key_len
               signature_snapshot.CR.cv_signature_scheme
+              (hide (Sem.certificateVerify_scheme
+                (Some?.v st1.CS.cs_model.CS.model_handshake.CS.hs_certificate_verify)))
+              auth_cv_input
+              input_len
               auth_signature
-              auth_signature_len
               signature_snapshot.CR.cv_signature_len;
+          let ok = ready && signature_ok;
           if ok {
+            CT.lemma_local_input_wf_verify_certificate_signature st1;
             assert (pure (CT.local_input_wf
               st1
               CT.LocalVerifyCertificateSignature

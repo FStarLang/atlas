@@ -286,7 +286,7 @@ static const struct case_spec k_cases[] = {
      * rsa_pss_rsae_sha256: it is TLS13.Crypto.Spec.credential_signature_scheme
      * applied to the credential the server was configured with, and the wire
      * code written into CertificateVerify comes from the same credential
-     * (TLS13.OpenSSL.server_credential_signature_scheme).  The spec-level
+     * (TLS13.Impl.ServerCredentials.server_credential_signature_scheme).  The spec-level
      * scheme and the wire code therefore cannot drift, and
      * TLS13.Spec.StateMachine.server_selection_acceptable still demands that
      * the scheme appear in the client's signature_algorithms.

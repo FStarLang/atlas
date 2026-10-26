@@ -1,5 +1,6 @@
 #include "tls13_client_engine.h"
-#include "tls13_openssl_stubs.h"
+#include "openssl_host_auth.h"
+#include "tls13_pem.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -11,6 +12,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define NETWORK_INPUT_CAPACITY ((size_t)65535u)
@@ -20,6 +22,7 @@
 typedef struct engine_test_state_s {
   tls13_client_engine *engine;
   tls13_trust_store *trust_store;
+  size_t validation_time_seconds;
   tls13_peer_identity *peer;
   int socket_fd;
   uint8_t network_input[NETWORK_INPUT_CAPACITY];
@@ -254,7 +257,7 @@ static int validate_certificate(
   if (!tls13_openssl_validate_leaf_der_with_store(
           "localhost",
           state->trust_store,
-          0u,
+          state->validation_time_seconds,
           chain_bytes + offsets[0],
           lengths[0],
           &state->peer)) {
@@ -447,9 +450,17 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  uint8_t *trust_anchor_pem = NULL;
+  size_t trust_anchor_pem_len = 0u;
+  if (read_file(argv[3], &trust_anchor_pem, &trust_anchor_pem_len) != 0) {
+    return 1;
+  }
   uint8_t *trust_anchor = NULL;
   size_t trust_anchor_len = 0u;
-  if (read_file(argv[3], &trust_anchor, &trust_anchor_len) != 0) {
+  int pem_rc = tls13_pem_certificates_to_der(
+      trust_anchor_pem, trust_anchor_pem_len, &trust_anchor, &trust_anchor_len);
+  free(trust_anchor_pem);
+  if (pem_rc != 0) {
     return 1;
   }
 
@@ -459,6 +470,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   state->socket_fd = -1;
+  state->validation_time_seconds = (size_t)time(NULL);
   state->trust_store =
       tls13_openssl_trust_store_new(trust_anchor, trust_anchor_len);
   state->socket_fd = connect_tcp(argv[1], (uint16_t)port_long);
@@ -470,7 +482,7 @@ int main(int argc, char **argv) {
         strlen("localhost"),
         trust_anchor,
         trust_anchor_len,
-        0u);
+        state->validation_time_seconds);
   }
 
   int result = 1;

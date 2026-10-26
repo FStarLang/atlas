@@ -16,7 +16,6 @@ module CS = TLS13.Spec.StateMachine
 module CT = TLS13.Impl.Client.Types
 module DCleanup = TLS13.Impl.Client.Driver.Cleanup
 module L = TLS13.Impl.Messages
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
@@ -583,7 +582,6 @@ fn run
   };
   let td = {
     top_driver_core = core;
-    top_driver_auth = d.client_driver_auth;
   };
   fold (buffered_driver_exactly
     (client_buffered_driver d concrete_channel)
@@ -607,10 +605,6 @@ fn run
     'st0
     (BT.pending model)
     concrete_buffered_len);
-  rewrite
-    (O.is_auth_context d.client_driver_auth)
-    as
-    (O.is_auth_context td.top_driver_auth);
   fold (top_driver_exactly
     td
     'st0
@@ -697,10 +691,6 @@ fn run
     received1
     committed1
     sent1);
-  rewrite
-    (O.is_auth_context td.top_driver_auth)
-    as
-    (O.is_auth_context d.client_driver_auth);
   fold (client_driver_buffers d);
   fold (client_driver_connected_indexed
     d

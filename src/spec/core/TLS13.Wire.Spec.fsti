@@ -1004,6 +1004,7 @@ val lemma_synth_signature_scheme:
   Lemma (synth_signature_scheme s ==
          (match s with
           | GSS.Ecdsa_secp256r1_sha256 -> T.Ecdsa_secp256r1_sha256
+          | GSS.Ecdsa_secp384r1_sha384 -> T.Ecdsa_secp384r1_sha384
           | GSS.Rsa_pss_rsae_sha256 -> T.Rsa_pss_rsae_sha256
           | GSS.Ed25519 -> T.Ed25519
           | GSS.Unknown_signatureScheme v -> T.Unknown_signatureScheme v))

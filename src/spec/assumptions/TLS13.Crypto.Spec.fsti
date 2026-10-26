@@ -438,12 +438,341 @@ val lemma_aead_open_seal:
       (aead_seal alg key nonce aad plaintext) ==
       Some plaintext)
 
+(** {2 Signature verification}
+
+  A peer's [public_key] is its leaf certificate (DER).  Verification is
+  hacl-pulse's: [verify_signature] is defined in the implementation of this
+  module from hacl-pulse's RSASSA-PSS and P-256 ECDSA specifications, applied
+  to the key [certificate_raw_public_key] reads out of the certificate's
+  SubjectPublicKeyInfo. *)
+
+(** A SubjectPublicKeyInfo in the raw form the hacl-pulse verifiers consume:
+    an [rsaEncryption] key as its big-endian modulus and public exponent, or
+    a P-256 or P-384 key as its 64- or 96-byte affine point [x || y]. *)
+type raw_public_key =
+  | RawRsa : modulus:B.bytes -> exponent:B.bytes -> raw_public_key
+  | RawP256 : point:B.bytes -> raw_public_key
+  | RawP384 : point:B.bytes -> raw_public_key
+
+(** {3 Certificate public keys}
+
+    The key is read from the certificate by DER structure alone:
+    [Certificate ::= SEQUENCE { tbsCertificate, ... }] spanning the whole
+    input, and [tbsCertificate ::= SEQUENCE { [0] version OPTIONAL,
+    serialNumber, signature, issuer, validity, subject,
+    subjectPublicKeyInfo, ... }] (RFC 5280 4.1).  Tags are single-byte;
+    lengths are definite and minimally encoded, at most two length bytes
+    (certificates here are far below 64 KiB). *)
+
+(** The content range of the DER TLV with tag [tag] at [pos], if it lies
+    within [limit]. *)
+let der_tlv (c:B.bytes) (tag:U8.t) (pos limit:nat)
+  : option (r:(nat & nat){
+      pos + 2 <= fst r /\ fst r <= snd r /\ snd r <= limit /\ limit <= B.length c}) =
+  if limit > B.length c || pos + 2 > limit then None
+  else if Seq.index c pos <> tag then None
+  else
+    let l0 = U8.v (Seq.index c (pos + 1)) in
+    if l0 < 0x80 then
+      (if pos + 2 + l0 <= limit then Some (pos + 2, pos + 2 + l0) else None)
+    else if l0 = 0x81 then
+      (if pos + 3 > limit then None
+       else
+         let l = U8.v (Seq.index c (pos + 2)) in
+         if l >= 0x80 && pos + 3 + l <= limit then Some (pos + 3, pos + 3 + l) else None)
+    else if l0 = 0x82 then
+      (if pos + 4 > limit then None
+       else
+         let l = 256 * U8.v (Seq.index c (pos + 2)) + U8.v (Seq.index c (pos + 3)) in
+         if l >= 0x100 && pos + 4 + l <= limit then Some (pos + 4, pos + 4 + l) else None)
+    else None
+
+(** The end of the DER TLV with tag [tag] at [pos], if any. *)
+let der_skip (c:B.bytes) (tag:U8.t) (pos:option nat) (limit:nat) : option nat =
+  match pos with
+  | None -> None
+  | Some p ->
+    (match der_tlv c tag p limit with
+     | Some r -> Some (snd r)
+     | None -> None)
+
+(** The content range of a certificate's [subjectPublicKeyInfo]. *)
+let certificate_spki (c:B.bytes)
+  : option (r:(nat & nat){fst r <= snd r /\ snd r <= B.length c}) =
+  match der_tlv c 0x30uy 0 (B.length c) with
+  | None -> None
+  | Some (cs, ce) ->
+    if ce <> B.length c then None
+    else
+      match der_tlv c 0x30uy cs ce with
+      | None -> None
+      | Some (ts, te) ->
+        let version_end =
+          (match der_tlv c 0xA0uy ts te with
+           | Some r -> snd r
+           | None -> ts) in
+        let p = der_skip c 0x02uy (Some version_end) te in  (* serialNumber *)
+        let p = der_skip c 0x30uy p te in  (* signature *)
+        let p = der_skip c 0x30uy p te in  (* issuer *)
+        let p = der_skip c 0x30uy p te in  (* validity *)
+        let p = der_skip c 0x30uy p te in  (* subject *)
+        match p with
+        | None -> None
+        | Some p ->
+          (match der_tlv c 0x30uy p te with
+           | Some r -> Some r
+           | None -> None)
+
+(** Where the magnitude of a non-negative, minimally encoded DER INTEGER with
+    content [s, e) starts: past its sign byte, if it has one. *)
+let der_uint_start (c:B.bytes) (s e:nat) : option (n:nat{s <= n /\ n < e /\ e <= B.length c}) =
+  if s >= e || e > B.length c then None
+  else if U8.v (Seq.index c s) >= 0x80 then None
+  else if U8.v (Seq.index c s) = 0 && s + 1 < e then
+    (if U8.v (Seq.index c (s + 1)) < 0x80 then None else Some (s + 1))
+  else Some s
+
+(** [AlgorithmIdentifier] content [s, e) is [rsaEncryption] (1.2.840.113549.1.1.1)
+    with NULL parameters (RFC 3279 2.3.1). *)
+let rsa_encryption_algorithm (c:B.bytes) (s e:nat) : bool =
+  e = s + 13 && e <= B.length c &&
+  Seq.index c s = 0x06uy && Seq.index c (s + 1) = 0x09uy &&
+  Seq.index c (s + 2) = 0x2Auy && Seq.index c (s + 3) = 0x86uy &&
+  Seq.index c (s + 4) = 0x48uy && Seq.index c (s + 5) = 0x86uy &&
+  Seq.index c (s + 6) = 0xF7uy && Seq.index c (s + 7) = 0x0Duy &&
+  Seq.index c (s + 8) = 0x01uy && Seq.index c (s + 9) = 0x01uy &&
+  Seq.index c (s + 10) = 0x01uy && Seq.index c (s + 11) = 0x05uy &&
+  Seq.index c (s + 12) = 0x00uy
+
+(** [AlgorithmIdentifier] content [s, e) is [id-ecPublicKey] (1.2.840.10045.2.1)
+    on the named curve [prime256v1] (1.2.840.10045.3.1.7) (RFC 5480 2.1.1). *)
+let p256_algorithm (c:B.bytes) (s e:nat) : bool =
+  e = s + 19 && e <= B.length c &&
+  Seq.index c s = 0x06uy && Seq.index c (s + 1) = 0x07uy &&
+  Seq.index c (s + 2) = 0x2Auy && Seq.index c (s + 3) = 0x86uy &&
+  Seq.index c (s + 4) = 0x48uy && Seq.index c (s + 5) = 0xCEuy &&
+  Seq.index c (s + 6) = 0x3Duy && Seq.index c (s + 7) = 0x02uy &&
+  Seq.index c (s + 8) = 0x01uy && Seq.index c (s + 9) = 0x06uy &&
+  Seq.index c (s + 10) = 0x08uy && Seq.index c (s + 11) = 0x2Auy &&
+  Seq.index c (s + 12) = 0x86uy && Seq.index c (s + 13) = 0x48uy &&
+  Seq.index c (s + 14) = 0xCEuy && Seq.index c (s + 15) = 0x3Duy &&
+  Seq.index c (s + 16) = 0x03uy && Seq.index c (s + 17) = 0x01uy &&
+  Seq.index c (s + 18) = 0x07uy
+
+(** [AlgorithmIdentifier] content [s, e) is [id-ecPublicKey] (1.2.840.10045.2.1)
+    on the named curve [secp384r1] (1.3.132.0.34) (RFC 5480 2.1.1). *)
+let p384_algorithm (c:B.bytes) (s e:nat) : bool =
+  e = s + 16 && e <= B.length c &&
+  Seq.index c s = 0x06uy && Seq.index c (s + 1) = 0x07uy &&
+  Seq.index c (s + 2) = 0x2Auy && Seq.index c (s + 3) = 0x86uy &&
+  Seq.index c (s + 4) = 0x48uy && Seq.index c (s + 5) = 0xCEuy &&
+  Seq.index c (s + 6) = 0x3Duy && Seq.index c (s + 7) = 0x02uy &&
+  Seq.index c (s + 8) = 0x01uy && Seq.index c (s + 9) = 0x06uy &&
+  Seq.index c (s + 10) = 0x05uy && Seq.index c (s + 11) = 0x2Buy &&
+  Seq.index c (s + 12) = 0x81uy && Seq.index c (s + 13) = 0x04uy &&
+  Seq.index c (s + 14) = 0x00uy && Seq.index c (s + 15) = 0x22uy
+
+(** The raw key in [SubjectPublicKeyInfo ::= SEQUENCE { algorithm, BIT STRING }]
+    content [ss, se): for [rsaEncryption], the magnitudes of the modulus and
+    exponent of [RSAPublicKey ::= SEQUENCE { INTEGER, INTEGER }]; for P-256
+    and P-384, the [x || y] of an uncompressed point (SEC 1 2.3.3).  The BIT STRING must
+    have no unused bits. *)
+let spki_raw_public_key (c:B.bytes) (ss se:nat) : option raw_public_key =
+  match der_tlv c 0x30uy ss se with
+  | None -> None
+  | Some (a_s, a_e) ->
+    match der_tlv c 0x03uy a_e se with
+    | None -> None
+    | Some (bs, be) ->
+      if be <> se || bs >= be || Seq.index c bs <> 0x00uy then None
+      else if rsa_encryption_algorithm c a_s a_e then
+        (match der_tlv c 0x30uy (bs + 1) be with
+         | None -> None
+         | Some (rs, re) ->
+           if re <> be then None
+           else
+             match der_tlv c 0x02uy rs re with
+             | None -> None
+             | Some (ns, ne) ->
+               match der_tlv c 0x02uy ne re with
+               | None -> None
+               | Some (es, ee) ->
+                 if ee <> re then None
+                 else
+                   match der_uint_start c ns ne, der_uint_start c es ee with
+                   | Some n0, Some e0 ->
+                     Some (RawRsa (Seq.slice c n0 ne) (Seq.slice c e0 ee))
+                   | _, _ -> None)
+      else if p256_algorithm c a_s a_e then
+        (if be = bs + 66 && Seq.index c (bs + 1) = 0x04uy
+         then Some (RawP256 (Seq.slice c (bs + 2) be))
+         else None)
+      else if p384_algorithm c a_s a_e then
+        (if be = bs + 98 && Seq.index c (bs + 1) = 0x04uy
+         then Some (RawP384 (Seq.slice c (bs + 2) be))
+         else None)
+      else None
+
+(** The [rsaEncryption], P-256 or P-384 public key a DER certificate carries. *)
+let certificate_raw_public_key (certificate:public_key) : option raw_public_key =
+  match certificate_spki certificate with
+  | Some (ss, se) -> spki_raw_public_key certificate ss se
+  | None -> None
+
+(** {3 ECDSA signatures}
+
+    TLS carries an ECDSA signature as the DER encoding of
+    [Ecdsa-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }] (RFC 8446 4.2.3,
+    RFC 3279 2.2.3).  Decoding is strict DER: one definite short-form
+    SEQUENCE spanning the whole input, two minimally encoded non-negative
+    INTEGERs, nothing else.  With [w]-byte scalars every such encoding is at
+    most [2w + 8] bytes (72 for P-256, 104 for P-384), so long-form lengths
+    never occur. *)
+
+(** Scalar widths: 32 bytes for P-256, 48 for P-384. *)
+type ecdsa_width = w:nat{w == 32 \/ w == 48}
+
+(** The [w]-byte big-endian value of the contents of a DER INTEGER, if it is
+    minimal, non-negative, and below [2^(8w)]. *)
+let der_integer_n (w:ecdsa_width) (v:B.bytes) : option (bytes_of_len w) =
+  let l = B.length v in
+  if l = 0 || l > w + 1 then None
+  else if U8.v (Seq.index v 0) >= 0x80 then None
+  else if l > 1 && U8.v (Seq.index v 0) = 0 && U8.v (Seq.index v 1) < 0x80 then None
+  else if l = w + 1 then Some (Seq.slice v 1 (w + 1))
+  else Some (Seq.append (Seq.create (w - l) 0uy) v)
+
+let ecdsa_signature_der_decode_n (w:ecdsa_width) (sg:B.bytes)
+  : option (bytes_of_len w & bytes_of_len w) =
+  let n = B.length sg in
+  if n < 8 || n > 2 * w + 8 then None
+  else if U8.v (Seq.index sg 0) <> 0x30 || U8.v (Seq.index sg 1) <> n - 2 then None
+  else if U8.v (Seq.index sg 2) <> 0x02 then None
+  else
+    let rl = U8.v (Seq.index sg 3) in
+    if 6 + rl > n then None
+    else if U8.v (Seq.index sg (4 + rl)) <> 0x02 then None
+    else
+      let sl = U8.v (Seq.index sg (5 + rl)) in
+      if 6 + rl + sl <> n then None
+      else
+        match der_integer_n w (Seq.slice sg 4 (4 + rl)),
+              der_integer_n w (Seq.slice sg (6 + rl) n) with
+        | Some r, Some s -> Some (r, s)
+        | _, _ -> None
+
+let ecdsa_signature_der_decode (sg:B.bytes) : option (bytes_of_len 32 & bytes_of_len 32) =
+  ecdsa_signature_der_decode_n 32 sg
+
+(** {3 RSA moduli}
+
+    A modulus is accepted as a minimal big-endian string (no leading zero
+    byte) of 128 to 1024 bytes, i.e. roughly 1024- to 8192-bit RSA; its bit
+    length is what RSASSA-PSS calls [modBits]. *)
+
+let byte_bit_length (x:U8.t) : n:nat{n <= 8} =
+  let v = U8.v x in
+  if v >= 128 then 8 else if v >= 64 then 7 else if v >= 32 then 6
+  else if v >= 16 then 5 else if v >= 8 then 4 else if v >= 4 then 3
+  else if v >= 2 then 2 else if v >= 1 then 1 else 0
+
+let rsa_max_modulus_bytes : nat = 1024
+let rsa_min_modulus_bytes : nat = 128
+
+let rsa_modulus_ok (n:B.bytes) : bool =
+  rsa_min_modulus_bytes <= B.length n &&
+  B.length n <= rsa_max_modulus_bytes &&
+  U8.v (Seq.index n 0) <> 0
+
+let rsa_mod_bits (n:B.bytes{rsa_modulus_ok n}) : nat =
+  8 * (B.length n - 1) + byte_bit_length (Seq.index n 0)
+
+(** RSASSA-PSS-VERIFY (RFC 8017 8.1.2) with SHA-256, MGF1-SHA-256 and a
+    32-byte salt -- [rsa_pss_rsae_sha256] (RFC 8446 4.2.3) -- by an
+    [rsaEncryption] key [(modulus, exponent)]. *)
+val rsa_pss_rsae_sha256_verify:
+  modulus:B.bytes ->
+  exponent:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
+(** The hash of an RSASSA-PKCS1-v1_5 certificate signature. *)
+type pkcs1_hash =
+  | Pkcs1Sha256
+  | Pkcs1Sha384
+  | Pkcs1Sha512
+
+(** RSASSA-PKCS1-V1_5-VERIFY (RFC 8017 8.2.2) by an [rsaEncryption] key
+    [(modulus, exponent)]: the signature, read as a big-endian integer below
+    the modulus, raised to the exponent, is exactly the EMSA-PKCS1-v1_5
+    encoding (RFC 8017 9.2) of the message's DigestInfo.  Used only for
+    certificate signatures; TLS 1.3 never signs handshakes with it. *)
+val rsa_pkcs1_verify:
+  hash:pkcs1_hash ->
+  modulus:B.bytes ->
+  exponent:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
+(** ECDSA-VERIFY over P-256 with SHA-256 -- [ecdsa_secp256r1_sha256] -- by the
+    affine point [point = x || y], of a DER-encoded signature. *)
+val ecdsa_secp256r1_sha256_verify:
+  point:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
+(** ECDSA-VERIFY over P-256 with SHA-384 (the hash truncated to the group
+    order's 256 bits, FIPS 186-5 6.4.2), of a DER-encoded signature.  Used
+    only for certificate signatures ([ecdsa-with-SHA384] by a P-256 key). *)
+val ecdsa_secp256r1_sha384_verify:
+  point:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
+(** ECDSA-VERIFY over P-384 with SHA-384 by the affine point
+    [point = x || y], of a DER-encoded signature: TLS [ecdsa_secp384r1_sha384]
+    and certificate [ecdsa-with-SHA384] by a P-384 key. *)
+val ecdsa_secp384r1_sha384_verify:
+  point:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
+(** ECDSA-VERIFY over P-384 with SHA-256 (the 256-bit digest is shorter than
+    the order, so it is used whole), of a DER-encoded signature.  Used only
+    for certificate signatures ([ecdsa-with-SHA256] by a P-384 key). *)
+val ecdsa_secp384r1_sha256_verify:
+  point:B.bytes ->
+  message:B.bytes ->
+  signature:signature ->
+  GTot bool
+
 val verify_signature:
   scheme:T.signature_scheme ->
   public_key:public_key ->
   message:B.bytes ->
   signature:signature ->
-  Tot bool
+  GTot bool
+
+val lemma_verify_signature_def:
+  scheme:T.signature_scheme ->
+  public_key:public_key ->
+  message:B.bytes ->
+  signature:signature ->
+  Lemma
+    (verify_signature scheme public_key message signature ==
+      (match scheme, certificate_raw_public_key public_key with
+       | T.Rsa_pss_rsae_sha256, Some (RawRsa modulus exponent) ->
+         rsa_pss_rsae_sha256_verify modulus exponent message signature
+       | T.Ecdsa_secp256r1_sha256, Some (RawP256 point) ->
+         ecdsa_secp256r1_sha256_verify point message signature
+       | T.Ecdsa_secp384r1_sha384, Some (RawP384 point) ->
+         ecdsa_secp384r1_sha384_verify point message signature
+       | _, _ -> false))
 
 (* The signature scheme a credential can produce, as a function of the
    credential's public key.  A TLS 1.3 credential's algorithm is determined by
@@ -451,10 +780,21 @@ val verify_signature:
    in this profile and a P-256 key only ecdsa_secp256r1_sha256 -- so this is a
    function of the identity rather than an extra field the configuration has to
    carry.  It is what makes the server's CertificateVerify algorithm agile
-   (parity gap G5) without indexing the credential predicate by a scheme. *)
+   (parity gap G5) without indexing the credential predicate by a scheme.
+   The server only loads credentials with an RSA or P-256 key, so the default
+   case is never used for a loaded credential. *)
 val credential_signature_scheme:
   public_key:public_key ->
   Tot T.signature_scheme
+
+val lemma_credential_signature_scheme_def:
+  public_key:public_key ->
+  Lemma
+    (ensures
+      credential_signature_scheme public_key ==
+        (match certificate_raw_public_key public_key with
+         | Some (RawP256 _) -> T.Ecdsa_secp256r1_sha256
+         | _ -> T.Rsa_pss_rsae_sha256))
 
 (* The profile implements exactly two credential algorithms, so a runtime query
    of the credential's scheme has only two answers to distinguish. *)

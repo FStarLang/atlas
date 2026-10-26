@@ -15,7 +15,7 @@ raw network bytes
   -> application log projection
 ```
 
-The target profile is the implemented TLS 1.3 client profile: X25519, `TLS_CHACHA20_POLY1305_SHA256`, no PSK/0-RTT, certificate validation and CertificateVerify through explicit external TCBs, application data, close_notify, NewSessionTicket ignore, and KeyUpdate handling.
+The target profile is the implemented TLS 1.3 client profile: X25519, `TLS_CHACHA20_POLY1305_SHA256`, no PSK/0-RTT, certificate validation through an explicit external TCB, CertificateVerify signatures (RSA-PSS-SHA256, ECDSA P-256-SHA256) checked by verified hacl-pulse code, application data, close_notify, NewSessionTicket ignore, and KeyUpdate handling.
 
 ## Current status
 
@@ -59,7 +59,7 @@ The network theorem currently exposes:
 The local theorem currently exposes:
 
 - readiness through `next_local_action_sound`;
-- explicit certificate-validation and CertificateVerify-signature TCB assumptions;
+- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.PublicKey` against the DER spec `TLS13.Crypto.Spec.certificate_raw_public_key`), and the client driver's certificate-chain validation is verified Pulse code (`TLS13.Impl.X509.Validate`) proved sound against the transparent RFC 5280/6125 profile `TLS13.X509.Spec.validate_chain` over DER trust anchors;
 - local app-send supported-profile projection: successful local app sends are bounded to one protected record;
 - outgoing record parse facts and protected seal/write-key projections for ClientFinished, app data, close_notify, and KeyUpdate.
 
@@ -92,7 +92,7 @@ Recent committed increments:
 - `54bb923` strengthens live serializer contracts.
 - `612d299` requires raw-record parse facts for every nonzero consumed network prefix.
 - `b39efa6` adds the first extracted Pulse driver facade and concrete runtime driver.
-- current increment: the OpenSSL interop runtime now goes through the top-level verified Pulse workflow, with auth assumptions isolated in `TLS13.OpenSSL.fsti` and implemented by `c_stubs/tls13_openssl_custard.*`.
+- the OpenSSL interop runtime goes through the top-level verified Pulse workflow; certificate validation (`TLS13.Impl.X509.Validate`) and server credentials/signing (`TLS13.Impl.ServerCredentials`) are verified, and the library no longer uses OpenSSL (it remains only as a test peer).
 
 ## What remains to prove
 
@@ -131,7 +131,7 @@ Remaining work:
 
 - add a public free/close path for an allocated-but-never-connected driver if that lifecycle becomes part of the public API; today failed connect is terminal, and successful connect must be followed by close;
 - decide whether to prove liveness/progress beyond the current fueled workflow status API;
-- keep the typed OpenSSL interface (`TLS13.OpenSSL.fsti`) as the explicit auth TCB, or replace it with verified validation/signature code later;
+- remove the now-inert `auth_config`/`auth_context` handles from the client driver (certificate validation no longer uses them), and move the client engine onto the verified validator;
 - keep TCP connect/read/write in the unverified `Common.TCP` bridge, with stronger raw byte-log specs when we want transport-honesty proofs;
 - preserve the concrete C driver API as the runtime contract while reducing the C wrapper further when practical.
 
@@ -149,7 +149,7 @@ For the near-term end-to-end theorem, the first option is the right path.
 The active Parser/Serializer hooks are verified F*/Pulse code now, so the final theorem should include a concise audited list of the remaining trusted assumptions:
 
 - HACL/crypto wrappers and entropy/X25519;
-- X509 chain validation and signature verification;
+- PEM trust-anchor decoding, and host-side X509 chain validation for the sans-I/O client engine only (the client driver's is verified);
 - Pulse runtime/extraction/runtime shims;
 - the TCP bridge used by the concrete driver for connect/read/write.
 
@@ -187,7 +187,7 @@ Start with these files:
 - `src/impl/TLS13.Impl.Client.Types.fst`: definitions of `client_state_correct`, `client_end_to_end_invariant`, `network_bytes_end_to_end_correct`, `local_event_end_to_end_correct`, and the `driver_trace_end_to_end` theorem surface.
 - `runtime/tls13_client_driver.c`, `runtime/tls13_server_driver.c`, and their headers: stable concrete C APIs over the extracted endpoint/canonical protocol runtime path.
 - `common/Common.ProtocolImplementation.fst`, `common/Common.ProtocolEndpoint.fst`, `common/Common.ProtocolDriver.fst`, and `common/Common.TCP.fsti`: shared protocol refinement, endpoint scheduling, generic fuel-bounded driver, and TCP-history interface.
-- `src/impl/extern/TLS13.OpenSSL.fsti` and `c_stubs/tls13_openssl_custard.*`: typed OpenSSL auth TCB used by the verified workflow.
+- `src/impl/TLS13.Impl.ServerCredentials.fst`: verified server credentials (leaf DER and RSA/P-256 private key) and CertificateVerify signing with hacl-pulse; every signature is checked with the verified verifier before it is sent.
 - `c_stubs/common_tcp_custard.*`, `c_stubs/common_tcp_stubs.*`, and the OpenSSL interop tests in `test/unit/`: C ABI bridge and smoke tests for the endpoint-driven runtime path.
 - `src/spec/core/TLS13.Spec.StateMachine.fst`: audit-facing core connection-state model and legal deltas. Client/server endpoint machines and exact wire semantics are in `src/spec/core/TLS13.Spec.Endpoint.*` and `TLS13.Spec.StateMachine.Canonical`; replay and preservation properties are isolated under `src/spec/properties`.
 - `src/impl/TLS13.Impl.Parser.*` and `src/impl/TLS13.Impl.Serializer.*`: verified parser/serializer facades and their `TLS13.Wire.Spec` postconditions.

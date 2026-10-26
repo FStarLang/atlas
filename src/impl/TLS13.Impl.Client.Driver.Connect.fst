@@ -25,7 +25,6 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
 module Seq = FStar.Seq
@@ -85,7 +84,6 @@ fn run
            assert (
              C.connection_exactly d.client_driver_client 'st0 **
              client_driver_canonical_progress d 'st0 **
-             O.is_auth_context d.client_driver_auth **
              Box.pts_to d.client_driver_channel no_channel **
              MR.pts_to d.client_driver_tcp_history #1.0R
                (wire_history B.empty B.empty) **
@@ -116,7 +114,6 @@ fn run
              };
              let td = {
                top_driver_core = core;
-               top_driver_auth = d.client_driver_auth;
              };
              unfold (client_driver_canonical_progress d 'st0);
              rewrite
@@ -174,10 +171,6 @@ fn run
                (driver_exactly core 'st0 B.empty 0sz)
                as
                (driver_exactly td.top_driver_core 'st0 B.empty 0sz);
-             rewrite
-               (O.is_auth_context d.client_driver_auth)
-               as
-               (O.is_auth_context td.top_driver_auth);
              fold (top_driver_exactly td 'st0 B.empty 0sz);
              unfold (client_driver_buffers d);
              with empty_payload network_out auth_leaf_der auth_payload auth_cv_input auth_signature app_out local_app_out.
@@ -362,10 +355,6 @@ fn run
                    if keys_installed {
                      CSL.lemma_client_application_ready_stable_x25519_key_share_projection
                        st1;
-                     rewrite
-                       (O.is_auth_context td.top_driver_auth)
-                       as
-                       (O.is_auth_context d.client_driver_auth);
                      Box.(d.client_driver_channel := Some buffered);
                      fold (client_driver_connected_indexed
                        d
@@ -397,12 +386,6 @@ fn run
                          st1
                          buffered_after
                          result.driver_workflow_rx_len);
-                     rewrite
-                       (O.is_auth_context td.top_driver_auth)
-                       as
-                       (O.is_auth_context
-                         (client_top_buffered_driver d buffered)
-                           .top_buffered_driver_auth);
                      fold (top_buffered_driver_exactly
                        (client_top_buffered_driver d buffered)
                        st1

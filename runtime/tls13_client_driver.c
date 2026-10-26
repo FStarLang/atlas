@@ -2,16 +2,23 @@
 
 #include "TLS13.h"
 #include "atlas_trace.h"
+#include "tls13_pem.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define TLS13_DRIVER_WORKFLOW_FUEL ((size_t)1000u)
 #define TLS13_DRIVER_LOCAL_FUEL ((size_t)100u)
 
 #define TLS13_CLIENT_MAX_SERVER_NAME_LEN ((size_t)255u)
-#define TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN ((size_t)65535u)
+/* TLS13.Impl.ConnectionState.Bounds.max_trust_anchors_len: the bound on the
+   decoded DER store the verified client accepts. */
+#define TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN ((size_t)1048576u)
+/* Bound on a PEM bundle read from disk (PEM is ~4/3 the DER size, plus any
+   comments the distribution adds). */
+#define TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN ((size_t)4194304u)
 
 struct tls13_client_driver_s {
   TLS13_Impl_Client_Driver_client_driver verified_driver;
@@ -23,11 +30,11 @@ struct tls13_client_driver_s {
 };
 
 struct tls13_client_config_s {
-  TLS13_Impl_Client_Driver_client_auth_config verified_config;
   uint8_t *server_name;
   size_t server_name_len;
-  uint8_t *trust_anchor_pem;
-  size_t trust_anchor_pem_len;
+  /* Concatenated DER certificates, decoded from the caller's PEM. */
+  uint8_t *trust_anchor_der;
+  size_t trust_anchor_der_len;
   size_t validation_time_seconds;
 };
 
@@ -83,6 +90,57 @@ static void abort_connected_driver(tls13_client_driver *driver) {
   }
 }
 
+/* System trust-store bundles, in the order tried when the caller supplies no
+   PEM bundle; SSL_CERT_FILE, when set, is used instead (as with OpenSSL). */
+static const char *const tls13_system_trust_store_paths[] = {
+  "/etc/ssl/certs/ca-certificates.crt",                /* Debian, Ubuntu, Arch */
+  "/etc/pki/tls/certs/ca-bundle.crt",                  /* Fedora, RHEL */
+  "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL, CentOS */
+  "/etc/ssl/ca-bundle.pem",                            /* openSUSE */
+  "/etc/ssl/cert.pem",                                 /* Alpine, macOS, BSDs */
+};
+
+static int read_pem_file(const char *path, uint8_t **out, size_t *out_len) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    return 1;
+  }
+  uint8_t *buffer = malloc(TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN);
+  if (buffer == NULL) {
+    fclose(file);
+    return 1;
+  }
+  size_t got = fread(buffer, 1u, TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN, file);
+  /* A bundle that fills the buffer may be truncated: reject it. */
+  int bad = ferror(file) || got == 0u ||
+            got == TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN;
+  fclose(file);
+  if (bad) {
+    free(buffer);
+    return 1;
+  }
+  *out = buffer;
+  *out_len = got;
+  return 0;
+}
+
+/* Loads the system trust store as a PEM bundle (caller frees). */
+static int read_system_trust_store(uint8_t **out, size_t *out_len) {
+  const char *override = getenv("SSL_CERT_FILE");
+  if (override != NULL && override[0] != '\0') {
+    return read_pem_file(override, out, out_len);
+  }
+  for (size_t i = 0u;
+       i < sizeof tls13_system_trust_store_paths /
+               sizeof tls13_system_trust_store_paths[0];
+       i++) {
+    if (read_pem_file(tls13_system_trust_store_paths[i], out, out_len) == 0) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int tls13_client_config_new(
     tls13_client_config **out,
     const char *server_name,
@@ -101,36 +159,54 @@ int tls13_client_config_new(
   size_t server_name_len = strlen(server_name);
   if (server_name_len == 0u ||
       server_name_len > TLS13_CLIENT_MAX_SERVER_NAME_LEN ||
-      trust_anchor_pem_len > TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN) {
+      trust_anchor_pem_len > TLS13_CLIENT_MAX_TRUST_ANCHORS_PEM_LEN) {
     return 1;
+  }
+
+  uint8_t *system_pem = NULL;
+  if (trust_anchor_pem_len == 0u) {
+    if (read_system_trust_store(&system_pem, &trust_anchor_pem_len) != 0) {
+      return 1;
+    }
+    trust_anchor_pem = system_pem;
+  }
+  uint8_t *trust_anchor_der = NULL;
+  size_t trust_anchor_der_len = 0u;
+  int pem_rc = tls13_pem_certificates_to_der(
+      trust_anchor_pem, trust_anchor_pem_len,
+      &trust_anchor_der, &trust_anchor_der_len);
+  free(system_pem);
+  if (pem_rc != 0) {
+    return 1;
+  }
+  if (trust_anchor_der_len > TLS13_CLIENT_MAX_TRUST_ANCHORS_LEN) {
+    free(trust_anchor_der);
+    return 1;
+  }
+  /* Zero means "now"; the verified model validates at the explicit time. */
+  if (validation_time_seconds == 0u) {
+    time_t now = time(NULL);
+    if (now <= (time_t)0) {
+      free(trust_anchor_der);
+      return 1;
+    }
+    validation_time_seconds = (size_t)now;
   }
 
   tls13_client_config *config = calloc(1u, sizeof *config);
   uint8_t *server_name_copy = malloc(server_name_len);
-  uint8_t *trust_anchor_copy =
-      malloc(trust_anchor_pem_len == 0u ? 1u : trust_anchor_pem_len);
-  if (config == NULL || server_name_copy == NULL ||
-      trust_anchor_copy == NULL) {
-    free(trust_anchor_copy);
+  if (config == NULL || server_name_copy == NULL) {
+    free(trust_anchor_der);
     free(server_name_copy);
     free(config);
     return 1;
   }
   memcpy(server_name_copy, server_name, server_name_len);
-  if (trust_anchor_pem_len != 0u) {
-    memcpy(trust_anchor_copy, trust_anchor_pem, trust_anchor_pem_len);
-  }
 
-  config->verified_config = TLS13_Impl_Client_Driver_new_auth_config(
-      server_name_copy,
-      server_name_len,
-      trust_anchor_copy,
-      trust_anchor_pem_len,
-      validation_time_seconds);
   config->server_name = server_name_copy;
   config->server_name_len = server_name_len;
-  config->trust_anchor_pem = trust_anchor_copy;
-  config->trust_anchor_pem_len = trust_anchor_pem_len;
+  config->trust_anchor_der = trust_anchor_der;
+  config->trust_anchor_der_len = trust_anchor_der_len;
   config->validation_time_seconds = validation_time_seconds;
   *out = config;
   return 0;
@@ -140,8 +216,7 @@ void tls13_client_config_free(tls13_client_config *config) {
   if (config == NULL) {
     return;
   }
-  TLS13_Impl_Client_Driver_free_auth_config(config->verified_config);
-  free(config->trust_anchor_pem);
+  free(config->trust_anchor_der);
   free(config->server_name);
   free(config);
 }
@@ -179,12 +254,11 @@ static int connect_with_config_reporting(
 #endif
 
   driver->verified_driver =
-      TLS13_Impl_Client_Driver_new_client_with_auth_config(
-          config->verified_config,
+      TLS13_Impl_Client_Driver_new_client(
           config->server_name,
           config->server_name_len,
-          config->trust_anchor_pem,
-          config->trust_anchor_pem_len,
+          config->trust_anchor_der,
+          config->trust_anchor_der_len,
           config->validation_time_seconds);
 
   TLS13_Impl_Client_Driver_driver_workflow_status status =

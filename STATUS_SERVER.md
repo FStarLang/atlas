@@ -284,7 +284,7 @@ configured with, so an ECDSA P-256 credential negotiates and signs
 `ecdsa_secp256r1_sha256` while an RSA credential negotiates and signs
 `rsa_pss_rsae_sha256` -- and either one correctly refuses an offer its own key
 cannot satisfy.  The wire code written into CertificateVerify comes from the
-same credential (`TLS13.OpenSSL.server_credential_signature_scheme`), so the
+same credential (`TLS13.Impl.ServerCredentials.server_credential_signature_scheme`), so the
 model-level scheme and the byte on the wire cannot drift.
 
 `docs/server-client-parity.md` is the authoritative gap analysis and interop

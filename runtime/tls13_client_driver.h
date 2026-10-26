@@ -10,6 +10,13 @@ typedef struct tls13_client_config_s tls13_client_config;
 
 #define TLS13_CLIENT_DRIVER_RECEIVE_BUFFER_SIZE ((size_t)16640u)
 
+/* [trust_anchor_pem] is a PEM bundle of trusted certificates; it is decoded
+ * here into the concatenated DER form the verified client validates against
+ * (at most 1 MiB of DER).  An empty bundle (NULL, 0) selects the system trust
+ * store: the file named by SSL_CERT_FILE if set, otherwise the first of the
+ * usual distribution bundles (/etc/ssl/certs/ca-certificates.crt,
+ * /etc/pki/tls/certs/ca-bundle.crt, ...) that exists.
+ * A [validation_time_seconds] of zero means the current time. */
 int tls13_client_config_new(
     tls13_client_config **out,
     const char *server_name,

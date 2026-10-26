@@ -969,6 +969,42 @@ fn copy_optional_sized_bytes_to_array
 }
 
 
+fn copy_sized_bytes_to_array
+  (#cap:erased nat)
+  (slot:sized_bytes)
+  (dst:array U8.t)
+  (dst_len:SZ.t)
+  (#bytes:erased B.bytes)
+  requires sized_bytes_exactly slot (reveal cap) bytes **
+           ArrPts.pts_to dst 'old_dst **
+           pure (B.length 'old_dst == SZ.v dst_len /\
+                 reveal cap <= SZ.v dst_len)
+  returns copied_len:SZ.t
+  ensures exists* dst_bytes.
+          sized_bytes_exactly slot (reveal cap) bytes **
+          ArrPts.pts_to dst dst_bytes **
+          pure (B.length dst_bytes == SZ.v dst_len /\
+                SZ.v copied_len == B.length (Ghost.reveal bytes) /\
+                SZ.v copied_len <= B.length dst_bytes /\
+                Seq.equal (Seq.slice dst_bytes 0 (SZ.v copied_len)) (Ghost.reveal bytes))
+{
+  unfold (sized_bytes_exactly slot (reveal cap) (Ghost.reveal bytes));
+  with storage len. _;
+  let copy_len = !slot.len;
+  assert (pure (copy_len == len));
+  assert (pure (byte_prefix_matches storage copy_len bytes));
+  ArrPts.pts_to_len dst;
+  V.to_array_pts_to slot.bytes;
+  Arr.memcpy_l copy_len (V.vec_to_array slot.bytes) dst;
+  V.to_vec_pts_to slot.bytes;
+  with dst_bytes. assert (ArrPts.pts_to dst dst_bytes);
+  assert (pure (Seq.equal
+    (Seq.slice dst_bytes 0 (SZ.v copy_len))
+    (Seq.slice storage 0 (SZ.v copy_len))));
+  fold (sized_bytes_exactly slot (reveal cap) (Ghost.reveal bytes));
+  copy_len
+}
+
 fn alloc_empty_optional_fixed32 ()
   requires emp
   returns slot:optional_fixed_bytes
@@ -1113,32 +1149,41 @@ fn alloc_default_signature_schemes ()
 {
   let items = V.alloc 0x0804us (max_signature_schemes_sz);
   V.op_Dot_Lparen_Rparen_Less_Minus items 1sz 0x0403us;
-  let contents = Ghost.hide (Seq.upd (Seq.create max_signature_schemes 0x0804us) 1 0x0403us);
-  let len = Box.alloc 2sz;
+  V.op_Dot_Lparen_Rparen_Less_Minus items 2sz 0x0503us;
+  let contents = Ghost.hide
+    (Seq.upd (Seq.upd (Seq.create max_signature_schemes 0x0804us) 1 0x0403us) 2 0x0503us);
+  let len = Box.alloc 3sz;
   let slot = { items; len };
   rewrite (V.pts_to items (Ghost.reveal contents)) as
     (V.pts_to slot.items (Ghost.reveal contents));
-  rewrite (Box.pts_to len 2sz) as (Box.pts_to slot.len 2sz);
+  rewrite (Box.pts_to len 3sz) as (Box.pts_to slot.len 3sz);
   Seq.lemma_index_create max_signature_schemes 0x0804us 0;
   assert (pure (Seq.length (Ghost.reveal contents) == max_signature_schemes));
   assert (pure (Seq.index (Ghost.reveal contents) 0 == 0x0804us));
   assert (pure (Seq.index (Ghost.reveal contents) 1 == 0x0403us));
-  // The tail sequence after dropping the first entry: its head is the ECDSA
-  // offer, and the recursive `signature_schemes_match` on the empty remainder
-  // is discharged by its `len == 0` base case.
+  assert (pure (Seq.index (Ghost.reveal contents) 2 == 0x0503us));
+  // Peel the offers one at a time; the recursive `signature_schemes_match` on
+  // the empty remainder is discharged by its `len == 0` base case.
   let tail = Ghost.hide (Seq.slice (Ghost.reveal contents) 1 (Seq.length (Ghost.reveal contents)));
+  let tail2 = Ghost.hide (Seq.slice (Ghost.reveal tail) 1 (Seq.length (Ghost.reveal tail)));
   assert (pure (Seq.index (Ghost.reveal tail) 0 == 0x0403us));
+  assert (pure (Seq.index (Ghost.reveal tail2) 0 == 0x0503us));
   assert_norm (IM.signature_scheme_matches 0x0804us T.Rsa_pss_rsae_sha256);
   assert_norm (IM.signature_scheme_matches 0x0403us T.Ecdsa_secp256r1_sha256);
+  assert_norm (IM.signature_scheme_matches 0x0503us T.Ecdsa_secp384r1_sha384);
   assert_norm (default_connection_config.CS.config_signature_schemes ==
-    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256]);
+    [T.Rsa_pss_rsae_sha256; T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384]);
+  assert (pure (IM.signature_schemes_match
+    (Ghost.reveal tail2)
+    1
+    [T.Ecdsa_secp384r1_sha384]));
   assert (pure (IM.signature_schemes_match
     (Ghost.reveal tail)
-    1
-    [T.Ecdsa_secp256r1_sha256]));
+    2
+    [T.Ecdsa_secp256r1_sha256; T.Ecdsa_secp384r1_sha384]));
   assert (pure (IM.signature_schemes_match
     (Ghost.reveal contents)
-    2
+    3
     default_connection_config.CS.config_signature_schemes));
   fold (signature_scheme_list_exactly
     slot
@@ -1153,10 +1198,9 @@ fn alloc_default_config_storage ()
   ensures connection_config_exactly cfg default_connection_config
 {
   assert (pure (SZ.fits max_hostname_len));
-  assert (pure (SZ.fits max_trust_anchors_len));
   let role_tag = Box.alloc 0uy;
   let server_name = alloc_empty_sized_bytes max_hostname_len_sz #max_hostname_len;
-  let trust_anchors = alloc_empty_sized_bytes max_trust_anchors_len_sz #max_trust_anchors_len;
+  let trust_anchors = alloc_empty_sized_bytes 1sz #(trust_anchors_cap B.empty);
   let validation_time_seconds = Box.alloc 0sz;
   let cipher_suites = alloc_default_cipher_suites ();
   let signature_schemes = alloc_default_signature_schemes ();
@@ -1171,8 +1215,10 @@ fn alloc_default_config_storage ()
   rewrite (Box.pts_to role_tag 0uy) as (Box.pts_to cfg.role_tag 0uy);
   rewrite (sized_bytes_exactly server_name max_hostname_len B.empty) as
     (sized_bytes_exactly cfg.server_name max_hostname_len default_connection_config.CS.config_server_name);
-  rewrite (sized_bytes_exactly trust_anchors max_trust_anchors_len B.empty) as
-    (sized_bytes_exactly cfg.trust_anchors max_trust_anchors_len default_connection_config.CS.config_trust_store.X.anchors);
+  rewrite (sized_bytes_exactly trust_anchors (trust_anchors_cap B.empty) B.empty) as
+    (sized_bytes_exactly cfg.trust_anchors
+      (trust_anchors_cap default_connection_config.CS.config_trust_store.X.anchors)
+      default_connection_config.CS.config_trust_store.X.anchors);
   rewrite (Box.pts_to validation_time_seconds 0sz) as
     (Box.pts_to cfg.validation_time_seconds 0sz);
   rewrite (cipher_suite_list_exactly
@@ -1219,10 +1265,9 @@ fn alloc_server_config_storage
               (Ghost.reveal 'credential_identity_bytes))
 {
   assert (pure (SZ.fits max_hostname_len));
-  assert (pure (SZ.fits max_trust_anchors_len));
   let role_tag = Box.alloc 1uy;
   let server_name = alloc_empty_sized_bytes max_hostname_len_sz #max_hostname_len;
-  let trust_anchors = alloc_empty_sized_bytes max_trust_anchors_len_sz #max_trust_anchors_len;
+  let trust_anchors = alloc_empty_sized_bytes 1sz #(trust_anchors_cap B.empty);
   let validation_time_seconds = Box.alloc 0sz;
   let cipher_suites = alloc_default_cipher_suites ();
   let signature_schemes = alloc_default_signature_schemes ();
@@ -1242,10 +1287,12 @@ fn alloc_server_config_storage
       (server_connection_config
         (Ghost.reveal 'certificate_chain_bytes)
         (Ghost.reveal 'credential_identity_bytes)).CS.config_server_name);
-  rewrite (sized_bytes_exactly trust_anchors max_trust_anchors_len B.empty) as
+  rewrite (sized_bytes_exactly trust_anchors (trust_anchors_cap B.empty) B.empty) as
     (sized_bytes_exactly
       cfg.trust_anchors
-      max_trust_anchors_len
+      (trust_anchors_cap (server_connection_config
+        (Ghost.reveal 'certificate_chain_bytes)
+        (Ghost.reveal 'credential_identity_bytes)).CS.config_trust_store.X.anchors)
       (server_connection_config
         (Ghost.reveal 'certificate_chain_bytes)
         (Ghost.reveal 'credential_identity_bytes)).CS.config_trust_store.X.anchors);
@@ -1305,10 +1352,9 @@ fn alloc_server_config_storage_erased_credential_identity
               (Ghost.reveal credential_identity))
 {
   assert (pure (SZ.fits max_hostname_len));
-  assert (pure (SZ.fits max_trust_anchors_len));
   let role_tag = Box.alloc 1uy;
   let server_name = alloc_empty_sized_bytes max_hostname_len_sz #max_hostname_len;
-  let trust_anchors = alloc_empty_sized_bytes max_trust_anchors_len_sz #max_trust_anchors_len;
+  let trust_anchors = alloc_empty_sized_bytes 1sz #(trust_anchors_cap B.empty);
   let validation_time_seconds = Box.alloc 0sz;
   let cipher_suites = alloc_default_cipher_suites ();
   let signature_schemes = alloc_default_signature_schemes ();
@@ -1328,10 +1374,12 @@ fn alloc_server_config_storage_erased_credential_identity
       (server_connection_config
         (Ghost.reveal 'certificate_chain_bytes)
         (Ghost.reveal credential_identity)).CS.config_server_name);
-  rewrite (sized_bytes_exactly trust_anchors max_trust_anchors_len B.empty) as
+  rewrite (sized_bytes_exactly trust_anchors (trust_anchors_cap B.empty) B.empty) as
     (sized_bytes_exactly
       cfg.trust_anchors
-      max_trust_anchors_len
+      (trust_anchors_cap (server_connection_config
+        (Ghost.reveal 'certificate_chain_bytes)
+        (Ghost.reveal credential_identity)).CS.config_trust_store.X.anchors)
       (server_connection_config
         (Ghost.reveal 'certificate_chain_bytes)
         (Ghost.reveal credential_identity)).CS.config_trust_store.X.anchors);
@@ -1398,7 +1446,6 @@ fn alloc_config_storage
               validation_time_seconds)
 {
   assert (pure (SZ.fits max_hostname_len));
-  assert (pure (SZ.fits max_trust_anchors_len));
   let role_tag = Box.alloc 0uy;
   let server_name_slot = alloc_empty_sized_bytes max_hostname_len_sz #max_hostname_len;
   unfold (sized_bytes_exactly server_name_slot max_hostname_len B.empty);
@@ -1410,15 +1457,17 @@ fn alloc_config_storage
     server_name_slot
     max_hostname_len_sz
     server_name_len;
-  let trust_anchors_slot = alloc_empty_sized_bytes max_trust_anchors_len_sz #max_trust_anchors_len;
-  unfold (sized_bytes_exactly trust_anchors_slot max_trust_anchors_len B.empty);
+  let anchors_cap = (if trust_anchors_len = 0sz then 1sz else trust_anchors_len);
+  let trust_anchors_slot =
+    alloc_empty_sized_bytes anchors_cap #(trust_anchors_cap 'trust_anchors_bytes);
+  unfold (sized_bytes_exactly trust_anchors_slot (trust_anchors_cap 'trust_anchors_bytes) B.empty);
   with empty_trust_anchors_storage empty_trust_anchors_len. _;
-  fold (sized_bytes_allocated trust_anchors_slot max_trust_anchors_len);
+  fold (sized_bytes_allocated trust_anchors_slot (trust_anchors_cap 'trust_anchors_bytes));
   copy_array_to_sized_bytes
-    #max_trust_anchors_len
+    #(trust_anchors_cap 'trust_anchors_bytes)
     trust_anchors
     trust_anchors_slot
-    max_trust_anchors_len_sz
+    anchors_cap
     trust_anchors_len;
   let validation_time_seconds_box = Box.alloc validation_time_seconds;
   let cipher_suites = alloc_default_cipher_suites ();
@@ -1445,11 +1494,14 @@ fn alloc_config_storage
         validation_time_seconds).CS.config_server_name);
   rewrite (sized_bytes_exactly
     trust_anchors_slot
-    max_trust_anchors_len
+    (trust_anchors_cap 'trust_anchors_bytes)
     (Ghost.reveal 'trust_anchors_bytes)) as
     (sized_bytes_exactly
       cfg.trust_anchors
-      max_trust_anchors_len
+      (trust_anchors_cap (configured_connection_config
+        (Ghost.reveal 'server_name_bytes)
+        (Ghost.reveal 'trust_anchors_bytes)
+        validation_time_seconds).CS.config_trust_store.X.anchors)
       (configured_connection_config
         (Ghost.reveal 'server_name_bytes)
         (Ghost.reveal 'trust_anchors_bytes)

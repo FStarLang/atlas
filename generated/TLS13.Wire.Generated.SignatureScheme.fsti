@@ -34,16 +34,18 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 let signatureScheme_repr = U16.t
 inline_for_extraction let signatureScheme_repr_eq (x1 x2: signatureScheme_repr) : Tot bool = (x1 = x2)
-let known_signatureScheme_repr (v:U16.t) : bool = v `signatureScheme_repr_eq` 1027us || (v `signatureScheme_repr_eq` 2052us || (v `signatureScheme_repr_eq` 2055us || (false)))
+let known_signatureScheme_repr (v:U16.t) : bool = v `signatureScheme_repr_eq` 1027us || (v `signatureScheme_repr_eq` 1283us || (v `signatureScheme_repr_eq` 2052us || (v `signatureScheme_repr_eq` 2055us || (false))))
 
 type signatureScheme =
   | Ecdsa_secp256r1_sha256
+  | Ecdsa_secp384r1_sha384
   | Rsa_pss_rsae_sha256
   | Ed25519
   | Unknown_signatureScheme of (v:U16.t{not (known_signatureScheme_repr v)})
 
 let string_of_signatureScheme = function
   | Ecdsa_secp256r1_sha256 -> "ecdsa_secp256r1_sha256"
+  | Ecdsa_secp384r1_sha384 -> "ecdsa_secp384r1_sha384"
   | Rsa_pss_rsae_sha256 -> "rsa_pss_rsae_sha256"
   | Ed25519 -> "ed25519"
   | Unknown_signatureScheme _ -> "Unknown_signatureScheme"
@@ -51,12 +53,14 @@ let string_of_signatureScheme = function
 [@LT.Norm] inline_for_extraction noextract let signatureScheme_enum : LP.enum signatureScheme U16.t =
   [@inline_let] let e = [
     Ecdsa_secp256r1_sha256, 1027us;
+    Ecdsa_secp384r1_sha384, 1283us;
     Rsa_pss_rsae_sha256, 2052us;
     Ed25519, 2055us;
   ] in
   [@inline_let] let _ =
     assert_norm (L.noRepeats (LP.list_map fst [
     Ecdsa_secp256r1_sha256, 1027us;
+    Ecdsa_secp384r1_sha384, 1283us;
     Rsa_pss_rsae_sha256, 2052us;
     Ed25519, 2055us;
   ]))
@@ -64,6 +68,7 @@ let string_of_signatureScheme = function
   [@inline_let] let _ = 
     assert_norm (L.noRepeats (LP.list_map snd [
     Ecdsa_secp256r1_sha256, 1027us;
+    Ecdsa_secp384r1_sha384, 1283us;
     Rsa_pss_rsae_sha256, 2052us;
     Ed25519, 2055us;
   ]))

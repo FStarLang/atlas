@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
       SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION) != 1 ||
       SSL_CTX_set_ciphersuites(ctx, "TLS_CHACHA20_POLY1305_SHA256") != 1 ||
       SSL_CTX_set1_groups_list(ctx, "X25519") != 1 ||
-      SSL_CTX_use_certificate_file(ctx, argv[2], SSL_FILETYPE_PEM) != 1 ||
+      SSL_CTX_use_certificate_chain_file(ctx, argv[2]) != 1 ||
       SSL_CTX_use_PrivateKey_file(ctx, argv[3], SSL_FILETYPE_PEM) != 1 ||
       SSL_CTX_check_private_key(ctx) != 1) {
     ERR_print_errors_fp(stderr);

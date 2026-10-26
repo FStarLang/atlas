@@ -25,7 +25,6 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
 module Seq = FStar.Seq
@@ -68,7 +67,6 @@ fn free_disconnected_client_driver
   (d:client_driver)
   requires C.connection_exactly d.client_driver_client 'st0 **
            client_driver_canonical_progress d 'st0 **
-           O.is_auth_context d.client_driver_auth **
            Box.pts_to d.client_driver_channel no_channel **
            (exists* h. MR.pts_to d.client_driver_tcp_history #1.0R h) **
            client_driver_buffers d **
@@ -78,7 +76,6 @@ fn free_disconnected_client_driver
   with model.
     assert (BT.is_storage d.client_driver_storage model);
   BT.free_storage d.client_driver_storage;
-  O.auth_context_free d.client_driver_auth;
   Box.free d.client_driver_channel;
   free_client_driver_buffers d;
   fold (client_driver_closed d 'st0);

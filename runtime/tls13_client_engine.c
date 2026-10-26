@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <time.h>
 
 struct tls13_client_engine_s {
   TLS13_Impl_Client_Engine_client_engine verified_engine;
@@ -129,6 +130,14 @@ int tls13_client_engine_new(
   }
   if (!capacities_match()) {
     return TLS13_CLIENT_ENGINE_ERROR_INTERNAL;
+  }
+  /* Zero means "now"; the verified model validates at the explicit time. */
+  if (validation_time_seconds == 0u) {
+    time_t now = time(NULL);
+    if (now <= (time_t)0) {
+      return TLS13_CLIENT_ENGINE_ERROR_INTERNAL;
+    }
+    validation_time_seconds = (size_t)now;
   }
 
   tls13_client_engine *engine = malloc(sizeof *engine);

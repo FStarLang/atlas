@@ -11,14 +11,18 @@ typedef struct tls13_server_config_s tls13_server_config;
 
 #define TLS13_SERVER_DRIVER_RECEIVE_BUFFER_SIZE ((size_t)16640u)
 
+/* certificate_chain is the leaf certificate in DER.  private_key is its RSA or
+   P-256 private key, in DER or PEM (PKCS#8, PKCS#1 or SEC1); it is parsed and
+   used by verified code (TLS13.Impl.ServerCredentials), and every signature is
+   checked against the certificate before it is sent. */
 int tls13_server_config_new(
     tls13_server_config **out,
     const char *bind_host,
     uint16_t port,
     const uint8_t *certificate_chain,
     size_t certificate_chain_len,
-    const uint8_t *private_key_pem,
-    size_t private_key_pem_len);
+    const uint8_t *private_key,
+    size_t private_key_len);
 
 void tls13_server_config_free(tls13_server_config *config);
 
@@ -32,8 +36,8 @@ int tls13_server_driver_accept(
     uint16_t port,
     const uint8_t *certificate_chain,
     size_t certificate_chain_len,
-    const uint8_t *private_key_pem,
-    size_t private_key_pem_len);
+    const uint8_t *private_key,
+    size_t private_key_len);
 
 int tls13_server_driver_send_application_data(
     tls13_server_driver *driver,

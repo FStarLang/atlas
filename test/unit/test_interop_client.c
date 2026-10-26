@@ -54,12 +54,13 @@ static void report(const char *host, const char *status, const char *detail) {
 }
 
 int main(int argc, char **argv) {
-  if (argc < 3 || argc > 4) {
-    fprintf(stderr, "usage: %s HOST CA_BUNDLE_PEM [PORT]\n", argv[0]);
+  if (argc < 2 || argc > 4) {
+    fprintf(stderr, "usage: %s HOST [CA_BUNDLE_PEM|- [PORT]]\n", argv[0]);
+    fprintf(stderr, "  without a bundle (or with -) the system trust store is used\n");
     return 2;
   }
   const char *host = argv[1];
-  const char *ca_path = argv[2];
+  const char *ca_path = argc >= 3 ? argv[2] : "-";
   uint16_t port = 443u;
   if (argc == 4) {
     port = (uint16_t)strtoul(argv[3], NULL, 10);
@@ -67,7 +68,7 @@ int main(int argc, char **argv) {
 
   uint8_t *ca = NULL;
   size_t ca_len = 0u;
-  if (read_file(ca_path, &ca, &ca_len) != 0) {
+  if (strcmp(ca_path, "-") != 0 && read_file(ca_path, &ca, &ca_len) != 0) {
     report(host, "TCP", "cannot read CA bundle");
     return 1;
   }

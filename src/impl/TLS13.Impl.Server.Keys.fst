@@ -28,7 +28,6 @@ module K = TLS13.Keys
 module KS = TLS13.KeySchedule
 module List = FStar.List.Tot
 module M = TLS13.Messages
-module O = TLS13.OpenSSL
 module P = TLS13.Impl.Parser
 module R = TLS13.Record.Spec
 module Ser = TLS13.Impl.Serializer

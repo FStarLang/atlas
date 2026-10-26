@@ -26,7 +26,6 @@ module L = TLS13.Impl.Messages
 module M = TLS13.Messages
 module MR = Pulse.Lib.MonotonicGhostRef
 module Sem = TLS13.Wire.Semantics
-module O = TLS13.OpenSSL
 module Box = Pulse.Lib.Box
 module R = Pulse.Lib.Reference
 module Seq = FStar.Seq
@@ -38,19 +37,13 @@ module U8 = FStar.UInt8
 module V = Pulse.Lib.Vec
 module DS = TLS13.Impl.Client.Driver.State
 open TLS13.Impl.Client.Driver.State
-fn new_client_with_auth_config
-  (auth_config:O.auth_config)
+fn new_client
   (server_name:array U8.t)
   (server_name_len:SZ.t)
   (trust_anchors:array U8.t)
   (trust_anchors_len:SZ.t)
   (validation_time_seconds:SZ.t)
-  requires O.is_auth_config
-             auth_config
-             (Ghost.reveal 'server_name_bytes)
-             (Ghost.reveal 'trust_anchors_bytes)
-             validation_time_seconds **
-           pts_to server_name 'server_name_bytes **
+  requires pts_to server_name 'server_name_bytes **
            pts_to trust_anchors 'trust_anchors_bytes **
            pure (B.length 'server_name_bytes == SZ.v server_name_len /\
                  B.length 'trust_anchors_bytes == SZ.v trust_anchors_len /\
@@ -59,12 +52,7 @@ fn new_client_with_auth_config
                  SZ.v trust_anchors_len <=
                    TLS13.Impl.ConnectionState.Bounds.max_trust_anchors_len)
   returns result: client_driver
-  ensures O.is_auth_config
-           auth_config
-           (Ghost.reveal 'server_name_bytes)
-           (Ghost.reveal 'trust_anchors_bytes)
-           validation_time_seconds **
-          pts_to server_name 'server_name_bytes **
+  ensures pts_to server_name 'server_name_bytes **
           pts_to trust_anchors 'trust_anchors_bytes **
           client_driver_live
             result
@@ -88,7 +76,6 @@ fn new_client_with_auth_config
       (Ghost.reveal 'server_name_bytes)
       (Ghost.reveal 'trust_anchors_bytes)
       validation_time_seconds);
-  let auth = O.auth_context_new auth_config;
   let progress =
     MR.alloc #_ #(EC.client_progress_preorder #CTypes.client_local_event) (Ghost.reveal initial);
   MR.take_snapshot progress (Ghost.reveal initial);
@@ -130,7 +117,6 @@ fn new_client_with_auth_config
     client_driver_client = c;
     client_driver_progress = progress;
     client_driver_initial = initial;
-    client_driver_auth = auth;
     client_driver_channel = channel;
     client_driver_storage = storage;
     client_driver_tcp_history = tcp_history;
@@ -210,7 +196,6 @@ fn new_client_with_auth_config
         (C.connection_exactly
           d.client_driver_client
           (Ghost.reveal initial));
-      rewrite (O.is_auth_context auth) as (O.is_auth_context d.client_driver_auth);
       fold (client_driver_buffers d);
       assert (pure (Ghost.reveal initial ==
         CS.initial
@@ -265,57 +250,4 @@ fn new_client_with_auth_config
             (Ghost.reveal 'trust_anchors_bytes)
             validation_time_seconds));
       d
-}
-
-fn new_client
-  (server_name:array U8.t)
-  (server_name_len:SZ.t)
-  (trust_anchors:array U8.t)
-  (trust_anchors_len:SZ.t)
-  (validation_time_seconds:SZ.t)
-  requires pts_to server_name 'server_name_bytes **
-          pts_to trust_anchors 'trust_anchors_bytes **
-          pure (B.length 'server_name_bytes == SZ.v server_name_len /\
-                B.length 'trust_anchors_bytes == SZ.v trust_anchors_len /\
-                SZ.v server_name_len <=
-                  TLS13.Impl.ConnectionState.Bounds.max_hostname_len /\
-                SZ.v trust_anchors_len <=
-                  TLS13.Impl.ConnectionState.Bounds.max_trust_anchors_len)
-  returns result: client_driver
-  ensures pts_to server_name 'server_name_bytes **
-         pts_to trust_anchors 'trust_anchors_bytes **
-         client_driver_live
-           result
-           (CR.configured_initial_state
-             (Ghost.reveal 'server_name_bytes)
-             (Ghost.reveal 'trust_anchors_bytes)
-             validation_time_seconds) **
-         pure (CT.client_state_correct
-           (CR.configured_initial_state
-             (Ghost.reveal 'server_name_bytes)
-             (Ghost.reveal 'trust_anchors_bytes)
-             validation_time_seconds) /\
-               CT.client_end_to_end_invariant
-                 (CR.configured_initial_state
-                   (Ghost.reveal 'server_name_bytes)
-                   (Ghost.reveal 'trust_anchors_bytes)
-                   validation_time_seconds))
-{
-  let config =
-    O.auth_config_new
-      server_name
-      server_name_len
-      trust_anchors
-      trust_anchors_len
-      validation_time_seconds;
-  let result =
-    new_client_with_auth_config
-      config
-      server_name
-      server_name_len
-      trust_anchors
-      trust_anchors_len
-      validation_time_seconds;
-  O.auth_config_free config;
-  result
 }
