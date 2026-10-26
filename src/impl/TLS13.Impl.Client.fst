@@ -1293,7 +1293,7 @@ fn try_process_protected_handshake_drain
           assert (pure (Seq.equal
             (Ghost.reveal 'message_fragment_bytes)
             (WS.serialize_handshake (M.Finished fin))));
-          let ready = CQ.can_receive_server_finished c #fin;
+          let ready = CQ.can_receive_server_finished c lfin #fin;
           if ready {
             let step = Ghost.hide {
               CS.protected_handshake_message = M.Finished fin;

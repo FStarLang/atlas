@@ -2090,6 +2090,7 @@ fn process_network_bytes
               let ready =
                 CQ.can_receive_client_finished
                   s
+                  lfin
                   #fin
                   #'st0;
               fold (connection_exactly s 'st0);

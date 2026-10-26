@@ -473,11 +473,14 @@ fn can_receive_client_hello
 
 fn can_receive_client_finished
   (c:connection_state)
+  (lfin:IM.finished)
   (#fin:erased GFin.finished)
   (#st0:erased CS.connection_state)
-  requires connection_exactly c st0
+  requires connection_exactly c st0 **
+           IM.is_valid_finished lfin (Ghost.reveal fin)
   returns ok: bool
   ensures connection_exactly c st0 **
+          IM.is_valid_finished lfin (Ghost.reveal fin) **
           pure (ok ==>
             st0.CS.cs_model.CS.model_control ==
               CS.ControlHandshaking CS.HsServerFinishedSent /\
@@ -981,11 +984,14 @@ fn can_verify_certificate_signature
 
 fn can_receive_server_finished
   (c:connection_state)
+  (lfin:IM.finished)
   (#fin:erased GFin.finished)
   (#st0:erased CS.connection_state)
-  requires connection_exactly c st0
+  requires connection_exactly c st0 **
+           IM.is_valid_finished lfin (Ghost.reveal fin)
   returns ok: bool
   ensures connection_exactly c st0 **
+          IM.is_valid_finished lfin (Ghost.reveal fin) **
           pure (ok ==>
             st0.CS.cs_model.CS.model_control ==
               CS.ControlHandshaking CS.HsCertificateVerifyVerified /\
