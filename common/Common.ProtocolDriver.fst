@@ -149,9 +149,8 @@ ensures
         (Ghost.reveal sent)
         (Ghost.reveal st))
 {
-  let next_action = endpoint.PE.pe_next_action;
   let action =
-    next_action
+    PE.Mkprotocol_endpoint?.pe_next_action endpoint
       i
       cfg
       frame
@@ -160,9 +159,8 @@ ensures
       st;
   match action {
     PE.EndpointNeedInput network_frame -> {
-      let prepare_network = endpoint.PE.pe_prepare_network;
       let nio =
-        prepare_network
+        PE.Mkprotocol_endpoint?.pe_prepare_network endpoint
         i
         cfg
         frame
@@ -171,9 +169,8 @@ ensures
         received
         sent
         st;
-      let process_network = protocol.CPI.pi_process_network;
       let process_result =
-        process_network
+        CPI.Mkprotocol_implementation?.pi_process_network protocol
           i
           network_frame
           (endpoint.PE.pe_network_input nio)
@@ -208,7 +205,6 @@ ensures
       let consumede = Ghost.hide consumed;
       let wire_outputse = Ghost.hide wire_outputs;
       let local_outputse = Ghost.hide local_outputs;
-      let finish_network_action = endpoint.PE.pe_finish_network_action;
       assert (pure ((Ghost.reveal out_contentse) == out_contents));
       assert (pure ((Ghost.reveal consumede) == consumed));
       assert (pure ((Ghost.reveal wire_outputse) == wire_outputs));
@@ -239,7 +235,7 @@ ensures
           (Ghost.reveal consumede)
           (Ghost.reveal wire_outputse)
           (Ghost.reveal local_outputse));
-      finish_network_action
+      PE.Mkprotocol_endpoint?.pe_finish_network_action endpoint
         i
         cfg
         frame
@@ -254,8 +250,7 @@ ensures
         consumede
         wire_outputse
         local_outputse;
-      let finish_network_io = endpoint.PE.pe_finish_network_io;
-      finish_network_io
+      PE.Mkprotocol_endpoint?.pe_finish_network_io endpoint
         i
         ch
         frame
@@ -301,9 +296,8 @@ ensures
       }
     }
     PE.EndpointLocal ev local_frame -> {
-      let prepare_local = endpoint.PE.pe_prepare_local;
       let lio =
-        prepare_local
+        PE.Mkprotocol_endpoint?.pe_prepare_local endpoint
         i
         cfg
         frame
@@ -313,9 +307,8 @@ ensures
         received
         sent
         st;
-      let process_local = protocol.CPI.pi_process_local;
       let process_result =
-        process_local
+        CPI.Mkprotocol_implementation?.pi_process_local protocol
           i
           ev
           local_frame
@@ -345,7 +338,6 @@ ensures
       let out_contentse = Ghost.hide out_contents;
       let wire_outputse = Ghost.hide wire_outputs;
       let local_outputse = Ghost.hide local_outputs;
-      let finish_local_action = endpoint.PE.pe_finish_local_action;
       assert (pure ((Ghost.reveal out_contentse) == out_contents));
       assert (pure ((Ghost.reveal wire_outputse) == wire_outputs));
       assert (pure ((Ghost.reveal local_outputse) == local_outputs));
@@ -371,7 +363,7 @@ ensures
           (Ghost.reveal st1)
           (Ghost.reveal wire_outputse)
           (Ghost.reveal local_outputse));
-      finish_local_action
+      PE.Mkprotocol_endpoint?.pe_finish_local_action endpoint
         i
         cfg
         frame
@@ -384,8 +376,7 @@ ensures
         st1
         wire_outputse
         local_outputse;
-      let finish_local_io = endpoint.PE.pe_finish_local_io;
-      finish_local_io
+      PE.Mkprotocol_endpoint?.pe_finish_local_io endpoint
         i
         ch
         frame
@@ -431,16 +422,14 @@ ensures
       }
     }
     PE.EndpointDone -> {
-      let cancel_action = endpoint.PE.pe_cancel_action;
-      cancel_action i cfg frame st PE.EndpointDone;
+      PE.Mkprotocol_endpoint?.pe_cancel_action endpoint i cfg frame st PE.EndpointDone;
       ({
         driver_status = DriverDone;
         driver_process_result = None;
       })
     }
     PE.EndpointFailed -> {
-      let cancel_action = endpoint.PE.pe_cancel_action;
-      cancel_action i cfg frame st PE.EndpointFailed;
+      PE.Mkprotocol_endpoint?.pe_cancel_action endpoint i cfg frame st PE.EndpointFailed;
       ({
         driver_status = DriverFailed;
         driver_process_result = None;

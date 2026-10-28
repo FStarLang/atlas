@@ -819,16 +819,14 @@ fn drive_until_conclusive
       return DriveExhausted;
     };
     assert (pure (0 < FStar.SizeT.v current_fuel));
-    let owns_wf = ep.bse_owns_wf;
-    owns_wf
+    Mkbuffered_stream_endpoint?.bse_owns_wf ep
       e
       st
       (Ghost.hide received')
       (Ghost.hide committed')
       (Ghost.hide b');
-    let process = ep.bse_process;
     let processed =
-      process
+      Mkbuffered_stream_endpoint?.bse_process ep
         e
         st
         (Ghost.hide received')
@@ -927,8 +925,7 @@ fn drive_until_conclusive
                 received'
                 committed'
                 b');
-            let read = ep.bse_read;
-            read
+            Mkbuffered_stream_endpoint?.bse_read ep
               e
               st
               (Ghost.hide received')
