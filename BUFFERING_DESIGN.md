@@ -317,20 +317,17 @@ The two dictionaries are explicitly typed concrete values:
   buffered_stream_endpoint endpoint endpoint_state unit server_status
   buffered_network_result`.
 
-F* and KaRaMeL do not reduce effectful function projections from an inlined
-record dictionary reliably: a standalone extraction probe produced residual
-function-pointer calls. The generic function therefore takes `process` and
-`read` as explicit computational arguments in addition to the proof
-dictionary. Each role calls it with its concrete `process` and `read`
-definitions. The dictionary supplies all relational pre/postconditions and
-erases; extraction inlines the loop and substitutes the two computational
-arguments with direct role-specific calls.
+Each role calls the generic loop with its concrete dictionary. Custard
+specializes the loop to that dictionary, so the `bse_process` and `bse_read`
+projections resolve statically to the role's functions and the logical fields
+erase.
 
-The generated client and server C each contain a specialized `while` loop with
-direct calls to `TLS13_Impl_*_Driver_BufferedNetwork_process` and
-`TLS13_Impl_*_Driver_BufferedNetwork_read`. There is no generated endpoint
-dictionary, generic scheduler function, function pointer, or indirect
-dispatch. Source-level scheduling logic nevertheless exists only once.
+The generated client and server C each contain a specialized `while` loop that
+calls `TLS13_Impl_*_Driver_BufferedNetwork_process` and
+`TLS13_Impl_*_Driver_BufferedNetwork_read` (through a local bound to that
+constant function, which the C compiler resolves to a direct call). There is no
+generated endpoint dictionary, generic scheduler function, or runtime dispatch.
+Source-level scheduling logic nevertheless exists only once.
 
 ## The TLS-specific read warrant
 
@@ -871,11 +868,11 @@ classifier.
 A standalone extraction probe first inlined a `while` loop receiving a concrete
 record dictionary with effectful `process` and `read` fields. KaRaMeL retained
 compound record projections and function-pointer calls, even with aggressive
-inlining. Passing the two computational methods explicitly while retaining the
-dictionary for erased proofs produced direct calls under ordinary extraction.
-The production driver uses this shape, giving one verified source loop and
-zero-cost client/server specializations without a structural-equivalence audit
-between duplicated loops.
+inlining, so the loop originally took the two computational methods as
+explicit arguments alongside the dictionary. Custard specializes on the
+dictionary itself, so that workaround has been removed: the loop now calls
+`ep.bse_process`/`ep.bse_read` and still extracts to direct calls, giving one
+verified source loop and zero-cost client/server specializations.
 
 ### Ghost values could not drive runtime operations
 

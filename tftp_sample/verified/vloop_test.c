@@ -1,8 +1,10 @@
 /*
- * vloop_test.c — end-to-end test of the *verified* TFTP driver loops.
+ * vloop_test.c — end-to-end test of the *verified* TFTP runners.
  *
- * Exercises the extracted, verified FStar/Pulse driver loops `tftp_server_run`
- * (sender) and `tftp_client_run` (receiver) from TFTP_Verified.c — NOT the
+ * Exercises the extracted, verified FStar/Pulse runners `tftp_server_send`
+ * (sender) and `tftp_client_receive` (receiver) from TFTP_Verified.c — both the
+ * shared verified driver loop `Common.ProtocolDriver.drive_steps` specialised
+ * to the TFTP protocol endpoints — NOT the
  * unverified interop wrappers.  It connects the verified sender to the verified
  * receiver over a SOCK_DGRAM socketpair, transfers a file through the verified
  * stop-and-wait ARQ (indexed DATA blocks + per-block ACKs, terminated by a short
@@ -10,16 +12,16 @@
  *
  * WHY SOCK_DGRAM (vs YMODEM's SOCK_STREAM): TFTP DATA is datagram-delimited (no
  * length field on the wire — its payload length is the enclosing datagram's
- * length).  The verified loops therefore read ONE datagram per `Common_TCP_read`
+ * length).  The verified receiver therefore reads ONE datagram per `Common_TCP_read`
  * and use the returned length as the frame length.  A SOCK_DGRAM socketpair
  * preserves those message boundaries (one send = one datagram = one recv),
- * realizing the one-datagram-per-read discipline the loops were verified against.
+ * realizing the one-datagram-per-read discipline the runners were verified against.
  *
  * The whole data path — framing, the recv/emit codecs, the ACK handshake, the
  * state-machine transitions — is the verified, extracted code in TFTP_Verified.c.
  * The RRQ (filename negotiation) is impl glue outside the modeled state machine,
  * so this our-sender <-> our-receiver test skips it: only the DATA blocks
- * (blocks 1..N) and their ACKs flow through the verified loops, and the file is
+ * (blocks 1..N) and their ACKs flow through the verified runners, and the file is
  * split into 512-byte blocks with a short final block (nblocks = len/512 + 1).
  */
 
@@ -36,8 +38,7 @@
 #include <unistd.h>
 
 #define TFTP_BLOCK 512
-#define TFTP_PKT   516   /* 4-byte header + up to 512 payload */
-#define FUEL       100000
+#define FUEL       1000000  /* driver steps: >= 2*nblocks + 2 for the sender */
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -60,7 +61,7 @@ int main(int argc, char **argv) {
 
   /* nblocks = len/512 + 1: blocks 0..nblocks-2 are 512 bytes, block nblocks-1 is
      the short final block (len%512 bytes, possibly 0) that terminates the
-     transfer.  Matches the F* server loop's precondition. */
+     transfer.  Matches the F* runner's precondition. */
   size_t nblocks = flen / TFTP_BLOCK + 1;
   if (nblocks > 65534) { fprintf(stderr, "file too large for TFTP (>%d blocks)\n", 65534); free(infile); return 1; }
 
@@ -78,28 +79,18 @@ int main(int argc, char **argv) {
     /* ── child: the VERIFIED sender ─────────────────────────────────────── */
     close(sv[1]);
     Common_TCP_channel ch = Common_TCP_channel_of_fd(sv[0]);
-    tftp_server_impl srv = new_tftp_server();
-    uint8_t *blk    = malloc(TFTP_BLOCK);
-    uint8_t *out    = malloc(TFTP_PKT);
-    uint8_t *ackbuf = malloc(4);
-    uint8_t *tsnf   = malloc(TFTP_PKT);
-    tftp_server_run(srv, ch, infile, nblocks, flen, blk, out, ackbuf, tsnf, (size_t)FUEL);
+    size_t nsent = tftp_server_send(ch, infile, nblocks, flen, (size_t)FUEL);
     Common_TCP_close(ch);
-    free(blk); free(out); free(ackbuf); free(tsnf); free(infile);
-    _exit(0);
+    free(infile);
+    _exit(nsent == nblocks ? 0 : 1);
   }
 
   /* ── parent: the VERIFIED receiver ────────────────────────────────────── */
   close(sv[0]);
   Common_TCP_channel ch = Common_TCP_channel_of_fd(sv[1]);
-  uint8_t *cli = new_tftp_client();
-  tftp_client_start(cli);
-  uint8_t *inbuf   = malloc(TFTP_PKT);
-  uint8_t *scratch = malloc(TFTP_BLOCK);
-  uint8_t *ackout  = malloc(4);
   size_t   outcap  = nblocks * TFTP_BLOCK;      /* >= flen; room for full reassembly */
   uint8_t *outbuf  = calloc(outcap ? outcap : 1, 1);
-  size_t nbytes = tftp_client_run(cli, ch, inbuf, scratch, ackout, outbuf, outcap, (size_t)FUEL);
+  size_t nbytes = tftp_client_receive(ch, outbuf, outcap, (size_t)FUEL);
   Common_TCP_close(ch);
 
   int status = 0;
@@ -107,10 +98,12 @@ int main(int argc, char **argv) {
 
   /* Check: the receiver reconstructed the original file exactly (TFTP is
      unpadded, so the reassembly equals the file — no truncation). */
+  int sender_ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
   int ok = (nbytes == flen) && (flen == 0 || memcmp(outbuf, infile, flen) == 0);
-  printf("verified-loop transfer: sent %zu block(s), receiver wrote %zu byte(s); content %s\n",
-         nblocks, nbytes, ok ? "MATCH" : "DIFFER");
+  printf("verified-runner transfer: %zu block(s), sender %s, receiver wrote %zu byte(s); content %s\n",
+         nblocks, sender_ok ? "completed" : "INCOMPLETE", nbytes, ok ? "MATCH" : "DIFFER");
 
-  free(inbuf); free(scratch); free(ackout); free(outbuf); free(infile);
+  free(outbuf); free(infile);
+  ok = ok && sender_ok;
   return ok ? 0 : 1;
 }

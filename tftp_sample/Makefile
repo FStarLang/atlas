@@ -2,8 +2,8 @@
 # TFTP sample: Makefile (verify + C extraction)
 # ═══════════════════════════════════════════════════════════════════
 # Verifies the IETF TFTP (RFC 1350) reliable-delivery specification and
-# executable layer, and (in later phases) extracts the verified codec + driver
-# loops to C for the interop wrappers.  Structure mirrors ../ymodem_sample, with
+# executable layer, and extracts the verified codec + runners to C for the
+# interop wrappers.  Structure mirrors ../ymodem_sample, with
 # ONE deliberate difference: there is NO QuackyDucky `gen` target, because the
 # TFTP wire format exceeds the expressive power of EverParse/QuackyDucky (NUL-
 # terminated variable-length strings and a datagram-length-implicit DATA payload)
@@ -17,12 +17,16 @@
 #         strong (prefix) parser and the OPTIONAL Common.WireFormat stream laws
 #         are deliberately not instantiated; the driver only needs per-datagram
 #         wf_parse (one datagram per read).
-#       - TFTP.Protocol   : (later) the stop-and-wait ARQ state machines +
+#       - TFTP.Protocol   : the stop-and-wait ARQ state machines +
 #         Common.FileTransfer instance for the RRQ/download direction.
 #
-#   * Executable layer (impl/): (later phases) verified Pulse codec leaves and
-#     driver loops, plus the Common.ProtocolImplementation / ProtocolEndpoint
-#     dictionaries that drive them.
+#   * Executable layer (impl/): verified Pulse codec leaves; the
+#     Common.ProtocolImplementation instances TFTP.Impl.{Server,Client}.CanonicalProtocol;
+#     the Common.ProtocolEndpoint instances TFTP.Impl.{Server,Client}.Endpoint;
+#     and the runners `tftp_server_send` / `tftp_client_receive` in
+#     TFTP.Impl.{Server,Client}.Socket, which run the shared
+#     Common.ProtocolDriver.drive_steps loop.  Custard monomorphises the
+#     dictionaries away when extracting the runners (`make extract-loops`).
 
 # ── Toolchain ──────────────────────────────────────────────────────
 EVERPARSE_HOME ?= $(abspath ../tools/everparse)
@@ -111,7 +115,9 @@ check-admits:
 # ═══════════════════════════════════════════════════════════════════
 # The verified codec leaf `TFTP.Impl.Codec` is standalone (only Pulse/F* array
 # primitives + the hand-written TFTP.Wire spec it proves against), so Custard
-# (--codegen C) emits one C file with unprefixed function names — the ABI the interop wrappers (P5) link against.
+# (--codegen C) emits one C file with unprefixed function names.  The verified
+# runners (and the driver/dictionaries they use) are extracted separately by
+# `extract-loops`.
 IMPL_MODULES = TFTP.Impl.Codec
 
 
@@ -129,12 +135,13 @@ extract-c: verify | $(EXTRACT_DIR)
 extract: extract-c
 
 # ═══════════════════════════════════════════════════════════════════
-# Verified driver loops → C + end-to-end (verified-loop) test
+# Verified runners → C + end-to-end (verified-runner) test
 # ═══════════════════════════════════════════════════════════════════
-# Extract the VERIFIED TFTP driver loops (tftp_client_run / tftp_server_run in
-# TFTP.Impl.{Client,Server}.Loop) — which reuse the verified codec leaves and
-# the CanonicalProtocol process_network/process_local — to one self-contained C
-# bundle (_extract/TFTP_Verified.c), then link a socketpair test harness that
+# Extract the VERIFIED TFTP runners (tftp_client_receive / tftp_server_send in
+# TFTP.Impl.{Client,Server}.Socket) — the shared
+# Common.ProtocolDriver.drive_steps loop, which Custard specialises to the TFTP
+# protocol_implementation / protocol_endpoint instances — to one self-contained
+# C bundle (_extract/TFTP_Verified.c), then link a socketpair test harness that
 # runs a real file transfer through them (verified sender -> verified receiver)
 # and checks the reconstructed bytes.  Unlike YMODEM, the socketpair is
 # SOCK_DGRAM (each Common_TCP_read returns exactly one datagram), realizing the
@@ -149,17 +156,17 @@ CFLAGS_VLOOP = -std=c11 -D_DEFAULT_SOURCE -DCOMMON_TCP_CUSTARD_FULL_DECLS \
   -I$(EXTRACT_DIR) -I$(STUBS_DIR)
 
 extract-loops: verify
-	@echo "Extracting the verified TFTP driver loops to C ..."
+	@echo "Extracting the verified TFTP runners to C ..."
 	@EVERPARSE_HOME=$(EVERPARSE_HOME) bash extract_loops.sh
 
 vloop-test: extract-loops
-	@echo "Building the verified-loop transfer test ..."
+	@echo "Building the verified-runner transfer test ..."
 	$(CC) $(CFLAGS_VLOOP) -o $(EXTRACT_DIR)/vloop_test \
 	  $(VERIFIED_DIR)/vloop_test.c \
 	  $(EXTRACT_DIR)/TFTP_Verified.c \
 	  $(STUBS_DIR)/common_tcp_custard.c $(STUBS_DIR)/common_tcp_stubs.c
 	@echo "─────────────────────────────────────────────────────────────────"
-	@echo " Verified server loop  ->  verified client loop  (over a SOCK_DGRAM socketpair)"
+	@echo " Verified server runner  ->  verified client runner  (over a SOCK_DGRAM socketpair)"
 	@echo "─────────────────────────────────────────────────────────────────"
 	@$(EXTRACT_DIR)/vloop_test $(VERIFIED_DIR)/dummy.txt
 
@@ -175,7 +182,7 @@ help:
 	@echo "  make check-admits  - List admits in spec/ and impl/"
 	@echo "  make extract-c     - Extract the codec leaf to C (into _extract/)"
 	@echo "  make extract       - verify + extract-c"
-	@echo "  make extract-loops - Extract the verified driver loops (_extract/TFTP_Verified.c)"
+	@echo "  make extract-loops - Extract the verified runners (_extract/TFTP_Verified.c)"
 	@echo "  make vloop-test    - Build + run the verified server->client transfer test"
 	@echo "  make clean         - Remove build artifacts"
 	@echo "  (no 'gen' target: the TFTP wire format is hand-written, not QuackyDucky)"

@@ -21,10 +21,12 @@
 #       - YModem.Impl.{Server,Client}.CanonicalProtocol hold the
 #         Common.ProtocolImplementation.protocol_implementation instances (the
 #         verified refinement witnesses for ymodem_{server,client}_wfsm) that
-#         drive those leaves.  Like every type-class dictionary they carry
-#         separation-logic and ghost/stt fields, so they are NOT Low* — verified
-#         by `make verify` but not extracted (the extractor cannot lower a dictionary;
-#         cf. calc's calc_server_protocol_implementation).
+#         drive those leaves; YModem.Impl.{Server,Client}.Endpoint hold the
+#         Common.ProtocolEndpoint instances, and YModem.Impl.{Server,Client}.Socket
+#         the runners `ymodem_server_send` / `ymodem_client_receive`, which run
+#         the shared Common.ProtocolDriver.drive_steps loop.  Custard
+#         monomorphises the dictionaries away when extracting the runners
+#         (`make extract-loops`).
 
 # ── Toolchain ──────────────────────────────────────────────────────
 EVERPARSE_HOME ?= $(abspath ../tools/everparse)
@@ -121,10 +123,8 @@ gen:
 # ═══════════════════════════════════════════════════════════════════
 # The executable *leaf* module to extract.  It is standalone (it uses only
 # Pulse/F* array primitives), so Custard (--codegen C) emits one C file with
-# unprefixed function names — the ABI the
-# interop wrappers link against.  The CanonicalProtocol instance modules that
-# drive these leaves are verified but not extracted: a protocol_implementation
-# dictionary is not Low* (it holds separation-logic and ghost/stt fields).
+# unprefixed function names.  The verified runners (and the driver/dictionaries
+# they use) are extracted separately by `extract-loops`.
 IMPL_MODULES = YModem.Impl.Codec
 
 
@@ -150,7 +150,7 @@ CFLAGS_WRAP = -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra \
   -I$(EXTRACT_DIR)
 
 wrappers: extract-loops
-	@echo "Compiling YMODEM interop drivers over the VERIFIED loops..."
+	@echo "Compiling YMODEM interop drivers over the VERIFIED runners..."
 	$(CC) $(CFLAGS_VLOOP) -o $(EXTRACT_DIR)/ymodem_rb \
 	  $(INTEROP_DIR)/ymodem_rb.c \
 	  $(EXTRACT_DIR)/YModem_Verified.c \
@@ -159,19 +159,17 @@ wrappers: extract-loops
 	  $(INTEROP_DIR)/ymodem_sb.c \
 	  $(EXTRACT_DIR)/YModem_Verified.c \
 	  $(STUBS_DIR)/common_tcp_custard.c $(STUBS_DIR)/common_tcp_stubs.c
-	@echo "Interop drivers ymodem_rb / ymodem_sb (verified loops) compiled to $(EXTRACT_DIR)/."
+	@echo "Interop drivers ymodem_rb / ymodem_sb (verified runners) compiled to $(EXTRACT_DIR)/."
 
-# ── Verified driver loops → C + end-to-end test ────────────────────
-# Extract the VERIFIED YMODEM driver loops (ymodem_client_run / ymodem_server_run
-# in YModem.Impl.{Client,Server}.Loop) — which reuse the verified process_network
-# leaf and the verified send wrappers — to a single self-contained C bundle
-# (_extract/YModem_Verified.c), then link the socketpair test harness that runs a
-# real file transfer through them (verified sender -> verified receiver) and
-# checks the reconstructed bytes.  Unlike the endpoint / drive_steps model (which
-# is a verified but non-extractable orchestration over typeclass dictionaries),
-# these loops lower to first-order C, so they are the *runnable* verified
-# orchestration.  The TCP stub is the trusted realization of the verified
-# read/write interface.
+# ── Verified runners → C + end-to-end test ─────────────────────────
+# Extract the VERIFIED YMODEM runners (ymodem_client_receive / ymodem_server_send
+# in YModem.Impl.{Client,Server}.Socket) — the shared
+# Common.ProtocolDriver.drive_steps loop, which Custard specialises to the
+# YMODEM protocol_implementation / protocol_endpoint instances — to a single
+# self-contained C bundle (_extract/YModem_Verified.c), then link the socketpair
+# test harness that runs a real file transfer through them (verified sender ->
+# verified receiver) and checks the reconstructed bytes.  The TCP stub is the
+# trusted realization of the verified read/write interface.
 VERIFIED_DIR = verified
 STUBS_DIR    = ../c_stubs
 CFLAGS_VLOOP = -std=c11 -D_DEFAULT_SOURCE -DCOMMON_TCP_CUSTARD_FULL_DECLS \
@@ -180,17 +178,17 @@ CFLAGS_VLOOP = -std=c11 -D_DEFAULT_SOURCE -DCOMMON_TCP_CUSTARD_FULL_DECLS \
   -I$(EXTRACT_DIR) -I$(STUBS_DIR)
 
 extract-loops: verify
-	@echo "Extracting the verified driver loops to C ..."
+	@echo "Extracting the verified runners to C ..."
 	@EVERPARSE_HOME=$(EVERPARSE_HOME) bash extract_loops.sh
 
 vloop-test: extract-loops
-	@echo "Building the verified-loop transfer test ..."
+	@echo "Building the verified-runner transfer test ..."
 	$(CC) $(CFLAGS_VLOOP) -o $(EXTRACT_DIR)/vloop_test \
 	  $(VERIFIED_DIR)/vloop_test.c \
 	  $(EXTRACT_DIR)/YModem_Verified.c \
 	  $(STUBS_DIR)/common_tcp_custard.c $(STUBS_DIR)/common_tcp_stubs.c
 	@echo "─────────────────────────────────────────────────────────────────"
-	@echo " Verified server loop  ->  verified client loop  (over a socketpair)"
+	@echo " Verified server runner  ->  verified client runner  (over a socketpair)"
 	@echo "─────────────────────────────────────────────────────────────────"
 	@$(EXTRACT_DIR)/vloop_test $(INTEROP_DIR)/dummy.txt
 
@@ -208,6 +206,6 @@ help:
 	@echo "  make extract-c     - Extract the codec leaf to C (into _extract/)"
 	@echo "  make extract       - verify + extract-c"
 	@echo "  make wrappers      - Compile the rb/sb interop wrappers"
-	@echo "  make extract-loops - Extract the verified driver loops to C (_extract/YModem_Verified.c)"
+	@echo "  make extract-loops - Extract the verified runners to C (_extract/YModem_Verified.c)"
 	@echo "  make vloop-test    - Build + run the verified server->client transfer test"
 	@echo "  make clean         - Remove build artifacts"

@@ -15,8 +15,8 @@ module TCP = Common.TCP
 // module owns the scheduling structure: ask for the next action, run the
 // corresponding network/local handler, finish endpoint action resources, finish
 // TCP/output resources, and iterate until done, failure, or fuel exhaustion.
-// Extraction-facing code can specialize this proof-generic loop monomorphically
-// for a concrete endpoint, as the calc sample does.
+// Custard specializes this loop to the concrete protocol/endpoint dictionaries
+// at each call site, as in the calc sample's extracted runner.
 type driver_status =
   | DriverNetworkStep
   | DriverLocalStep
@@ -64,7 +64,6 @@ let local_driver_status
   | CPI.OutputBufferTooSmall
   | CPI.ConnectionFailed -> DriverFailed
 
-noextract
 fn drive_once
   #impl #state #wire_message #local_event #local_output
   (#protocol:CPI.protocol_implementation
@@ -450,8 +449,7 @@ ensures
   }
 }
 
-noextract
-fn rec drive_steps
+fn drive_steps
     #impl #state #wire_message #local_event #local_output
     (#protocol:CPI.protocol_implementation
       impl
@@ -514,96 +512,87 @@ fn rec drive_steps
         (Ghost.reveal received1)
         (Ghost.reveal sent1)
         (Ghost.reveal st1)
-  decreases (SZ.v fuel)
   {
-    if (fuel = 0sz) {
-      ({
-        driver_run_status = DriverRunFuelExhausted;
-        driver_run_last_step = None;
-      })
-    } else {
-      assert (pure (0 < SZ.v fuel));
-      let step = drive_once i cfg frame ch received sent st;
+    // An explicit loop rather than recursion so that extracted C does not rely
+    // on tail-call optimization to keep stack depth independent of [fuel].
+    let mut remaining = fuel;
+    let mut result : driver_run_result = {
+      driver_run_status = DriverRunFuelExhausted;
+      driver_run_last_step = None;
+    };
+    let mut running = true;
+    while (
+      let keep = !running;
+      let rem = !remaining;
+      keep && not (rem = 0sz)
+    )
+      invariant live remaining
+      invariant live result
+      invariant live running
+      invariant exists* (received_loop:Ghost.erased TCP.bytes)
+                        (sent_loop:Ghost.erased TCP.bytes)
+                        (st_loop:Ghost.erased state).
+        protocol.CPI.pi_invariant
+          i
+          (Ghost.reveal received_loop)
+          (Ghost.reveal sent_loop)
+          (Ghost.reveal st_loop) **
+        endpoint.PE.pe_frame_ready
+          i
+          cfg
+          frame
+          (Ghost.reveal st_loop) **
+        endpoint.PE.pe_io_ready
+          i
+          ch
+          frame
+          (Ghost.reveal received_loop)
+          (Ghost.reveal sent_loop)
+          (Ghost.reveal st_loop)
+      decreases %[(if !running then 1 else 0); SZ.v (!remaining)]
+    {
+      with received_loop sent_loop st_loop.
+        assert (
+          protocol.CPI.pi_invariant
+            i
+            (Ghost.reveal received_loop)
+            (Ghost.reveal sent_loop)
+            (Ghost.reveal st_loop) **
+          endpoint.PE.pe_frame_ready
+            i
+            cfg
+            frame
+            (Ghost.reveal st_loop) **
+          endpoint.PE.pe_io_ready
+            i
+            ch
+            frame
+            (Ghost.reveal received_loop)
+            (Ghost.reveal sent_loop)
+            (Ghost.reveal st_loop));
+      let step = drive_once i cfg frame ch received_loop sent_loop st_loop;
       match step.driver_status {
         DriverNetworkStep -> {
-          with received1 sent1 st1.
-            assert (
-              protocol.CPI.pi_invariant
-                i
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_frame_ready
-                i
-                cfg
-                frame
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_io_ready
-                i
-                ch
-                frame
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1));
-          let next_fuel = SZ.sub fuel 1sz;
-          assert (pure (SZ.v next_fuel < SZ.v fuel));
-          drive_steps i cfg frame ch next_fuel received1 sent1 st1
+          remaining := SZ.sub !remaining 1sz
         }
         DriverLocalStep -> {
-          with received1 sent1 st1.
-            assert (
-              protocol.CPI.pi_invariant
-                i
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_frame_ready
-                i
-                cfg
-                frame
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_io_ready
-                i
-                ch
-                frame
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1));
-          let next_fuel = SZ.sub fuel 1sz;
-          assert (pure (SZ.v next_fuel < SZ.v fuel));
-          drive_steps i cfg frame ch next_fuel received1 sent1 st1
+          remaining := SZ.sub !remaining 1sz
         }
         DriverDone -> {
-          ({
+          result := {
             driver_run_status = DriverRunDone;
             driver_run_last_step = step.driver_process_result;
-          })
+          };
+          running := false
         }
         DriverFailed -> {
-          with received1 sent1 st1.
-            assert (
-              protocol.CPI.pi_invariant
-                i
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_frame_ready
-                i
-                cfg
-                frame
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_io_ready
-                i
-                ch
-                frame
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1));
-          ({
+          result := {
             driver_run_status = DriverRunFailed;
             driver_run_last_step = step.driver_process_result;
-          })
+          };
+          running := false
         }
       }
-    }
+    };
+    !result
   }

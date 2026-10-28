@@ -161,7 +161,8 @@ let ymodem_server_initial : ymodem_server_state = {
      * Server_abort   — cancel the transfer. *)
 noeq
 type ymodem_server_local =
-  | Server_start    : filename:TCP.bytes -> len:nat -> plan:list TCP.bytes -> ymodem_server_local
+  | Server_start    : filename:Ghost.erased TCP.bytes -> len:Ghost.erased nat ->
+                      plan:Ghost.erased (list TCP.bytes) -> ymodem_server_local
   | Server_send     : ymodem_server_local
   | Server_eot      : ymodem_server_local
   | Server_complete : ymodem_server_local
@@ -253,11 +254,11 @@ let ymodem_server_step
   match ev with
   | SM.LocalEvent (Server_start filename len plan) ->
     s0.yss_filename == None /\
-    plan_wf plan /\
-    s1.yss_filename == Some filename /\
-    s1.yss_len == len /\
+    plan_wf (Ghost.reveal plan) /\
+    s1.yss_filename == Some (Ghost.reveal filename) /\
+    s1.yss_len == Ghost.reveal len /\
     s1.yss_sent == [] /\
-    s1.yss_pending == plan /\
+    s1.yss_pending == Ghost.reveal plan /\
     s1.yss_acked == 0 /\
     s1.yss_phase == SP_Data /\
     s1.yss_status == FT.FT_InProgress /\
@@ -390,7 +391,7 @@ let ymodem_client_initial : ymodem_client_state = {
 
 noeq
 type ymodem_client_local =
-  | Client_start : filename:TCP.bytes -> len:nat -> ymodem_client_local
+  | Client_start : filename:Ghost.erased TCP.bytes -> len:Ghost.erased nat -> ymodem_client_local
 
 (* The exact file the client reconstitutes: the declared-length prefix of the
    reassembly, truncating the padded final block away. *)
@@ -408,8 +409,8 @@ let ymodem_client_step
   match ev with
   | SM.LocalEvent (Client_start filename len) ->
     s0.ycs_filename == None /\
-    s1.ycs_filename == Some filename /\
-    s1.ycs_len == len /\
+    s1.ycs_filename == Some (Ghost.reveal filename) /\
+    s1.ycs_len == Ghost.reveal len /\
     s1.ycs_received == [] /\
     s1.ycs_status == FT.FT_InProgress /\
     out.SM.so_wire_outputs == [] /\
@@ -509,7 +510,7 @@ let ymodem_server_law_step
   | SM.LocalEvent (Server_start filename len plan) ->
     introduce exists fn ct.
       FT.ft_step_request fn ct (ymodem_server_project st0) (ymodem_server_project st1)
-    with filename (Seq.slice (ymodem_full st1) 0 (ymodem_clen st1)) and ()
+    with (Ghost.reveal filename) (Seq.slice (ymodem_full st1) 0 (ymodem_clen st1)) and ()
   | SM.LocalEvent Server_send ->
     eliminate exists body. ymodem_server_send st0 st1 body /\ out.SM.so_wire_outputs == [Body_soh body]
     with

@@ -44,7 +44,8 @@ module YModem.Impl.Client.CanonicalProtocol
   status (and on whether a filename is known) — necessary because the class
   exposes the erased abstract state to a handler only through `pi_invariant`.
 
-  Verified but NOT extracted (a `protocol_implementation` dictionary is not Low-star).
+  Extracted to C by Custard (which monomorphises the dictionary away) as part
+  of the runners in `YModem.Impl.{Client,Server}.Socket`.
 **)
 
 #lang-pulse

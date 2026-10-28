@@ -87,7 +87,6 @@ let action_not_internal
   | EndpointLocal ev _ -> ~ (protocol.CPI.pi_internal ev)
   | _ -> True
 
-noextract
 class protocol_endpoint
   (impl:Type0)
   (state:Type0)

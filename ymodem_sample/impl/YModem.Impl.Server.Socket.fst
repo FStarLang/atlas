@@ -9,8 +9,15 @@ module YModem.Impl.Server.Socket
   `YModem.Impl.Server.Endpoint.ymodem_server_protocol_endpoint` (the scheduling
   + resource dictionary).
 
-  Structural mirror of the committed client runner
-  `YModem.Impl.Client.Socket.fst`'s `run_ymodem_client_channel`
+  `ymodem_server_send` is the C entry point.  It takes the padded file and its
+  runtime block count; the file contents, file name and declared length are
+  specification-only (erased) arguments, so the endpoint config passed to
+  `drive_steps` is built here and Custard specialises the driver to it.  The
+  channel is left open (the C glue still speaks the YMODEM end-of-batch
+  exchange on it).
+
+  Structural mirror of the client runner
+  `YModem.Impl.Client.Socket.fst`'s `ymodem_client_receive`
   (setup / fold / rewrite-to-instance-projections / drive / unfold / free),
   retyped to the server, with these differences dictated by the server frame:
 
@@ -34,12 +41,13 @@ module YModem.Impl.Server.Socket
       (it lives inside `frame_ready`) and RETURNS it intact to the caller —
       it is never freed.
 
-  Full leak-free teardown otherwise (all six endpoint vecs are freed, the
-  channel is closed, and the impl handle is disposed by `free_ymodem_server`,
-  which mirrors the client's `free_ymodem_client`).
+  Leak-free teardown otherwise (all six endpoint vecs are freed and the impl
+  handle is disposed by `free_ymodem_server`, which mirrors the client's
+  `free_ymodem_client`).
 
-  Verified but NOT extracted (`drive_steps` and the endpoint dictionary are not
-  Low-star).
+  Custard extracts this module (the driver and both dictionaries are
+  monomorphised); `run_ymodem_server_connect` is a verified convenience wrapper
+  that is not extracted.
 **)
 
 #lang-pulse
@@ -76,7 +84,6 @@ module YMsg = YModem.Wire.Generated.Ymodem_message
    `drop_` (the only resource dropped — everything concrete is freed).
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn free_ymodem_server
   (i:SC.ymodem_server_impl)
   (#received:erased TCP.bytes)
@@ -96,23 +103,36 @@ ensures emp
 (* ───────────────────────────────────────────────────────────────────────────
    The runner: drive the sender over an already-connected channel.
 
-   The caller owns the padded file `cfg.scfg_file` (contents `cfg.scfg_contents`,
-   well-formed by `scfg_wf`).  The server only READS it, so we return the
-   `Vec.pts_to` intact.
+   The caller owns the padded file `file` (`nblocks` * 128 bytes).  The server
+   only READS it, so we return the `Vec.pts_to` intact.
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
-fn run_ymodem_server_channel
+fn ymodem_server_send
   (ch:TCP.channel)
-  (cfg:EP.ymodem_server_config)
+  (file:Vec.vec U8.t)
+  (nblocks:SZ.t)
   (fuel:SZ.t)
+  (#contents:Ghost.erased (Seq.seq U8.t))
+  (#filename:Ghost.erased TCP.bytes)
+  (#len:Ghost.erased nat)
 requires
   TCP.is_channel ch Seq.empty Seq.empty **
-  Vec.pts_to cfg.EP.scfg_file cfg.EP.scfg_contents **
-  pure (EP.scfg_wf cfg)
+  Vec.pts_to file contents **
+  pure (Seq.length contents == SZ.v nblocks * 128 /\ SZ.fits (SZ.v nblocks * 128))
 ensures
-  Vec.pts_to cfg.EP.scfg_file cfg.EP.scfg_contents
+  (exists* (r s:TCP.bytes). TCP.is_channel ch r s) **
+  Vec.pts_to file contents
 {
+  let cfg : EP.ymodem_server_config = {
+    EP.scfg_file       = file;
+    EP.scfg_contents   = contents;
+    EP.scfg_nblocks    = Ghost.hide (SZ.v nblocks);
+    EP.scfg_nblocks_sz = nblocks;
+    EP.scfg_filename   = filename;
+    EP.scfg_len        = len;
+  };
+  rewrite (Vec.pts_to file contents) as (Vec.pts_to cfg.EP.scfg_file cfg.EP.scfg_contents);
+
   (* 1. Fresh sender handle: pi_invariant at the initial state, plus the pure
         `is_full_vec i.status` witness we need to free it later. *)
   let i = SC.new_ymodem_server ();
@@ -216,8 +236,6 @@ ensures
             i ch frame (Ghost.reveal received1) (Ghost.reveal sent1) (Ghost.reveal st1));
   with raw_f out_f in_f. _;
 
-  TCP.close ch;
-
   (* Free the four array-backed scratch vecs (bridge each raw-array points-to
      back to its `Vec` and free). *)
   rewrite (pts_to frame.EP.sef_blk blk_f) as (pts_to (Vec.vec_to_array blk_v) blk_f);
@@ -239,13 +257,14 @@ ensures
   rewrite (Vec.pts_to frame.EP.sef_started bv_f) as (Vec.pts_to started bv_f);
   Vec.free started;
 
-  (* Dispose the impl handle; the file's `Vec.pts_to cfg.scfg_file` remains and
-     is returned to the caller (server only READS it). *)
-  free_ymodem_server i #received1 #sent1 #st1
+  (* Dispose the impl handle; the file's `Vec.pts_to` is returned to the
+     caller (server only READS it). *)
+  free_ymodem_server i #received1 #sent1 #st1;
+  rewrite (Vec.pts_to cfg.EP.scfg_file cfg.EP.scfg_contents) as (Vec.pts_to file contents)
 }
 
 (* ───────────────────────────────────────────────────────────────────────────
-   Connect-style entry: connect, then drive; the host buffer and the send file
+   Connect-style entry: connect, send, close; the host buffer and the send file
    are both returned intact.
    ─────────────────────────────────────────────────────────────────────────── *)
 
@@ -254,15 +273,20 @@ fn run_ymodem_server_connect
   (host:array U8.t)
   (host_len:SZ.t)
   (port:U16.t)
-  (cfg:EP.ymodem_server_config)
+  (file:Vec.vec U8.t)
+  (nblocks:SZ.t)
   (fuel:SZ.t)
+  (#contents:Ghost.erased (Seq.seq U8.t))
+  (#filename:Ghost.erased TCP.bytes)
+  (#len:Ghost.erased nat)
 requires
   pts_to host 'h **
-  Vec.pts_to cfg.EP.scfg_file cfg.EP.scfg_contents **
-  pure (Seq.length 'h == SZ.v host_len /\ EP.scfg_wf cfg)
+  Vec.pts_to file contents **
+  pure (Seq.length 'h == SZ.v host_len /\
+        Seq.length contents == SZ.v nblocks * 128 /\ SZ.fits (SZ.v nblocks * 128))
 ensures
   pts_to host 'h **
-  Vec.pts_to cfg.EP.scfg_file cfg.EP.scfg_contents
+  Vec.pts_to file contents
 {
   match TCP.connect_tcp host host_len port {
     Some ch -> {
@@ -271,7 +295,8 @@ ensures
       assert (pure (Seq.equal (Seq.create 0 0uy) (Seq.empty #U8.t)));
       rewrite (TCP.is_channel ch (Seq.create 0 0uy) (Seq.create 0 0uy))
           as  (TCP.is_channel ch Seq.empty Seq.empty);
-      run_ymodem_server_channel ch cfg fuel
+      ymodem_server_send ch file nblocks fuel #contents #filename #len;
+      TCP.close ch
     }
     None -> {
       ()

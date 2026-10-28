@@ -176,7 +176,7 @@ $(EXTRACT_DIR):
 
 $(CALC_C): verify | $(EXTRACT_DIR)
 	@echo "Extracting Calc.Server.EndpointRunner to C"
-	@$(FSTAR) --codegen C \
+	@$(FSTAR) --codegen C --custard_monomorphize_types true \
 	  --custard_entry Calc.Server.EndpointRunner.run_channel_endpoint \
 	  --custard_c_no_prefix Calc.Server.EndpointRunner \
 	  --custard_extern_type Common.TCP.channel@common_tcp_custard.h \

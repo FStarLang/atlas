@@ -4,9 +4,9 @@ module YModem.Impl.Server.CanonicalProtocol
 
   The YMODEM *server* (sender) as a verified instance of the reliable-delivery
   (ARQ) state machine `YModem.Protocol.ymodem_server_wfsm`, refining
-  `Common.ProtocolImplementation.protocol_implementation`.  This is a
-  verified-but-NOT-extracted refinement witness (a `protocol_implementation`
-  dictionary is not Low-star).
+  `Common.ProtocolImplementation.protocol_implementation`.  Custard extracts it
+  (monomorphising the dictionary away) as part of `ymodem_server_send` in
+  `YModem.Impl.Server.Socket`.
 
     * `pi_process_local` drives the six local events faithfully:
         - `Server_start`   initialises the transfer (filename/len/plan), emits

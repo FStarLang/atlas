@@ -1828,8 +1828,6 @@ fn drive
   let outcome =
     BS.drive_until_conclusive
       server_endpoint
-      process
-      read
       e
       st
       (Ghost.hide received)

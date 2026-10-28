@@ -1642,8 +1642,6 @@ fn drive_until_conclusive
   let outcome =
     BS.drive_until_conclusive
       client_endpoint
-      process
-      read
       e
       st
       (Ghost.hide received)

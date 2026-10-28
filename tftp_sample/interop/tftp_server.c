@@ -1,11 +1,13 @@
 /*
- * tftp_server.c — a TFTP (RFC 1350) read-request SERVER whose data-transfer loop
- * is the VERIFIED, extracted Pulse driver loop `tftp_server_run`.
+ * tftp_server.c — a TFTP (RFC 1350) read-request SERVER whose data transfer is
+ * the VERIFIED, extracted Pulse runner `tftp_server_send` (the shared verified
+ * driver loop `Common.ProtocolDriver.drive_steps` specialised to the TFTP
+ * server endpoint).
  *
  * The core send loop — framing each variable-length DATA block through the
  * verified codec with the correct incrementing 16-bit block number, awaiting
  * each ACK, and terminating with the short final block — is the verified
- * FStar/Pulse loop extracted to C in TFTP_Verified.c.  This program is the thin,
+ * FStar/Pulse code extracted to C in TFTP_Verified.c.  This program is the thin,
  * UNVERIFIED glue around it:
  *
  *   1. bind a UDP socket to the server port and receive the client's Read
@@ -16,8 +18,8 @@
  *      UDP port (the server TID), `connect()`ed to the client's source port
  *      (the client TID), so each `Common_TCP_read`/`write` is exactly one
  *      datagram to/from that fixed peer — the one-datagram-per-read discipline
- *      the verified loop was checked against;
- *   4. hand the connected channel to `tftp_server_run`, which serves the file.
+ *      the verified runner was checked against;
+ *   4. hand the connected channel to `tftp_server_send`, which serves the file.
  *
  * We serve `octet` mode only (byte-exact, so the receiver reconstructs the file
  * exactly); the RRQ mode field is parsed but not honoured (netascii/mail are not
@@ -42,7 +44,6 @@
 #include <unistd.h>
 
 #define TFTP_BLOCK 512
-#define TFTP_PKT   516
 #define FUEL       1000000
 #define RRQ_MAX    2048
 
@@ -119,17 +120,12 @@ int main(int argc, char **argv) {
   if (fd < 0) { perror("socket"); free(infile); return 1; }
   if (connect(fd, (struct sockaddr *)&client, clen) != 0) { perror("connect"); free(infile); return 1; }
 
-  /* 4. Drive the VERIFIED sender loop over the connected datagram channel. */
+  /* 4. Drive the VERIFIED sender over the connected datagram channel. */
   Common_TCP_channel ch = Common_TCP_channel_of_fd(fd);
-  tftp_server_impl srv = new_tftp_server();
-  uint8_t *blk    = malloc(TFTP_BLOCK);
-  uint8_t *out    = malloc(TFTP_PKT);
-  uint8_t *ackbuf = malloc(4);
-  uint8_t *tsnf   = malloc(TFTP_PKT);
-  size_t nsent = tftp_server_run(srv, ch, infile, nblocks, filelen, blk, out, ackbuf, tsnf, (size_t)FUEL);
+  size_t nsent = tftp_server_send(ch, infile, nblocks, filelen, (size_t)FUEL);
   Common_TCP_close(ch);
 
   fprintf(stderr, "tftp_server: served %s (%zu bytes, %zu block(s))\n", fname, filelen, nsent);
-  free(blk); free(out); free(ackbuf); free(tsnf); free(infile);
+  free(infile);
   return 0;
 }
