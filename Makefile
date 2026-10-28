@@ -174,6 +174,7 @@ ROOT_FILES = \
   src/impl/TLS13.System.Ordering.fst \
   src/impl/TLS13.Impl.Client.Driver.fst \
   src/impl/TLS13.Impl.Server.Driver.fst \
+  src/impl/TLS13.Impl.Pem.fst \
   src/spec/properties/TLS13.Spec.InternalEvent.Baseline.fst \
   src/spec/assumptions/TLS13.Crypto.Kex.Spec.fst \
   src/impl/TLS13.Crypto.Hybrid.fst \
@@ -532,6 +533,10 @@ TLS13_BUNDLE_OBJS_STAMP = $(TLS13_BUNDLE_OBJ_DIR)/.built
 TLS13_BUNDLE_INCLUDES = -I$(TLS13_BUNDLE_DIR)
 # Compiled with the library: runs custard_init_globals() at load time.
 TLS13_BUNDLE_INIT = runtime/tls13_globals.c
+# Hand-written C compiled with the library: the load-time initializer and the
+# PEM wrappers over TLS13.Impl.Pem (runtime/tls13_pem.h).
+TLS13_BUNDLE_RUNTIME = $(TLS13_BUNDLE_INIT) runtime/tls13_pem.c
+TLS13_BUNDLE_RUNTIME_HEADERS = runtime/tls13_pem.h
 # The client engine alone, for the Chromium provider archive: it is sans-I/O,
 # so this unit references neither the TCP nor the OpenSSL externs.  Same file
 # names as the full library, so runtime/tls13_client_engine.c builds against
@@ -636,7 +641,8 @@ GENERATED_RUNTIME_MODULES = TLS13.Wire.Generated.ChangeCipherSpec
 # prototypes of the roots; everything else is static.  Extraction is by
 # reachability, so the roots are exactly what hand-written C (runtime/,
 # test/unit/, the Chromium overlay) uses: the public interfaces of the client
-# driver, server driver and client engine (--custard_entry_module roots every
+# driver, server driver, client engine and PEM decoder (runtime/tls13_pem.c)
+# (--custard_entry_module roots every
 # definition of a module's .fsti), plus a constant read by the server runtime
 # and the key-schedule functions test/unit/test_key_schedule_bindings.c checks.
 # Everything else they reach is extracted with them; what is reached of an
@@ -645,7 +651,8 @@ GENERATED_RUNTIME_MODULES = TLS13.Wire.Generated.ChangeCipherSpec
 TLS13_CUSTARD_ENTRY_MODULES = \
   TLS13.Impl.Client.Driver \
   TLS13.Impl.Server.Driver \
-  TLS13.Impl.Client.Engine
+  TLS13.Impl.Client.Engine \
+  TLS13.Impl.Pem
 TLS13_CUSTARD_ENTRIES = \
   TLS13.Impl.ConnectionState.Bounds.max_server_certificate_chain_len_sz \
   TLS13.KeySchedule.handshake_secret \
@@ -689,7 +696,8 @@ $(TLS13_BUNDLE_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefil
 
 $(TLS13_ENGINE_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefile | verify
 	$(call custard_extract_c,$(TLS13_ENGINE_DIR),\
-	  --custard_entry_module TLS13.Impl.Client.Engine)
+	  --custard_entry_module TLS13.Impl.Client.Engine \
+	  --custard_entry_module TLS13.Impl.Pem)
 
 $(TLS13_CRYPTO_STAMP): $(ALL_FILES) $(GENERATED_SRCS) $(GENERATED_STAMP) Makefile | verify
 	$(call custard_extract_c,$(TLS13_CRYPTO_DIR),\
@@ -760,6 +768,7 @@ TLS13_PROVIDER_C_SOURCES = \
   c_stubs/tls13_crypto_external.c \
   runtime/common_memmove.c \
   runtime/tls13_client_engine.c \
+  runtime/tls13_pem.c \
   $(HACL_RANDOM_SOURCES)
 TLS13_PROVIDER_OBJ_STAMP = $(TLS13_PROVIDER_OBJ_DIR)/.built
 
@@ -809,20 +818,22 @@ BENCHMARK_PROFILE_OBJ_STAMP = $(BENCHMARK_PROFILE_OBJ_DIR)/.built-$(BENCHMARK_PR
 BENCHMARK_BINARY = test/perf/tls13_bench
 BENCHMARK_PROFILE_BINARY = test/perf/tls13_bench-gprof
 
-$(BENCHMARK_OBJ_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_INIT) $(ECHO_STUB_HEADERS) Makefile
+$(BENCHMARK_OBJ_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_RUNTIME) \
+  $(TLS13_BUNDLE_RUNTIME_HEADERS) $(ECHO_STUB_HEADERS) Makefile
 	@rm -rf $(BENCHMARK_OBJ_DIR)
 	@mkdir -p $(BENCHMARK_OBJ_DIR)
-	@set -e; for src in $(TLS13_BUNDLE_C) $(TLS13_BUNDLE_INIT); do \
+	@set -e; for src in $(TLS13_BUNDLE_C) $(TLS13_BUNDLE_RUNTIME); do \
 	  obj="$(BENCHMARK_OBJ_DIR)/$$(basename "$$src" .c).o"; \
 	  $(CC) $(CFLAGS_COMMON) $(BENCHMARK_CFLAGS) $(TLS13_BUNDLE_INCLUDES) \
 	    -c "$$src" -o "$$obj"; \
 	done
 	@touch $@
 
-$(BENCHMARK_PROFILE_OBJ_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_INIT) $(ECHO_STUB_HEADERS) Makefile
+$(BENCHMARK_PROFILE_OBJ_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_RUNTIME) \
+  $(TLS13_BUNDLE_RUNTIME_HEADERS) $(ECHO_STUB_HEADERS) Makefile
 	@rm -rf $(BENCHMARK_PROFILE_OBJ_DIR)
 	@mkdir -p $(BENCHMARK_PROFILE_OBJ_DIR)
-	@set -e; for src in $(TLS13_BUNDLE_C) $(TLS13_BUNDLE_INIT); do \
+	@set -e; for src in $(TLS13_BUNDLE_C) $(TLS13_BUNDLE_RUNTIME); do \
 	  obj="$(BENCHMARK_PROFILE_OBJ_DIR)/$$(basename "$$src" .c).o"; \
 	  $(CC) $(CFLAGS_COMMON) $(BENCHMARK_PROFILE_CFLAGS) $(TLS13_BUNDLE_INCLUDES) \
 	    -c "$$src" -o "$$obj"; \
@@ -873,10 +884,11 @@ benchmark: benchmark-build
 profile: benchmark-profile-build
 	scripts/profile-tls13.sh
 
-$(TLS13_BUNDLE_OBJS_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_INIT) $(ECHO_STUB_HEADERS) Makefile | check-deps
+$(TLS13_BUNDLE_OBJS_STAMP): $(TLS13_BUNDLE_STAMP) $(TLS13_BUNDLE_RUNTIME) \
+  $(TLS13_BUNDLE_RUNTIME_HEADERS) $(ECHO_STUB_HEADERS) Makefile | check-deps
 	@rm -rf $(TLS13_BUNDLE_OBJ_DIR)
 	@mkdir -p $(TLS13_BUNDLE_OBJ_DIR)
-	@set -e; for src in $(TLS13_BUNDLE_C) $(TLS13_BUNDLE_INIT); do \
+	@set -e; for src in $(TLS13_BUNDLE_C) $(TLS13_BUNDLE_RUNTIME); do \
 	  obj="$(TLS13_BUNDLE_OBJ_DIR)/$$(basename "$$src" .c).o"; \
 	  $(CC) $(CFLAGS_COMMON) $(TLS13_BUNDLE_INCLUDES) \
 	    -c "$$src" -o "$$obj"; \
@@ -1113,7 +1125,7 @@ test-client-engine-openssl-echo: test/openssl_echo_server \
 
 # ── Chromium-style Async HTTPS Demo ────────────────────────────────
 $(TLS13_PROVIDER_OBJ_STAMP): $(TLS13_PROVIDER_C_SOURCES) \
-  runtime/tls13_client_engine.h $(ECHO_STUB_HEADERS) \
+  runtime/tls13_client_engine.h runtime/tls13_pem.h $(ECHO_STUB_HEADERS) \
   $(TLS13_ENGINE_STAMP) Makefile | check-deps
 	@rm -rf $(TLS13_PROVIDER_OBJ_DIR)
 	@mkdir -p $(TLS13_PROVIDER_OBJ_DIR)

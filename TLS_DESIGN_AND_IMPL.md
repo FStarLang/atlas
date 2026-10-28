@@ -321,7 +321,8 @@ The public client API is buffer/event oriented:
   that is itself an anchor is also accepted. Trust anchors are a concatenation
   of DER certificates (up to `Bounds.max_trust_anchors_len`, 1 MiB, enough for
   a full system root store; the configuration stores them at their exact
-  size): the C runtime decodes the caller's PEM bundle (`runtime/tls13_pem.h`),
+  size): the C runtime decodes the caller's PEM bundle (`runtime/tls13_pem.h`, a
+  wrapper over the verified `TLS13.Impl.Pem`),
   or, when the caller passes none, the system bundle (`SSL_CERT_FILE`, else
   the first of the usual distribution paths), and fixes a validation time of
   zero to the current time before entering verified code. Which roots are
@@ -381,8 +382,9 @@ Other trusted runtime boundaries remain:
 - entropy and X25519 key generation;
 - for the sans-I/O client engine only, host-side certificate-chain
   validation against `TLS13.X509.Spec.validate_chain` (the client driver uses
-  the verified `TLS13.Impl.X509.Validate`); PEM trust-anchor and private-key
-  decoding in `runtime/tls13_pem.h`. Server credentials and CertificateVerify
+  the verified `TLS13.Impl.X509.Validate`). PEM trust-anchor and private-key
+  decoding is verified (`TLS13.Impl.Pem` against `TLS13.Pem.Spec`);
+  `runtime/tls13_pem.c` only allocates its output. Server credentials and CertificateVerify
   signing are verified (`TLS13.Impl.ServerCredentials`, signing with hacl-pulse
   and checking each signature with the verified verifier before it is sent);
   the library does not link OpenSSL;
