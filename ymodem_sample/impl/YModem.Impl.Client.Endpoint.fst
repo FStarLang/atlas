@@ -32,13 +32,16 @@ module YModem.Impl.Client.Endpoint
 
   Config note: in real YMODEM the receiver's filename/length come from header
   block 0 (impl glue not modelled in the SM); for this verified slice the config
-  supplies them.  We use a CONCRETE `TCP.bytes` filename (NOT `Ghost.erased`,
-  which the task literally suggested) because the concrete `EndpointLocal
-  (Client_start filename len)` scheduled by `pe_next_action` needs a total
-  (non-ghost) filename, and `pi_process_local` matches the event concretely.
+  supplies them.  They are specification-only (`Ghost.erased`, as are the
+  `Client_start` fields), so the extracted config carries no data.
 
-  Verified but NOT extracted (a protocol_endpoint over a protocol_implementation
-  dictionary is not Low-star).
+  Payload delivery: the frame also holds the caller's reconstruction buffer
+  (`yef_out`, `yef_outcap` bytes) and a cursor cell; `pe_finish_network_action`
+  appends each accepted SOH payload there (bounds-checked; the content is not
+  specified).
+
+  Extracted to C by Custard (which monomorphises the dictionary away) as part
+  of the runners in `YModem.Impl.{Client,Server}.Socket`.
 **)
 
 #lang-pulse
@@ -55,6 +58,7 @@ module U8 = FStar.UInt8
 module Vec = Pulse.Lib.Vec
 module MR = Pulse.Lib.MonotonicGhostRef
 module AC = Pulse.Lib.Array.Core
+module A = Pulse.Lib.Array
 
 module YP = YModem.Protocol
 module CC = YModem.Impl.Client.CanonicalProtocol
@@ -67,11 +71,11 @@ open YModem.Wire.Generated.Ymodem_message
    Endpoint config (§ pe_config)
    ─────────────────────────────────────────────────────────────────────────── *)
 
-(* Concrete filename + length that seed the receiver's `Client_start`. *)
+(* Specification-only filename + length that seed the receiver's `Client_start`. *)
 noeq
 type ymodem_client_config = {
-  ycfg_filename : TCP.bytes;
-  ycfg_len      : nat;
+  ycfg_filename : Ghost.erased TCP.bytes;
+  ycfg_len      : Ghost.erased nat;
 }
 
 (* ───────────────────────────────────────────────────────────────────────────
@@ -88,23 +92,40 @@ type ymodem_client_endpoint_frame = {
   yef_soh  : array U8.t;   // 133-byte buffer: an assembled SOH data frame
   yef_ack  : array U8.t;   // 1-byte output buffer: the ACK the receiver emits
   yef_ycnf : array U8.t;   // 128-byte scratch handed to process_network (ycnf_data)
+  yef_out    : array U8.t;   // caller's reconstruction buffer (yef_outcap bytes)
+  yef_outcap : SZ.t;
+  yef_cursor : Vec.vec SZ.t; // 1-cell: bytes written to yef_out so far
 }
 
 (* ───────────────────────────────────────────────────────────────────────────
    Persistent slprops (§ pe_frame_ready, pe_io_ready)
    ─────────────────────────────────────────────────────────────────────────── *)
 
-(* frame_ready owns ONLY the 128-byte scratch: the network frame post-condition
-   owns `ycnf_data`, so finishing a network action re-establishes frame_ready. *)
+(* The payload sink: the reconstruction buffer and its cursor.  Each accepted
+   SOH payload is appended at the cursor (content is not specified, only the
+   bounds). *)
+let ymodem_client_payload_ready (frame:ymodem_client_endpoint_frame) : slprop =
+  exists* (ob:Seq.seq U8.t) (cv:Seq.seq SZ.t).
+    pts_to frame.yef_out ob **
+    Vec.pts_to frame.yef_cursor cv **
+    pure (
+      Seq.length ob == SZ.v frame.yef_outcap /\
+      Seq.length cv == 1 /\
+      SZ.v (Seq.index cv 0) <= SZ.v frame.yef_outcap)
+
+(* frame_ready owns the 128-byte scratch and the payload sink: the network frame
+   post-condition owns `ycnf_data`, so finishing a network action re-establishes
+   frame_ready. *)
 let ymodem_client_frame_ready
   (_i:CC.ymodem_client_impl)
   (_cfg:ymodem_client_config)
   (frame:ymodem_client_endpoint_frame)
   (_st:YP.ymodem_client_state)
   : slprop =
-  exists* (d:Seq.seq U8.t).
+  (exists* (d:Seq.seq U8.t).
     pts_to frame.yef_ycnf d **
-    pure (Seq.length d == 128)
+    pure (Seq.length d == 128)) **
+  ymodem_client_payload_ready frame
 
 (* io_ready owns the channel + the three transport buffers (ctrl/soh/ack).  The
    raw received history is existential (decoupled from the abstract `received`,
@@ -151,9 +172,9 @@ let ymodem_client_action_frame
   | PE.EndpointFailed ->
     ymodem_client_frame_ready i cfg frame st
 
-(* Network continuation carries only the equality linking the network frame's
-   scratch to the endpoint frame's scratch (so finish_network_action can rebuild
-   frame_ready from the frame post). *)
+(* Network continuation carries the payload sink plus the equality linking the
+   network frame's scratch to the endpoint frame's scratch (so
+   finish_network_action can deliver the payload and rebuild frame_ready). *)
 let ymodem_client_network_continuation
   (_i:CC.ymodem_client_impl)
   (_cfg:ymodem_client_config)
@@ -161,10 +182,11 @@ let ymodem_client_network_continuation
   (_st:YP.ymodem_client_state)
   (network_frame:CC.ymodem_client_network_frame)
   : slprop =
+  ymodem_client_payload_ready frame **
   pure (network_frame.CC.ycnf_data == frame.yef_ycnf)
 
-(* Local continuation owns the 128-byte scratch (untouched by the local event)
-   so finish_local_action rebuilds frame_ready. *)
+(* Local continuation owns the 128-byte scratch and the payload sink (untouched
+   by the local event) so finish_local_action rebuilds frame_ready. *)
 let ymodem_client_local_continuation
   (_i:CC.ymodem_client_impl)
   (_cfg:ymodem_client_config)
@@ -173,9 +195,10 @@ let ymodem_client_local_continuation
   (_ev:YP.ymodem_client_local)
   (_local_frame:CC.ymodem_client_local_frame)
   : slprop =
-  exists* (d:Seq.seq U8.t).
+  (exists* (d:Seq.seq U8.t).
     pts_to frame.yef_ycnf d **
-    pure (Seq.length d == 128)
+    pure (Seq.length d == 128)) **
+  ymodem_client_payload_ready frame
 
 (* ───────────────────────────────────────────────────────────────────────────
    Network I/O carrier (§ pe_network_io) + continuation + accessors
@@ -248,7 +271,6 @@ let ymodem_client_network_old_output (nio:ymodem_client_endpoint_network_io)
    pe_next_action — read the status cell and schedule
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_next_action
   (i:CC.ymodem_client_impl)
   (cfg:ymodem_client_config)
@@ -293,7 +315,6 @@ ensures
    pe_cancel_action
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_cancel_action
   (i:CC.ymodem_client_impl)
   (cfg:ymodem_client_config)
@@ -328,7 +349,6 @@ ensures ymodem_client_frame_ready i cfg frame (Ghost.reveal st)
    via a concrete sub-array view (to_mask/sub/from_mask/read/return_sub).
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn fill_soh_tail (ch:TCP.channel) (soh:array U8.t)
 requires
   TCP.is_channel ch 'r 's **
@@ -356,7 +376,6 @@ ensures exists* (r2:TCP.bytes) (sc2:Seq.seq U8.t).
    pe_prepare_network — peek + framed read of one YMODEM frame
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_prepare_network
   (i:CC.ymodem_client_impl)
   (cfg:ymodem_client_config)
@@ -507,10 +526,68 @@ ensures
 }
 
 (* ───────────────────────────────────────────────────────────────────────────
+   Payload delivery: copy `src[0..n)` into `dst[dst_off..dst_off+n)` through a
+   concrete sub-array view, and append one 128-byte block to the payload sink.
+   ─────────────────────────────────────────────────────────────────────────── *)
+
+fn array_blit
+  (dst:array U8.t) (dst_off:SZ.t) (src:array U8.t) (n:SZ.t)
+  (#dc #sc:Ghost.erased (Seq.seq U8.t))
+requires
+  pts_to dst dc ** pts_to src sc **
+  pure (SZ.v dst_off + SZ.v n <= Seq.length dc /\ SZ.v n <= Seq.length sc)
+returns _:unit
+ensures exists* (dc':Seq.seq U8.t).
+  pts_to dst dc' ** pts_to src sc **
+  pure (Seq.length dc' == Seq.length dc)
+{
+  pts_to_len dst;
+  pts_to_len src;
+  to_mask dst;
+  let sub = AC.sub dst dst_off (SZ.v dst_off + SZ.v n);
+  from_mask sub;
+  pts_to_len sub;
+  let _sq = A.memcpy_l n src sub;
+  to_mask sub;
+  AC.return_sub dst;
+  from_mask dst;
+  ()
+}
+
+(* If `is_block`, append the 128-byte payload in `yef_ycnf` at the cursor
+   (stopping silently once the buffer is full). *)
+fn ymodem_client_deliver_payload
+  (frame:ymodem_client_endpoint_frame)
+  (is_block:bool)
+  (#d:Ghost.erased (Seq.seq U8.t))
+requires
+  pts_to frame.yef_ycnf d **
+  ymodem_client_payload_ready frame **
+  pure (Seq.length d == 128)
+ensures
+  pts_to frame.yef_ycnf d **
+  ymodem_client_payload_ready frame
+{
+  unfold (ymodem_client_payload_ready frame);
+  with ob cv. _;
+  if (is_block) {
+    let c = Vec.op_Dot_Lparen_Rparen frame.yef_cursor 0sz;
+    if (SZ.gte (SZ.sub frame.yef_outcap c) 128sz) {
+      array_blit frame.yef_out c frame.yef_ycnf 128sz;
+      Vec.op_Dot_Lparen_Rparen_Less_Minus frame.yef_cursor 0sz (SZ.add c 128sz);
+      fold (ymodem_client_payload_ready frame)
+    } else {
+      fold (ymodem_client_payload_ready frame)
+    }
+  } else {
+    fold (ymodem_client_payload_ready frame)
+  }
+}
+
+(* ───────────────────────────────────────────────────────────────────────────
    pe_finish_network_action
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_finish_network_action
   (i:CC.ymodem_client_impl)
   (cfg:ymodem_client_config)
@@ -559,6 +636,10 @@ ensures ymodem_client_frame_ready i cfg frame (Ghost.reveal st1)
   assert (pure (network_frame.CC.ycnf_data == frame.yef_ycnf));
   rewrite (pts_to network_frame.CC.ycnf_data o')
     as (pts_to frame.yef_ycnf o');
+  (* An accepted SOH block (133-byte input answered with an ACK) left its
+     decoded payload in the scratch: append it to the caller's buffer. *)
+  ymodem_client_deliver_payload frame
+    (input_len = 133sz && result.CPI.process_produced_len = 1sz);
   fold (ymodem_client_frame_ready i cfg frame (Ghost.reveal st1))
 }
 
@@ -566,7 +647,6 @@ ensures ymodem_client_frame_ready i cfg frame (Ghost.reveal st1)
    pe_finish_network_io — write the ACK, case-split, re-establish io_ready
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_finish_network_io
   (i:CC.ymodem_client_impl)
   (ch:TCP.channel)
@@ -733,7 +813,6 @@ let ymodem_client_local_old_output (lio:ymodem_client_endpoint_local_io)
    pe_prepare_local — Client_start (LIVE): output = yef_ack, frame_pre = emp
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_prepare_local
   (i:CC.ymodem_client_impl)
   (cfg:ymodem_client_config)
@@ -803,7 +882,6 @@ ensures
    pe_finish_local_action
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_finish_local_action
   (i:CC.ymodem_client_impl)
   (cfg:ymodem_client_config)
@@ -850,7 +928,6 @@ ensures ymodem_client_frame_ready i cfg frame (Ghost.reveal st1)
    pe_finish_local_io — write nothing (Client_start produces 0 bytes)
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_client_finish_local_io
   (i:CC.ymodem_client_impl)
   (ch:TCP.channel)
@@ -950,7 +1027,6 @@ ensures ymodem_client_io_ready i ch frame (Ghost.reveal received1) (Ghost.reveal
    The 28-field endpoint instance
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 let ymodem_client_protocol_endpoint
   : PE.protocol_endpoint
       CC.ymodem_client_impl

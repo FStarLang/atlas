@@ -1322,7 +1322,6 @@ ensures exists* (received1:Ghost.erased TCP.bytes)
   result
 }
 
-noextract
 class protocol_implementation
   (impl:Type0)
   (state:Type0)

@@ -16,9 +16,10 @@ module TFTP.Impl.Server.Plan
   — exactly what makes the receiver complete on the short final block.
 
   `blocks_of file lo hi` is the list `[block file lo; …; block file (hi-1)]`.  The
-  loop's coupling invariant `loop_coupling` says the ghost ARQ state's
+  server endpoint's coupling invariant `server_plan_ok`
+  (`TFTP.Impl.Server.Endpoint`) says the ghost ARQ state's
   `tss_sent == blocks_of file 0 cursor` and `tss_pending == blocks_of file cursor
-  nblocks`.  This module proves the list/seq facts the loop needs:
+  nblocks`.  This module proves the list/seq facts the endpoint needs:
 
     * `block_len`         : every block is <= 512 bytes (an SMTPat), so the plan
       is well-formed (`TP.plan_wf`);
@@ -28,9 +29,9 @@ module TFTP.Impl.Server.Plan
     * `blocks_of_snoc`    : append at the high end (the send-shift step);
     * `blocks_of_plan_wf` : `TP.plan_wf (blocks_of …)`;
     * `blocks_of_length`  : the list length is the size of the index range;
-    * `lemma_send_shift`  : the combined shift the loop discharges after each ACK.
+    * `lemma_send_shift`  : the combined shift the endpoint discharges after each ACK.
 
-  Everything is ordinary total F*; the Pulse loop calls these lemmas explicitly
+  Everything is ordinary total F*; the Pulse endpoint calls these lemmas explicitly
   (never relying on SMT to instantiate their quantifiers).  Structural mirror of
   `YModem.Impl.Server.Plan`, adapted from uniform 128-byte blocks to TFTP's
   variable-length (<= 512) blocks with a short final block.
@@ -65,7 +66,7 @@ let block_len (file:Seq.seq U8.t) (i:nat)
 
 (* The concrete length of the i-th block: `min 512 (len - i*512)`, i.e. exactly
    512 for a full block and the short remainder for the final one (0 when
-   `i*512 == len`).  The loop computes `block_len_c` this way at runtime, then
+   `i*512 == len`).  The endpoint computes the block length this way at runtime, then
    uses this lemma to identify it with `Seq.length (block …)`. *)
 let block_len_eq (file:Seq.seq U8.t) (i:nat)
   : Lemma (requires i * 512 <= Seq.length file)
@@ -76,7 +77,7 @@ let block_len_eq (file:Seq.seq U8.t) (i:nat)
 
 (* With `nblocks == len/512 + 1`, every block index `i < nblocks` starts within
    the file (`i*512 <= len`).  Isolates the (Euclidean-division) nonlinear step
-   the loop needs before it can slice out block `i`. *)
+   the endpoint needs before it can slice out block `i`. *)
 let block_offset_le (file:Seq.seq U8.t) (nblocks i:nat)
   : Lemma (requires nblocks == Seq.length file / 512 + 1 /\ i < nblocks)
           (ensures i * 512 <= Seq.length file)
@@ -143,7 +144,7 @@ let rec blocks_of_plan_wf (file:Seq.seq U8.t) (lo hi:nat)
   = if lo >= hi then ()
     else blocks_of_plan_wf file (lo + 1) hi
 
-(* L4 — the list length is exactly the size of the index range.  The loop uses
+(* L4 — the list length is exactly the size of the index range.  The endpoint uses
    this to turn the coupling `sent == blocks_of file 0 cursor` into the concrete
    fact `L.length sent == cursor`. *)
 let rec blocks_of_length (file:Seq.seq U8.t) (lo hi:nat)
@@ -151,7 +152,7 @@ let rec blocks_of_length (file:Seq.seq U8.t) (lo hi:nat)
           (decreases (hi - lo))
   = if lo >= hi then () else blocks_of_length file (lo + 1) hi
 
-(* ── the combined fact the loop discharges at each scheduling point ────────── *)
+(* ── the combined fact the endpoint discharges at each scheduling point ────────── *)
 
 (* Send-shift: moving the head of `pending` onto the tail of `sent` shifts the
    cursor by one while preserving the `blocks_of` split.  Used after each ACK to

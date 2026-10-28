@@ -1,6 +1,7 @@
 /*
  * ymodem_rb.c — YMODEM receiver (`rb`-style) whose data-transfer loop is the
- * VERIFIED, extracted Pulse driver loop `ymodem_client_run`.
+ * VERIFIED, extracted Pulse runner `ymodem_client_receive` (the shared
+ * Common.ProtocolDriver loop specialised to the YMODEM client endpoint).
  *
  * Unlike the previous wrapper (whose per-packet loop was unverified C), the core
  * receive loop here — framing each incoming message, validating/decoding it via
@@ -110,21 +111,17 @@ int main(void) {
   write_byte(STDOUT_FILENO, YM_CRC_C);
 
   /* ── Data transfer: the VERIFIED loop ──────────────────────────────────
-     ymodem_client_run reads data blocks 1..N and the EOT, validates/decodes
+     ymodem_client_receive reads data blocks 1..N and the EOT, validates/decodes
      each with the verified codec, drives the state machine, emits every ACK,
      and reconstructs the padded file into outbuf. */
   size_t   ncap  = (size_t)((file_len + YM_DATA_LEN - 1) / YM_DATA_LEN) * YM_DATA_LEN;
   if (ncap == 0) ncap = YM_DATA_LEN;
   uint8_t *outbuf = calloc(ncap, 1);
-  uint8_t *ctrl = malloc(1), *soh = malloc(YM_PKT_LEN), *tail = malloc(YM_PKT_LEN - 1),
-          *ack  = malloc(1), *ycnf = malloc(YM_DATA_LEN);
-  if (!outbuf || !ctrl || !soh || !tail || !ack || !ycnf) { fclose(out); return 1; }
+  if (!outbuf) { fclose(out); return 1; }
 
-  uint8_t *i = new_ymodem_client();
-  ymodem_client_start(i);
   Common_TCP_channel ch = Common_TCP_channel_of_fds(STDIN_FILENO, STDOUT_FILENO);
 
-  size_t nbytes = ymodem_client_run(i, ch, ctrl, soh, tail, ack, ycnf, outbuf, ncap, (size_t)FUEL);
+  size_t nbytes = ymodem_client_receive(ch, outbuf, ncap, (size_t)FUEL);
 
   /* Persist the reconstructed file, truncated to the declared length (the
      padding of the final block is not part of the file). */
@@ -149,6 +146,6 @@ int main(void) {
   }
 
   Common_TCP_close(ch);
-  free(i); free(outbuf); free(ctrl); free(soh); free(tail); free(ack); free(ycnf);
+  free(outbuf);
   return 0;
 }

@@ -1,6 +1,7 @@
 /*
  * ymodem_sb.c — YMODEM sender (`sb filename`-style) whose data-transfer loop is
- * the VERIFIED, extracted Pulse driver loop `ymodem_server_run`.
+ * the VERIFIED, extracted Pulse runner `ymodem_server_send` (the shared
+ * Common.ProtocolDriver loop specialised to the YMODEM server endpoint).
  *
  * The core send loop — framing and emitting each 128-byte data block through the
  * verified codec (with the correct incrementing block number and a real
@@ -129,23 +130,16 @@ int main(int argc, char **argv) {
   if (wait_for(STDIN_FILENO, YM_CRC_C) != 0) { free(infile); return 1; }
 
   /* ── Data transfer: the VERIFIED loop ──────────────────────────────────
-     ymodem_server_run frames + emits data blocks 1..N (correct block numbers +
+     ymodem_server_send frames + emits data blocks 1..N (correct block numbers +
      CRC-16 via the verified codec), awaits each ACK, and sends the EOT. */
-  uint8_t *blk  = malloc(YM_DATA_LEN);
-  uint8_t *out  = malloc(YM_PKT_LEN);
-  uint8_t *ctrl = malloc(1);
-  uint8_t *ysnf = malloc(YM_DATA_LEN);
-  if (!blk || !out || !ctrl || !ysnf) { free(infile); return 1; }
-
-  uint8_t *i = new_ymodem_server();
   Common_TCP_channel ch = Common_TCP_channel_of_fds(STDIN_FILENO, STDOUT_FILENO);
-  ymodem_server_run(i, ch, infile, nblocks, blk, out, ctrl, ysnf, (size_t)FUEL);
+  ymodem_server_send(ch, infile, nblocks, (size_t)FUEL);
   /* NB: keep the channel (fds 0/1) open — the end-of-batch glue below still
      reads/writes them; the channel is closed only at the very end. */
 
   /* ── End of batch (impl glue): wait for the receiver's 'C' before the
      terminating null header block (the deadlock fix), then send it. */
-  if (wait_for(STDIN_FILENO, YM_CRC_C) != 0) { free(infile); free(i); free(blk); free(out); free(ctrl); free(ysnf); return 0; }
+  if (wait_for(STDIN_FILENO, YM_CRC_C) != 0) { free(infile); return 0; }
   {
     uint8_t zero_header[YM_DATA_LEN];
     memset(zero_header, 0, YM_DATA_LEN);
@@ -155,6 +149,6 @@ int main(int argc, char **argv) {
   wait_for(STDIN_FILENO, YM_ACK);
 
   Common_TCP_close(ch);
-  free(infile); free(i); free(blk); free(out); free(ctrl); free(ysnf);
+  free(infile);
   return 0;
 }

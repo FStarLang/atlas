@@ -1,8 +1,9 @@
 /*
- * vloop_test.c — end-to-end test of the *verified* YMODEM driver loops.
+ * vloop_test.c — end-to-end test of the *verified* YMODEM runners.
  *
- * This exercises the extracted, verified F-star/Pulse driver loops
- * `ymodem_server_run` (sender) and `ymodem_client_run` (receiver) — NOT the
+ * This exercises the extracted, verified F-star/Pulse runners
+ * `ymodem_server_send` (sender) and `ymodem_client_receive` (receiver), both of
+ * which run the shared verified loop Common.ProtocolDriver.drive_steps — NOT the
  * unverified rb/sb wrapper loops.  It connects the verified sender to the
  * verified receiver over a socketpair (a bidirectional fd, so the single-fd
  * Common.TCP channel bridges both directions), transfers a file through the
@@ -56,9 +57,7 @@ int main(int argc, char **argv) {
   fclose(in);
   memset(infile + flen, YM_PAD, padded - (size_t)flen); /* pad the tail block */
 
-  /* The receiver's final EOT-ACK may reach an already-closed sender (Tier-1: the
-     sender does not wait for the EOT-ack), so a harmless late write must not
-     raise SIGPIPE. */
+  /* A harmless late write to an already-closed peer must not raise SIGPIPE. */
   signal(SIGPIPE, SIG_IGN);
 
   int sv[2];
@@ -71,30 +70,18 @@ int main(int argc, char **argv) {
     /* ── child: the VERIFIED sender ─────────────────────────────────────── */
     close(sv[1]);
     Common_TCP_channel ch = Common_TCP_channel_of_fd(sv[0]);
-    uint8_t *i = new_ymodem_server();
-    uint8_t *blk  = malloc(YM_BLOCK);
-    uint8_t *out  = malloc(YM_PKT);
-    uint8_t *ctrl = malloc(1);
-    uint8_t *ysnf = malloc(YM_BLOCK);
-    ymodem_server_run(i, ch, infile, nblocks, blk, out, ctrl, ysnf, (size_t)FUEL);
+    ymodem_server_send(ch, infile, nblocks, (size_t)FUEL);
     Common_TCP_close(ch);
-    free(blk); free(out); free(ctrl); free(ysnf); free(infile); free(i);
+    free(infile);
     _exit(0);
   }
 
   /* ── parent: the VERIFIED receiver ────────────────────────────────────── */
   close(sv[0]);
   Common_TCP_channel ch = Common_TCP_channel_of_fd(sv[1]);
-  uint8_t *i = new_ymodem_client();
-  ymodem_client_start(i);
-  uint8_t *ctrl   = malloc(1);
-  uint8_t *soh    = malloc(YM_PKT);
-  uint8_t *tail   = malloc(YM_PKT - 1);
-  uint8_t *ack    = malloc(1);
-  uint8_t *ycnf   = malloc(YM_BLOCK);
   size_t   outcap = padded ? padded : YM_BLOCK;
   uint8_t *outbuf = calloc(outcap, 1);
-  size_t nbytes = ymodem_client_run(i, ch, ctrl, soh, tail, ack, ycnf, outbuf, outcap, (size_t)FUEL);
+  size_t nbytes = ymodem_client_receive(ch, outbuf, outcap, (size_t)FUEL);
   Common_TCP_close(ch);
 
   int status = 0;
@@ -103,9 +90,9 @@ int main(int argc, char **argv) {
   /* Check: the receiver reconstructed the original file (compare the declared
      length; the padding of the final block is not part of the file). */
   int ok = (nbytes >= (size_t)flen) && (memcmp(outbuf, infile, (size_t)flen) == 0);
-  printf("verified-loop transfer: sent %zu block(s), receiver wrote %zu byte(s); content %s\n",
+  printf("verified-runner transfer: sent %zu block(s), receiver wrote %zu byte(s); content %s\n",
          nblocks, nbytes, ok ? "MATCH" : "DIFFER");
 
-  free(ctrl); free(soh); free(tail); free(ack); free(ycnf); free(outbuf); free(infile); free(i);
+  free(outbuf); free(infile);
   return ok ? 0 : 1;
 }

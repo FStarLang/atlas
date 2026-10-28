@@ -5,9 +5,9 @@ module TFTP.Impl.Client.CanonicalProtocol
   The TFTP *client* (receiver, RFC 1350) as a verified instance of the
   reliable-delivery (stop-and-wait ARQ) state machine
   `TFTP.Protocol.tftp_client_wfsm`, refining
-  `Common.ProtocolImplementation.protocol_implementation`.  This is a
-  verified-but-NOT-extracted refinement witness (a `protocol_implementation`
-  dictionary is not Low-star).
+  `Common.ProtocolImplementation.protocol_implementation`.  Custard extracts it
+  (monomorphising the dictionary away) as part of `tftp_client_receive` in
+  `TFTP.Impl.Client.Socket`.
 
     * `pi_process_local` drives the sole local event `Client_start` faithfully:
       from the freshly-created (un-started) state (`tcs_filename == None`, status

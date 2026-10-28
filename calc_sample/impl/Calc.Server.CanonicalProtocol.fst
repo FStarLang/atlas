@@ -1206,7 +1206,6 @@ ensures
   srv
 }
 
-noextract
 let calc_server_protocol_implementation
   : CPI.protocol_implementation
       canonical_server

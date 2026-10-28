@@ -31,8 +31,8 @@ module YModem.Impl.Server.Endpoint
     * `pe_finish_local_action` (Server_send) increments the cursor and re-proves
       the coupling at cursor+1 via `Plan.lemma_send_shift`.
 
-  Verified but NOT extracted (a protocol_endpoint over a protocol_implementation
-  dictionary is not Low-star).
+  Extracted to C by Custard (which monomorphises the dictionary away) as part
+  of the runners in `YModem.Impl.{Client,Server}.Socket`.
 **)
 
 #lang-pulse
@@ -65,28 +65,27 @@ open YModem.Wire.Generated.Ymodem_message
    Endpoint config (§ pe_config) — the concrete send plan
    ─────────────────────────────────────────────────────────────────────────── *)
 
-(* The padded file (scfg_nblocks * 128 bytes), its byte contents, the block
-   count (as a nat and a runtime SizeT), the file name and declared length.
-   `scfg_contents` is a plain (non-erased) `TCP.bytes`: the endpoint is
-   `noextract`, so we avoid `Ghost.reveal` clutter. *)
+(* The padded file (scfg_nblocks * 128 bytes) and its block count are the
+   only runtime fields; its byte contents, the block count as a nat, the file
+   name and the declared length are specification-only. *)
 noeq
 type ymodem_server_config = {
-  scfg_file       : Vec.vec U8.t;   // the padded file bytes (scfg_nblocks*128)
-  scfg_contents   : TCP.bytes;      // == the pts_to value of scfg_file
-  scfg_nblocks    : nat;            // number of 128-byte blocks
-  scfg_nblocks_sz : SZ.t;           // == scfg_nblocks, for runtime comparison
-  scfg_filename   : TCP.bytes;      // file name
-  scfg_len        : nat;            // declared content length
+  scfg_file       : Vec.vec U8.t;              // the padded file bytes (scfg_nblocks*128)
+  scfg_contents   : Ghost.erased TCP.bytes;    // == the pts_to value of scfg_file
+  scfg_nblocks    : Ghost.erased nat;          // number of 128-byte blocks
+  scfg_nblocks_sz : SZ.t;                      // == scfg_nblocks, for runtime comparison
+  scfg_filename   : Ghost.erased TCP.bytes;    // file name
+  scfg_len        : Ghost.erased nat;          // declared content length
 }
 
 let scfg_wf (cfg:ymodem_server_config) : prop =
   Seq.length cfg.scfg_contents == cfg.scfg_nblocks * 128 /\
-  SZ.v cfg.scfg_nblocks_sz == cfg.scfg_nblocks /\
+  Ghost.reveal cfg.scfg_nblocks == SZ.v cfg.scfg_nblocks_sz /\
   SZ.fits (cfg.scfg_nblocks * 128)
 
 (* The whole plan the sender queues at Server_start. *)
-let plan_of (cfg:ymodem_server_config) : list TCP.bytes =
-  Plan.blocks_of cfg.scfg_contents 0 cfg.scfg_nblocks
+let plan_of (cfg:ymodem_server_config) : Ghost.erased (list TCP.bytes) =
+  Ghost.elift2 (fun c n -> Plan.blocks_of c 0 n) cfg.scfg_contents cfg.scfg_nblocks
 
 (* ───────────────────────────────────────────────────────────────────────────
    Endpoint frame (§ pe_frame): the persistent concrete state + I/O buffers
@@ -341,7 +340,6 @@ let ymodem_server_network_old_output (nio:ymodem_server_endpoint_network_io)
    pe_next_action — read status cell + started + cursor and schedule
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_server_next_action
   (i:CC.ymodem_server_impl)
   (cfg:ymodem_server_config)
@@ -381,8 +379,9 @@ ensures
     (* started (b == 1uy ⟹ Some? filename) *)
     if (s = 0uy) {
       if (SZ.lt c cfg.scfg_nblocks_sz) {
-        (* more blocks to send *)
-        let lf : CC.ymodem_server_local_frame = { CC.yslf_buf = frame.sef_blk; CC.yslf_blk = 0uy };
+        (* more blocks to send: data block c+1 (block 0 is the header), mod 256 *)
+        let blkno = U8.add_mod (FStar.Int.Cast.uint32_to_uint8 (SZ.sizet_to_uint32 c)) 1uy;
+        let lf : CC.ymodem_server_local_frame = { CC.yslf_buf = frame.sef_blk; CC.yslf_blk = blkno };
         fold (ymodem_server_action_frame i cfg frame (Ghost.reveal st) (PE.EndpointLocal YP.Server_send lf));
         PE.EndpointLocal YP.Server_send lf
       } else {
@@ -415,7 +414,6 @@ ensures
    pe_cancel_action
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_server_cancel_action
   (i:CC.ymodem_server_impl)
   (cfg:ymodem_server_config)
@@ -448,7 +446,6 @@ ensures ymodem_server_frame_ready i cfg frame (Ghost.reveal st)
    pe_prepare_network — read one 1-byte control frame into sef_in
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_server_prepare_network
   (i:CC.ymodem_server_impl)
   (cfg:ymodem_server_config)
@@ -555,7 +552,6 @@ let network_coupling_preserved
     (ensures cells_ok cfg cv bv st1 /\ server_plan_ok cfg st1)
   = ()
 
-noextract
 fn ymodem_server_finish_network_action
   (i:CC.ymodem_server_impl)
   (cfg:ymodem_server_config)
@@ -602,7 +598,6 @@ ensures ymodem_server_frame_ready i cfg frame (Ghost.reveal st1)
    pe_finish_network_io — write produced bytes, re-establish io_ready
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_server_finish_network_io
   (i:CC.ymodem_server_impl)
   (ch:TCP.channel)
@@ -722,7 +717,6 @@ let ymodem_server_local_old_output (lio:ymodem_server_endpoint_local_io)
    Block copy helper: dst[0..128) := file[off..off+128)
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn copy_block
   (file:Vec.vec U8.t)
   (dst:array U8.t)
@@ -766,7 +760,6 @@ ensures exists* (d1:Seq.seq U8.t).
    pe_prepare_local — build the local frame + output; Server_send copies block
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_server_prepare_local
   (i:CC.ymodem_server_impl)
   (cfg:ymodem_server_config)
@@ -992,7 +985,6 @@ let abort_preserves_plan_ok
       L.length st1.YP.yss_sent == L.length st0.YP.yss_sent)
   = ()
 
-noextract
 fn ymodem_server_finish_local_action
   (i:CC.ymodem_server_impl)
   (cfg:ymodem_server_config)
@@ -1063,7 +1055,6 @@ ensures ymodem_server_frame_ready i cfg frame (Ghost.reveal st1)
    pe_finish_local_io — write produced bytes, re-establish io_ready
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 fn ymodem_server_finish_local_io
   (i:CC.ymodem_server_impl)
   (ch:TCP.channel)
@@ -1143,7 +1134,6 @@ ensures ymodem_server_io_ready i ch frame (Ghost.reveal received1) (Ghost.reveal
    The 28-field endpoint instance
    ─────────────────────────────────────────────────────────────────────────── *)
 
-noextract
 let ymodem_server_protocol_endpoint
   : PE.protocol_endpoint
       CC.ymodem_server_impl

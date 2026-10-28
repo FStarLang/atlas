@@ -4,9 +4,9 @@ module TFTP.Impl.Server.CanonicalProtocol
 
   The TFTP *server* (sender, RFC 1350) as a verified instance of the
   reliable-delivery (ARQ) state machine `TFTP.Protocol.tftp_server_wfsm`,
-  refining `Common.ProtocolImplementation.protocol_implementation`.  This is a
-  verified-but-NOT-extracted refinement witness (a `protocol_implementation`
-  dictionary is not Low-star).
+  refining `Common.ProtocolImplementation.protocol_implementation`.  Custard
+  extracts it (monomorphising the dictionary away) as part of `tftp_server_send`
+  in `TFTP.Impl.Server.Socket`.
 
     * `pi_process_local` drives the five local events faithfully:
         - `Server_start`   initialises the transfer (filename/plan), emits

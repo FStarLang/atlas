@@ -2,7 +2,7 @@
 # TFTP interoperability tests against the tftp-hpa reference (tftp / in.tftpd)
 # ═══════════════════════════════════════════════════════════════════
 # Two black-box interop tests transfer a file between one of our *extracted*
-# verified-loop TFTP programs and the matching tftp-hpa reference program, then
+# verified-runner TFTP programs and the matching tftp-hpa reference program, then
 # check that the received copy is byte-for-byte identical to the original:
 #
 #   test-server : our extracted `tftp_server` (sender)   <->  tftp-hpa `tftp` (get)
@@ -11,8 +11,9 @@
 # TFTP runs over UDP with a transfer-ID (TID) discipline: the client sends a Read
 # Request (RRQ) to the server port; the server replies with DATA from a fresh
 # ephemeral port (its TID); thereafter packets flow between the two TIDs.  Our
-# programs' data loops are the VERIFIED, extracted Pulse loops (tftp_server_run /
-# tftp_client_run in TFTP_Verified.c); the RRQ + TID handshake is thin unverified
+# programs' data transfers are the VERIFIED, extracted Pulse runners
+# (tftp_server_send / tftp_client_receive in TFTP_Verified.c, i.e. the shared
+# Common.ProtocolDriver loop over the TFTP endpoints); the RRQ + TID handshake is thin unverified
 # glue (tftp_server.c / tftp_client.c).  We use octet mode (byte-exact) on an
 # unprivileged port so no root is needed.
 #
@@ -20,7 +21,7 @@
 # the received file is byte-identical to the original.  A stalled/timed-out
 # session is a FAIL.  These are UNVERIFIED interop drivers exercised end-to-end.
 #
-# The extracted verified-loop bundle is built by the parent Makefile's
+# The extracted verified-runner bundle is built by the parent Makefile's
 # `extract-loops` target (into ../_extract).  tftp-hpa's `tftp` and tftpd-hpa's
 # `in.tftpd` must be on PATH (Debian/Ubuntu packages `tftp-hpa` / `tftpd-hpa`);
 # a test that cannot find them reports SKIP.
@@ -56,11 +57,11 @@ CLI_DIR_ABS := $(abspath $(CLI_DIR))
 
 all: test
 
-# Build the extracted verified-loop bundle (via the parent) then our two interop
+# Build the extracted verified-runner bundle (via the parent) then our two interop
 # programs against it.
 build-progs:
 	@$(MAKE) --no-print-directory -C $(PARENT) extract-loops
-	@echo "Compiling TFTP interop drivers over the VERIFIED loops..."
+	@echo "Compiling TFTP interop drivers over the VERIFIED runners..."
 	$(CC) $(CFLAGS_INTEROP) -o $(EXTRACT_DIR)/tftp_server \
 	  tftp_server.c \
 	  $(EXTRACT_DIR)/TFTP_Verified.c \
@@ -69,7 +70,7 @@ build-progs:
 	  tftp_client.c \
 	  $(EXTRACT_DIR)/TFTP_Verified.c \
 	  $(STUBS_DIR)/common_tcp_custard.c $(STUBS_DIR)/common_tcp_stubs.c
-	@echo "Interop drivers tftp_server / tftp_client (verified loops) compiled to $(EXTRACT_DIR)/."
+	@echo "Interop drivers tftp_server / tftp_client (verified runners) compiled to $(EXTRACT_DIR)/."
 
 # ── Server test: our extracted sender  <->  tftp-hpa `tftp -c get` (receiver) ──
 test-server: build-progs

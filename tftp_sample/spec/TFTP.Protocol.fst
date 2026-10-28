@@ -128,7 +128,8 @@ let tftp_server_initial : tftp_server_state = {
      * Server_abort   — cancel the transfer. *)
 noeq
 type tftp_server_local =
-  | Server_start    : filename:TCP.bytes -> plan:list TCP.bytes -> tftp_server_local
+  | Server_start    : filename:Ghost.erased TCP.bytes ->
+                      plan:Ghost.erased (list TCP.bytes) -> tftp_server_local
   | Server_send     : tftp_server_local
   | Server_complete : tftp_server_local
   | Server_timeout  : tftp_server_local
@@ -197,10 +198,10 @@ let tftp_server_step
   match ev with
   | SM.LocalEvent (Server_start filename plan) ->
     s0.tss_filename == None /\
-    plan_wf plan /\
-    s1.tss_filename == Some filename /\
+    plan_wf (Ghost.reveal plan) /\
+    s1.tss_filename == Some (Ghost.reveal filename) /\
     s1.tss_sent == [] /\
-    s1.tss_pending == plan /\
+    s1.tss_pending == Ghost.reveal plan /\
     s1.tss_acked == 0 /\
     s1.tss_status == FT.FT_InProgress /\
     out.SM.so_wire_outputs == [] /\
@@ -300,7 +301,7 @@ let tftp_client_initial : tftp_client_state = {
 
 noeq
 type tftp_client_local =
-  | Client_start : filename:TCP.bytes -> tftp_client_local
+  | Client_start : filename:Ghost.erased TCP.bytes -> tftp_client_local
 
 (* The exact file the client reconstitutes: the concatenation of the received
    payloads (unpadded — the short final block ends it). *)
@@ -316,7 +317,7 @@ let tftp_client_step
   match ev with
   | SM.LocalEvent (Client_start filename) ->
     s0.tcs_filename == None /\
-    s1.tcs_filename == Some filename /\
+    s1.tcs_filename == Some (Ghost.reveal filename) /\
     s1.tcs_received == [] /\
     s1.tcs_status == FT.FT_InProgress /\
     out.SM.so_wire_outputs == [] /\
@@ -406,7 +407,7 @@ let tftp_server_law_step
   | SM.LocalEvent (Server_start filename plan) ->
     introduce exists fn ct.
       FT.ft_step_request fn ct (tftp_server_project st0) (tftp_server_project st1)
-    with filename (tftp_full st1) and ()
+    with (Ghost.reveal filename) (tftp_full st1) and ()
   | SM.LocalEvent Server_send ->
     eliminate exists (blk:U16.t) (d:data_payload).
       tftp_server_send st0 st1 blk d /\ out.SM.so_wire_outputs == [Msg_data blk d]

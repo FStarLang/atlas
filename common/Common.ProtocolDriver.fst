@@ -15,8 +15,8 @@ module TCP = Common.TCP
 // module owns the scheduling structure: ask for the next action, run the
 // corresponding network/local handler, finish endpoint action resources, finish
 // TCP/output resources, and iterate until done, failure, or fuel exhaustion.
-// Extraction-facing code can specialize this proof-generic loop monomorphically
-// for a concrete endpoint, as the calc sample does.
+// Custard specializes this loop to the concrete protocol/endpoint dictionaries
+// at each call site, as in the calc sample's extracted runner.
 type driver_status =
   | DriverNetworkStep
   | DriverLocalStep
@@ -64,7 +64,6 @@ let local_driver_status
   | CPI.OutputBufferTooSmall
   | CPI.ConnectionFailed -> DriverFailed
 
-noextract
 fn drive_once
   #impl #state #wire_message #local_event #local_output
   (#protocol:CPI.protocol_implementation
@@ -150,9 +149,8 @@ ensures
         (Ghost.reveal sent)
         (Ghost.reveal st))
 {
-  let next_action = endpoint.PE.pe_next_action;
   let action =
-    next_action
+    PE.Mkprotocol_endpoint?.pe_next_action endpoint
       i
       cfg
       frame
@@ -161,9 +159,8 @@ ensures
       st;
   match action {
     PE.EndpointNeedInput network_frame -> {
-      let prepare_network = endpoint.PE.pe_prepare_network;
       let nio =
-        prepare_network
+        PE.Mkprotocol_endpoint?.pe_prepare_network endpoint
         i
         cfg
         frame
@@ -172,9 +169,8 @@ ensures
         received
         sent
         st;
-      let process_network = protocol.CPI.pi_process_network;
       let process_result =
-        process_network
+        CPI.Mkprotocol_implementation?.pi_process_network protocol
           i
           network_frame
           (endpoint.PE.pe_network_input nio)
@@ -209,7 +205,6 @@ ensures
       let consumede = Ghost.hide consumed;
       let wire_outputse = Ghost.hide wire_outputs;
       let local_outputse = Ghost.hide local_outputs;
-      let finish_network_action = endpoint.PE.pe_finish_network_action;
       assert (pure ((Ghost.reveal out_contentse) == out_contents));
       assert (pure ((Ghost.reveal consumede) == consumed));
       assert (pure ((Ghost.reveal wire_outputse) == wire_outputs));
@@ -240,7 +235,7 @@ ensures
           (Ghost.reveal consumede)
           (Ghost.reveal wire_outputse)
           (Ghost.reveal local_outputse));
-      finish_network_action
+      PE.Mkprotocol_endpoint?.pe_finish_network_action endpoint
         i
         cfg
         frame
@@ -255,8 +250,7 @@ ensures
         consumede
         wire_outputse
         local_outputse;
-      let finish_network_io = endpoint.PE.pe_finish_network_io;
-      finish_network_io
+      PE.Mkprotocol_endpoint?.pe_finish_network_io endpoint
         i
         ch
         frame
@@ -302,9 +296,8 @@ ensures
       }
     }
     PE.EndpointLocal ev local_frame -> {
-      let prepare_local = endpoint.PE.pe_prepare_local;
       let lio =
-        prepare_local
+        PE.Mkprotocol_endpoint?.pe_prepare_local endpoint
         i
         cfg
         frame
@@ -314,9 +307,8 @@ ensures
         received
         sent
         st;
-      let process_local = protocol.CPI.pi_process_local;
       let process_result =
-        process_local
+        CPI.Mkprotocol_implementation?.pi_process_local protocol
           i
           ev
           local_frame
@@ -346,7 +338,6 @@ ensures
       let out_contentse = Ghost.hide out_contents;
       let wire_outputse = Ghost.hide wire_outputs;
       let local_outputse = Ghost.hide local_outputs;
-      let finish_local_action = endpoint.PE.pe_finish_local_action;
       assert (pure ((Ghost.reveal out_contentse) == out_contents));
       assert (pure ((Ghost.reveal wire_outputse) == wire_outputs));
       assert (pure ((Ghost.reveal local_outputse) == local_outputs));
@@ -372,7 +363,7 @@ ensures
           (Ghost.reveal st1)
           (Ghost.reveal wire_outputse)
           (Ghost.reveal local_outputse));
-      finish_local_action
+      PE.Mkprotocol_endpoint?.pe_finish_local_action endpoint
         i
         cfg
         frame
@@ -385,8 +376,7 @@ ensures
         st1
         wire_outputse
         local_outputse;
-      let finish_local_io = endpoint.PE.pe_finish_local_io;
-      finish_local_io
+      PE.Mkprotocol_endpoint?.pe_finish_local_io endpoint
         i
         ch
         frame
@@ -432,16 +422,14 @@ ensures
       }
     }
     PE.EndpointDone -> {
-      let cancel_action = endpoint.PE.pe_cancel_action;
-      cancel_action i cfg frame st PE.EndpointDone;
+      PE.Mkprotocol_endpoint?.pe_cancel_action endpoint i cfg frame st PE.EndpointDone;
       ({
         driver_status = DriverDone;
         driver_process_result = None;
       })
     }
     PE.EndpointFailed -> {
-      let cancel_action = endpoint.PE.pe_cancel_action;
-      cancel_action i cfg frame st PE.EndpointFailed;
+      PE.Mkprotocol_endpoint?.pe_cancel_action endpoint i cfg frame st PE.EndpointFailed;
       ({
         driver_status = DriverFailed;
         driver_process_result = None;
@@ -450,8 +438,7 @@ ensures
   }
 }
 
-noextract
-fn rec drive_steps
+fn drive_steps
     #impl #state #wire_message #local_event #local_output
     (#protocol:CPI.protocol_implementation
       impl
@@ -514,96 +501,87 @@ fn rec drive_steps
         (Ghost.reveal received1)
         (Ghost.reveal sent1)
         (Ghost.reveal st1)
-  decreases (SZ.v fuel)
   {
-    if (fuel = 0sz) {
-      ({
-        driver_run_status = DriverRunFuelExhausted;
-        driver_run_last_step = None;
-      })
-    } else {
-      assert (pure (0 < SZ.v fuel));
-      let step = drive_once i cfg frame ch received sent st;
+    // An explicit loop rather than recursion so that extracted C does not rely
+    // on tail-call optimization to keep stack depth independent of [fuel].
+    let mut remaining = fuel;
+    let mut result : driver_run_result = {
+      driver_run_status = DriverRunFuelExhausted;
+      driver_run_last_step = None;
+    };
+    let mut running = true;
+    while (
+      let keep = !running;
+      let rem = !remaining;
+      keep && not (rem = 0sz)
+    )
+      invariant live remaining
+      invariant live result
+      invariant live running
+      invariant exists* (received_loop:Ghost.erased TCP.bytes)
+                        (sent_loop:Ghost.erased TCP.bytes)
+                        (st_loop:Ghost.erased state).
+        protocol.CPI.pi_invariant
+          i
+          (Ghost.reveal received_loop)
+          (Ghost.reveal sent_loop)
+          (Ghost.reveal st_loop) **
+        endpoint.PE.pe_frame_ready
+          i
+          cfg
+          frame
+          (Ghost.reveal st_loop) **
+        endpoint.PE.pe_io_ready
+          i
+          ch
+          frame
+          (Ghost.reveal received_loop)
+          (Ghost.reveal sent_loop)
+          (Ghost.reveal st_loop)
+      decreases %[(if !running then 1 else 0); SZ.v (!remaining)]
+    {
+      with received_loop sent_loop st_loop.
+        assert (
+          protocol.CPI.pi_invariant
+            i
+            (Ghost.reveal received_loop)
+            (Ghost.reveal sent_loop)
+            (Ghost.reveal st_loop) **
+          endpoint.PE.pe_frame_ready
+            i
+            cfg
+            frame
+            (Ghost.reveal st_loop) **
+          endpoint.PE.pe_io_ready
+            i
+            ch
+            frame
+            (Ghost.reveal received_loop)
+            (Ghost.reveal sent_loop)
+            (Ghost.reveal st_loop));
+      let step = drive_once i cfg frame ch received_loop sent_loop st_loop;
       match step.driver_status {
         DriverNetworkStep -> {
-          with received1 sent1 st1.
-            assert (
-              protocol.CPI.pi_invariant
-                i
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_frame_ready
-                i
-                cfg
-                frame
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_io_ready
-                i
-                ch
-                frame
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1));
-          let next_fuel = SZ.sub fuel 1sz;
-          assert (pure (SZ.v next_fuel < SZ.v fuel));
-          drive_steps i cfg frame ch next_fuel received1 sent1 st1
+          remaining := SZ.sub !remaining 1sz
         }
         DriverLocalStep -> {
-          with received1 sent1 st1.
-            assert (
-              protocol.CPI.pi_invariant
-                i
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_frame_ready
-                i
-                cfg
-                frame
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_io_ready
-                i
-                ch
-                frame
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1));
-          let next_fuel = SZ.sub fuel 1sz;
-          assert (pure (SZ.v next_fuel < SZ.v fuel));
-          drive_steps i cfg frame ch next_fuel received1 sent1 st1
+          remaining := SZ.sub !remaining 1sz
         }
         DriverDone -> {
-          ({
+          result := {
             driver_run_status = DriverRunDone;
             driver_run_last_step = step.driver_process_result;
-          })
+          };
+          running := false
         }
         DriverFailed -> {
-          with received1 sent1 st1.
-            assert (
-              protocol.CPI.pi_invariant
-                i
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_frame_ready
-                i
-                cfg
-                frame
-                (Ghost.reveal st1) **
-              endpoint.PE.pe_io_ready
-                i
-                ch
-                frame
-                (Ghost.reveal received1)
-                (Ghost.reveal sent1)
-                (Ghost.reveal st1));
-          ({
+          result := {
             driver_run_status = DriverRunFailed;
             driver_run_last_step = step.driver_process_result;
-          })
+          };
+          running := false
         }
       }
-    }
+    };
+    !result
   }

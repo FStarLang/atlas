@@ -1,24 +1,25 @@
 /*
  * tftp_client.c — a TFTP (RFC 1350) read-request CLIENT (receiver) whose
- * data-transfer loop is the VERIFIED, extracted Pulse driver loop
- * `tftp_client_run`.
+ * data transfer is the VERIFIED, extracted Pulse runner `tftp_client_receive`
+ * (the shared verified driver loop `Common.ProtocolDriver.drive_steps`
+ * specialised to the TFTP client endpoint).
  *
  * The core receive loop — reading each DATA datagram, extracting its
  * variable-length payload, acknowledging it by block number, reassembling the
- * file, and completing on the short final block — is the verified FStar/Pulse loop
+ * file, and completing on the short final block — is the verified FStar/Pulse code
  * extracted to C in TFTP_Verified.c.  This program is the thin, UNVERIFIED glue
  * around it:
  *
  *   1. create a UDP socket (its ephemeral port is the client TID) and send a
  *      Read Request (RRQ) for the file, in octet mode, to the server port (the
  *      RRQ is out-of-model glue — the modeled transfer starts from the local
- *      Client_start event, already fired via tftp_client_start);
+ *      Client_start event, which the verified runner fires itself);
  *   2. learn the server's TID by MSG_PEEK'ing the first reply datagram's source
  *      port, then `connect()` the socket to it, so each `Common_TCP_read` is
  *      exactly one datagram from that fixed peer (the one-datagram-per-read
- *      discipline the verified loop was checked against) — the peeked DATA #1
- *      stays queued for the loop to consume;
- *   3. hand the connected channel to `tftp_client_run`, which reassembles the
+ *      discipline the verified runner was checked against) — the peeked DATA #1
+ *      stays queued for the runner to consume;
+ *   3. hand the connected channel to `tftp_client_receive`, which reassembles the
  *      file, then write the reconstructed bytes out.
  *
  * We request `octet` mode (byte-exact reconstruction) and send no RFC 2347
@@ -40,7 +41,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define TFTP_BLOCK 512
 #define TFTP_PKT   516
 #define FUEL       1000000
 /* Max TFTP transfer: 65535 blocks * 512 bytes.  We do not know the file size in
@@ -93,17 +93,12 @@ int main(int argc, char **argv) {
   }
   if (connect(fd, (struct sockaddr *)&from, fl) != 0) { perror("connect"); return 1; }
 
-  /* 3. Drive the VERIFIED receiver loop over the connected datagram channel. */
+  /* 3. Drive the VERIFIED receiver over the connected datagram channel. */
   Common_TCP_channel ch = Common_TCP_channel_of_fd(fd);
-  uint8_t *cli = new_tftp_client();
-  tftp_client_start(cli);
-  uint8_t *inbuf   = malloc(TFTP_PKT);
-  uint8_t *scratch = malloc(TFTP_BLOCK);
-  uint8_t *ackout  = malloc(4);
   size_t   outcap  = OUTCAP;
   uint8_t *outbuf  = malloc(outcap);
-  if (!inbuf || !scratch || !ackout || !outbuf) { fprintf(stderr, "oom\n"); return 1; }
-  size_t nbytes = tftp_client_run(cli, ch, inbuf, scratch, ackout, outbuf, outcap, (size_t)FUEL);
+  if (!outbuf) { fprintf(stderr, "oom\n"); return 1; }
+  size_t nbytes = tftp_client_receive(ch, outbuf, outcap, (size_t)FUEL);
   Common_TCP_close(ch);
 
   /* Write the reconstructed file. */
@@ -113,6 +108,6 @@ int main(int argc, char **argv) {
   fclose(of);
 
   fprintf(stderr, "tftp_client: received %s -> %s (%zu bytes)\n", remote, outpath, nbytes);
-  free(inbuf); free(scratch); free(ackout); free(outbuf);
+  free(outbuf);
   return 0;
 }

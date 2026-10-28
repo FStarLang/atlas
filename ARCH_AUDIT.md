@@ -455,6 +455,8 @@ generic driver.**
 - The extracted public wrapper
   `Calc.Server.EndpointRunner.run_channel_endpoint` originally called
   `Calc.Server.Socket.run_channel`, the direct socket path, not the endpoint path.
+  (That bespoke socket loop has since been deleted; the endpoint path via
+  `Common.ProtocolDriver.drive_steps` is the only one.)
 
 First cleanup target:
 
@@ -464,7 +466,8 @@ First cleanup target:
    target.  **Done.**
 3. Run `make -C calc_sample test-c`.  **Done.**
 4. Inspect the generated C or add a small Makefile check so the public extracted
-   symbol is backed by the endpoint module, not `Calc.Server.Socket.run_channel`.
+   symbol is backed by the endpoint module.  **Moot:** `Calc.Server.Socket` was
+   removed.
 
 This is the cheapest place to discover whether endpoint/canonical layering leaks
 non-extractable terms into runtime code.
