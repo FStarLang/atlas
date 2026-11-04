@@ -63,6 +63,11 @@ let emit_request_serialize (target:W.token) (s:Seq.seq U8.t)
   Seq.lemma_eq_intro s (ser_request target)
 #pop-options
 
+let lemma_cons_req_tail_length (x:U8.t)
+  : Lemma (Seq.length (Seq.cons x req_tail) == 13)
+    [SMTPat (Seq.cons x req_tail)]
+= assert_norm (Seq.length req_tail == 12)
+
 (* Package the request-line correspondence as a token existential (so the Pulse
    fn's ensures needn't carry the refined `W.token` coercion), analogous to
    `emit_chunk_exists`. *)
@@ -923,6 +928,49 @@ let head_byte (code:U16.t{100 <= U16.v code /\ U16.v code < 1000})
      else u32_digit (U32.rem lo 10ul))
   else cl_post_byte (SZ.sub k 39sz)
 
+(* The 3 status-code digit positions of `lemma_head_byte`, one case each. *)
+#push-options "--z3rlimit 100 --fuel 0 --ifuel 0"
+let lemma_head_byte_code (code:U16.t{100 <= U16.v code /\ U16.v code < 1000})
+                         (len:U32.t{U32.v len < W.max_len8})
+                         (k:SZ.t{9 <= SZ.v k /\ SZ.v k < 12})
+  : Lemma (Seq.length (respbytes code len) == 43 /\
+           head_byte code len k == Seq.index (respbytes code len) (SZ.v k))
+= lemma_respbytes_index code len;
+  assert_norm (U16.v 100us == 100);
+  assert_norm (U16.v 10us == 10);
+  if SZ.eq k 9sz then ()
+  else if SZ.eq k 10sz then lemma_uint_mod 16 (U16.v (U16.div code 10us)) (U16.v 10us)
+  else lemma_uint_mod 16 (U16.v code) (U16.v 10us)
+#pop-options
+
+(* The 8 Content-Length digit positions of `lemma_head_byte`, one case each. *)
+#push-options "--z3rlimit 100 --fuel 0 --ifuel 0"
+let lemma_head_byte_len (code:U16.t{100 <= U16.v code /\ U16.v code < 1000})
+                        (len:U32.t{U32.v len < W.max_len8})
+                        (k:SZ.t{31 <= SZ.v k /\ SZ.v k < 39})
+  : Lemma (Seq.length (respbytes code len) == 43 /\
+           head_byte code len k == Seq.index (respbytes code len) (SZ.v k))
+= lemma_respbytes_index code len;
+  let n = U32.v len in
+  let hi = U32.div len 10000ul in
+  let lo = U32.rem len 10000ul in
+  assert_norm (U32.v 10000ul == 10000);
+  assert_norm (U32.v 1000ul == 1000);
+  assert_norm (U32.v 100ul == 100);
+  assert_norm (U32.v 10ul == 10);
+  lemma_uint_mod 32 n 10000;
+  assert (U32.v hi == n / 10000);
+  assert (U32.v lo == n % 10000);
+  if SZ.eq k 31sz then lemma_mod10_32 (U32.div hi 1000ul)
+  else if SZ.eq k 32sz then lemma_mod10_32 (U32.div hi 100ul)
+  else if SZ.eq k 33sz then lemma_mod10_32 (U32.div hi 10ul)
+  else if SZ.eq k 34sz then lemma_mod10_32 hi
+  else if SZ.eq k 35sz then lemma_mod10_32 (U32.div lo 1000ul)
+  else if SZ.eq k 36sz then lemma_mod10_32 (U32.div lo 100ul)
+  else if SZ.eq k 37sz then lemma_mod10_32 (U32.div lo 10ul)
+  else lemma_mod10_32 lo
+#pop-options
+
 (* head_byte agrees with `respbytes code len` at every position.  All the
    digit arithmetic (UInt.mod -> % bridges) lives here; the caller loop stays
    trivial.  Split up front so each range/case is a small, cheap query. *)
@@ -943,25 +991,9 @@ let lemma_head_byte (code:U16.t{100 <= U16.v code /\ U16.v code < 1000})
   assert_norm (U32.v 100ul == 100);
   assert_norm (U32.v 10ul == 10);
   if SZ.lt k 9sz then lemma_resp_prefix_byte k
-  else if SZ.lt k 12sz then begin
-    lemma_uint_mod 16 (U16.v (U16.div code 10us)) (U16.v 10us);
-    lemma_uint_mod 16 (U16.v code) (U16.v 10us);
-    lemma_enc_dec3_index (U16.v code)
-  end
+  else if SZ.lt k 12sz then lemma_head_byte_code code len k
   else if SZ.lt k 31sz then lemma_cl_pre_byte (SZ.sub k 12sz)
-  else if SZ.lt k 39sz then begin
-    let hi = U32.div len 10000ul in
-    let lo = U32.rem len 10000ul in
-    lemma_mod10_32 (U32.div hi 1000ul);
-    lemma_mod10_32 (U32.div hi 100ul);
-    lemma_mod10_32 (U32.div hi 10ul);
-    lemma_mod10_32 hi;
-    lemma_mod10_32 (U32.div lo 1000ul);
-    lemma_mod10_32 (U32.div lo 100ul);
-    lemma_mod10_32 (U32.div lo 10ul);
-    lemma_mod10_32 lo;
-    lemma_enc_dec8_index (U32.v len)
-  end
+  else if SZ.lt k 39sz then lemma_head_byte_len code len k
   else lemma_cl_post_byte (SZ.sub k 39sz)
 #pop-options
 

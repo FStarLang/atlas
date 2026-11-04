@@ -7,7 +7,7 @@
 # orchestration the vloop_test harness links against.
 set -e
 EP=${EVERPARSE_HOME:-/workspaces/atlas/tools/everparse}
-FS=$EP/opt/FStar/bin/fstar.exe
+FS=${FSTAR_EXE:-$EP/opt/FStar/bin/fstar.exe}
 LP=$EP/lib/everparse/lowparse
 export PATH=$EP/opt/z3:$PATH
 cd "$(dirname "$0")"

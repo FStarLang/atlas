@@ -724,6 +724,10 @@ fn chacha20_poly1305_open
   }
 }
 
+let aes128_keylen ()
+  : Lemma (Spec.AES.keylen Spec.AES.AES128 == 16)
+  = assert_norm (Spec.AES.keylen Spec.AES.AES128 == 16)
+
 fn aes128_gcm_seal
   (key: array U8.t)
   (nonce: array U8.t)
@@ -765,6 +769,7 @@ fn aes128_gcm_seal
     let mut tag = [| ztag; 16sz |];
     let m = Sub.sub (CS.secret out) 0sz plain_len;
     IO.intro_inplace m;
+    aes128_keylen ();
     Hacl.AES.GCM.aes128_encrypt m tag m plain_len (CS.secret key) (CS.secret nonce) 12sz
       (CS.secret aad) aad_len;
     IO.elim_inplace m;
@@ -1369,7 +1374,7 @@ let rsa_pss_verify_false (n e message signature: B.bytes)
           (ensures C.rsa_pss_rsae_sha256_verify n e message signature == false)
   = ()
 
-#push-options "--z3rlimit 80"
+#push-options "--z3rlimit 160"
 fn verify_rsa_pss_rsae_sha256
   (modulus: array U8.t)
   (modulus_len: SZ.t)
@@ -1456,7 +1461,7 @@ let rsa_pkcs1_verify_false (h: C.pkcs1_hash) (n e message signature: B.bytes)
           (ensures C.rsa_pkcs1_verify h n e message signature == false)
   = ()
 
-#push-options "--z3rlimit 80"
+#push-options "--z3rlimit 160"
 fn verify_rsa_pkcs1
   (hash: C.pkcs1_hash)
   (modulus: array U8.t)

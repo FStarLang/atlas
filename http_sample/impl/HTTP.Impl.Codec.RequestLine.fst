@@ -93,6 +93,11 @@ let lemma_req_ver_byte (k:SZ.t{SZ.v k < 10})
     assert_norm (List.Tot.index req_ver_list0 8 == 0x0Duy);
     assert_norm (List.Tot.index req_ver_list0 9 == 0x0Auy)
 
+let lemma_req_ver_length ()
+  : Lemma (ensures Seq.length req_ver == 10)
+  = assert_norm (req_ver == Seq.seq_of_list req_ver_list0);
+    assert_norm (List.Tot.length req_ver_list0 == 10)
+
 (* ── Deliverable 1: pure round-trip lemma ──────────────────────────────────────
 
    Generalizes `HTTP.Impl.Codec.Length.lemma_parse_request_line_ok` (a single,
@@ -149,6 +154,7 @@ let lemma_parse_request_line_m_ok (inp:Seq.seq U8.t) (mp sp:nat)
     assert (W.split_sp rest_m == Some (target, rest_t));
     (* ── version token ── *)
     assert (Seq.length rest_t >= 10);
+    lemma_req_ver_length ();
     Seq.lemma_eq_intro (Seq.slice rest_t 0 10) req_ver;
     W.lemma_bseq_eq (Seq.slice rest_t 0 10) req_ver
 #pop-options
@@ -259,6 +265,7 @@ fn check_ver (inp: array U8.t) (n: SZ.t) (sp: SZ.t)
         let idx = SZ.add base vk;
         let c = inp.(idx);
         lemma_req_ver_byte vk;
+        lemma_req_ver_length ();
         let want = req_ver_byte vk;
         if U8.eq c want {
           lemma_fits32 (SZ.v vk + 1);

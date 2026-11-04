@@ -27,6 +27,7 @@ module U8 = FStar.UInt8
 inline_for_extraction noextract
 let raw_key_capacity : SZ.t = 1024sz
 
+#push-options "--z3rlimit 20"
 fn verify_peer_signature
   (certificate:array U8.t)
   (certificate_len:SZ.t)
@@ -78,3 +79,4 @@ fn verify_peer_signature
     false
   }
 }
+#pop-options
