@@ -62,6 +62,7 @@ let find_spec (h needle:B.bytes) (from:nat) : option nat =
   | Some i -> Some i
   | None -> None
 
+#push-options "--z3rlimit 20"
 let lemma_region_eq_append
   (h:B.bytes) (i:nat) (p:B.bytes) (lo:nat) (ll:nat)
   : Lemma
@@ -107,6 +108,7 @@ let lemma_region_eq_append
       then eliminate forall (k:nat). k < np ==> Seq.index h (i + k) == Seq.index p (0 + k) with k
       else eliminate forall (k:nat). k < ll ==> Seq.index h (i + np + k) == Seq.index h (lo + k) with (k - np)
     end
+#pop-options
 
 (** The first occurrence at or after [from] of [needle] followed by
     [h[lab, lab + lab_len)]. *)

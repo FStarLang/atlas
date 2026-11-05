@@ -1488,6 +1488,7 @@ let lemma_legal_local_event_server_x25519_reachable_shape
            | _, _ -> assert False))
      | None ->
        assert False);
+    assert (server_x25519_pre_server_hello_projection st1);
     assert (server_x25519_reachable_shape st1)
   | LocalInstallTrafficKeys install, ControlHandshaking _ ->
     assert (st1.cs_model.model_config == st0.cs_model.model_config);

@@ -179,7 +179,7 @@ CFLAGS_VLOOP = -std=c11 -D_DEFAULT_SOURCE -DCOMMON_TCP_CUSTARD_FULL_DECLS \
 
 extract-loops: verify
 	@echo "Extracting the verified runners to C ..."
-	@EVERPARSE_HOME=$(EVERPARSE_HOME) bash extract_loops.sh
+	@EVERPARSE_HOME=$(EVERPARSE_HOME) FSTAR_EXE=$(FSTAR_EXE) bash extract_loops.sh
 
 vloop-test: extract-loops
 	@echo "Building the verified-runner transfer test ..."

@@ -3,7 +3,7 @@
 # specialised to the YMODEM endpoints, + their deps) to a single C bundle.
 set -e
 EP=${EVERPARSE_HOME:-/workspaces/atlas/tools/everparse}
-FS=$EP/opt/FStar/bin/fstar.exe
+FS=${FSTAR_EXE:-$EP/opt/FStar/bin/fstar.exe}
 LP=$EP/lib/everparse/lowparse
 cd "$(dirname "$0")"
 F="--cache_checked_modules --cache_dir _cache --odir _output --already_cached Prims,FStar,Pulse,PulseCore,C,Spec.Loops,LowParse --warn_error -321-241-272-288 --report_assumes warn --ext optimize_let_vc --ext fly_deps --include ../common --include $LP --include spec --include impl"

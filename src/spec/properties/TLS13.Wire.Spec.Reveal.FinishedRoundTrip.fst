@@ -40,7 +40,9 @@ let lemma_parse_finished_handshake_round_trip fragment fin =
           Seq.lemma_eq_elim
             fragment
             (WS.serialize_handshake (M.Finished fin))
-        | _ -> assert False
+        | _ ->
+          assert (WS.synth_handshake_msg_of h == Some (M.Finished fin));
+          assert False
       end
     else assert False
   | None -> assert False
