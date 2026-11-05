@@ -23,19 +23,6 @@ FSTAR_DEP_OPTIONS :=
 
 clean_rules += clean-local
 
-# Z3 version used by every F* invocation; see the root Makefile for why 4.15.3.
-# Exported by the root Makefile when this is run as a sub-make.
-# Pinned in scripts/z3-version.txt at the repo root (single source of truth).
-Z3_VERSION_FILE ?= ../scripts/z3-version.txt
-Z3_VERSION ?= $(strip $(shell cat $(Z3_VERSION_FILE)))
-ifeq ($(Z3_VERSION),)
-$(error Could not read the pinned Z3 version from $(Z3_VERSION_FILE))
-endif
-# EverParse's fstar.Makefile turns this into `--z3version` and, when
-# $(EVERPARSE_HOME)/opt/z3/z3-<version> exists, `--smt <that binary>`; it
-# defaults to EverParse's own Z3 version otherwise.
-EVERPARSE_Z3_VERSION := $(Z3_VERSION)
-
 include $(EVERPARSE_LIB_PATH)/common.Makefile
 
 # --warn_error +241: the F* toolchain install may ship Pulse .checked files whose

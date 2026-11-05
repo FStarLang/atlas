@@ -25,15 +25,9 @@ jobs:
   # build artifact).  The cache is keyed on the files that determine the image
   # contents — the Dockerfile (base OS + apt packages, incl. lrzsz/tftp and the
   # in.tftpd setcap) and the toolchain build scripts (setup.sh, the pinned
-  # EverParse commit in scripts/build-everparse.sh, and the Z3 version pinned in
-  # scripts/install-z3.sh) — so the ~1h build only re-runs when one of those
-  # changes; ordinary source edits reuse the cache.
-  #
-  # scripts/install-z3.sh MUST stay in the key.  The solver lives in the cached
-  # image (tools/everparse/opt/z3), so bumping the Z3 version there without
-  # invalidating the image would leave CI verifying with the old solver while the
-  # Makefile asks for the new one.  Keep this key in sync with Z3_VERSION in the
-  # root Makefile.
+  # EverParse and F* commits in scripts/build-everparse.sh, which also determine
+  # the Z3 that F* uses by default) — so the ~1h build only re-runs when one of
+  # those changes; ordinary source edits reuse the cache.
   # A lookup-only restore checks whether the image already exists; the build and
   # cache-save steps run only on a miss.
   devcontainer:
@@ -56,7 +50,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: devcontainer.tgz
-          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
+          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh') }}
           lookup-only: true
 
       - name: Build the dev container image + toolchain
@@ -90,7 +84,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: devcontainer.tgz
-          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
+          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh') }}
 
   # ── 2. Parallel test jobs ─────────────────────────────────────────────────
   # Each matrix leg restores the cached toolchain image and injects the FRESH
@@ -180,7 +174,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: devcontainer.tgz
-          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh', 'scripts/install-z3.sh', 'scripts/z3-version.txt') }}
+          key: atlas-devcontainer-${{ hashFiles('.devcontainer/Dockerfile', 'setup.sh', 'scripts/build-everparse.sh', 'scripts/build-hacl-pulse.sh') }}
           fail-on-cache-miss: true
 
       - name: Load the dev container image
@@ -213,9 +207,8 @@ jobs:
       #
       # scripts/build-everparse.sh stays in the key because it pins the F*
       # binary, whose version stamp a .checked file does record.  The Z3 version
-      # deliberately does NOT appear: --z3version is not part of the .checked
-      # digest (verified by A/B run), so including it would only cause needless
-      # misses.
+      # is F*'s default and is not part of the .checked digest (verified by A/B
+      # run), so it needs no separate entry.
       - name: Cache generated-parser verification (tls-root)
         id: gencache
         if: ${{ matrix.cache_generated }}

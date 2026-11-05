@@ -13,7 +13,7 @@
 EVERPARSE_HOME ?= $(CURDIR)/tools/everparse
 FSTAR_HOME ?= $(EVERPARSE_HOME)/opt/FStar
 FSTAR_EXE  ?= $(FSTAR_HOME)/bin/fstar.exe
-KRML_HOME  ?= $(EVERPARSE_HOME)/opt/karamel
+KRML_HOME  ?= $(EVERPARSE_HOME)/opt/FStar/karamel
 # Use the installed KaRaMeL binary (opt/FStar/karamel/out/bin/krml): unlike the
 # in-tree `krml` symlink to _build/default/src/Karamel.exe, it self-locates its
 # krmllib/share, so no extra symlinks are needed.
@@ -37,30 +37,11 @@ HACL_PULSE_COMMIT := $(shell sed -n 's/.*HACL_PULSE_COMMIT:-\([0-9a-f]*\).*/\1/p
                       $(CURDIR)/scripts/build-hacl-pulse.sh | head -1)
 
 # F* locates Z3 by looking for `z3-<version>` on PATH.  The EverParse toolchain
-# ships the pinned Z3 binaries under opt/z3 (e.g. z3-4.15.3); make them visible
+# ships the Z3 binary F* expects under opt/z3 (e.g. z3-5.3.0); make them visible
 # to every F* invocation (this Makefile and the generated/ sub-make) instead of
 # relying on the caller having sourced tools/everparse/env.sh.
 Z3_DIR         ?= $(EVERPARSE_HOME)/opt/z3
 export PATH := $(Z3_DIR):$(PATH)
-
-# Z3 version used by every F* invocation.  F* defaults to 4.13.3, which has an
-# internal assertion failure in the LP arithmetic solver (lar_solver.cpp:1066)
-# that aborts the solver on some of our arithmetic-heavy system-level queries.
-# 4.15.3 fixes it.  Override on the command line to A/B a proof against another
-# version, e.g. `make verify Z3_VERSION=4.13.3`.
-#
-# The pinned value lives in scripts/z3-version.txt, which is the single source
-# of truth shared with scripts/install-z3.sh, the sample Makefiles and the CI
-# dev-container cache key.  Keeping it in one file stops the eight places that
-# used to spell "4.15.3" from drifting apart.  Note that a .checked file does
-# NOT record the solver version, so changing this alone will not invalidate a
-# warm cache -- wipe _cache before believing an A/B result.
-Z3_VERSION_FILE := scripts/z3-version.txt
-Z3_VERSION     ?= $(strip $(shell cat $(Z3_VERSION_FILE)))
-ifeq ($(Z3_VERSION),)
-$(error Could not read the pinned Z3 version from $(Z3_VERSION_FILE))
-endif
-export Z3_VERSION
 
 GENERATED_DIR   = generated
 QD_RFC          = tls.qd.rfc
@@ -117,7 +98,6 @@ endif
 
 FSTAR_FLAGS = \
   $(OTHERFLAGS) \
-  --z3version $(Z3_VERSION) \
   --cache_checked_modules \
   --cache_dir $(CACHE_DIR) \
   --odir $(OUTPUT_DIR) \
@@ -131,7 +111,6 @@ FSTAR = $(FSTAR_EXE) $(FSTAR_FLAGS)
 
 FSTAR_EXTRACT_FLAGS = \
   $(OTHERFLAGS) \
-  --z3version $(Z3_VERSION) \
   --cache_checked_modules \
   --cache_dir $(CACHE_DIR) \
   --odir $(OUTPUT_DIR) \
@@ -198,8 +177,7 @@ GENERATED_MAKE_VARS = \
   EVERPARSE_HOME='$(realpath $(EVERPARSE_HOME))' \
   FSTAR_EXE='$(FSTAR_EXE)' \
   KRML_EXE='$(KRML_EXE)' \
-  KRML_HOME='$(KRML_HOME)' \
-  Z3_VERSION='$(Z3_VERSION)'
+  KRML_HOME='$(KRML_HOME)'
 
 # Committed generated sources and a stamp marking that their (gitignored)
 # .checked files have been produced.  The main build's `.depend` consumes the
@@ -1594,11 +1572,6 @@ check-toolchain:
 	fi
 	@if [ ! -x "$(QD_EXE)" ] && ! command -v "$(QD_EXE)" >/dev/null 2>&1; then \
 	  echo "QuackyDucky not found at $(QD_EXE).  Build EverParse with ./setup.sh (or set QD_EXE)."; \
-	  exit 1; \
-	fi
-	@if ! command -v "z3-$(Z3_VERSION)" >/dev/null 2>&1; then \
-	  echo "Z3 $(Z3_VERSION) not found (F* looks for a binary named 'z3-$(Z3_VERSION)' on PATH)."; \
-	  echo "Install it with scripts/install-z3.sh, or pick another version with Z3_VERSION=<v>."; \
 	  exit 1; \
 	fi
 	@if [ "$(CHECK_EVERPARSE_PIN)" != "0" ] && [ -n "$(EVERPARSE_COMMIT)" ] && \
