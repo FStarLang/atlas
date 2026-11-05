@@ -882,6 +882,7 @@ fn aes128_gcm_open
     let m = Sub.sub tmp 0sz len;
     gcm_fits (SZ.v aad_len) (SZ.v len);
     IO.intro_inplace m;
+    aes128_keylen ();
     let ok = Hacl.AES.GCM.aes128_decrypt m m len tag (CS.secret key) (CS.secret nonce) 12sz
                (CS.secret aad) aad_len;
     IO.elim_inplace m;

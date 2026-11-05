@@ -296,11 +296,13 @@ let copyful_handshake_cases (k: LP.sum_key handshake_sum)
   | New_session_ticket -> PPS.copyful_parse_sum_case handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch handshake_conv_of_tag New_session_ticket
       (PPB.copyful_parse_leaf (PPC.read_false ())) Body_new_session_ticket_low () ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let read_handshake_sum
   : PPB.copyful_parse (PPS.vmatch_sum handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch) handshake_parser (PPS.sum_conv handshake_sum handshake_mid_of_tag handshake_conv_of_tag) =
   assert_norm (LP.parse_sum_kind (LP.get_parser_kind handshakeType_repr_parser) handshake_sum parse_handshake_cases == handshake_parser_kind);
   PPS.copyful_parse_sum handshake_sum handshakeType_repr_reader handshakeType_repr_jumper parse_handshake_cases
     handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch handshake_conv_of_tag copyful_handshake_cases (_ by (LP.dep_enum_destr_tac ())) (_ by (LP.dep_maybe_enum_destr_t_tac ())) () ()
+#pop-options
 
 let handshake_coerce_vmatch_eq (xl: handshake_low) (m1: PPS.sum_mid handshake_sum handshake_mid_of_tag)
   : Lemma (PPS.vmatch_sum handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch xl m1 == handshake_vmatch xl (handshake_fg m1))
@@ -438,8 +440,10 @@ let free_handshake_cases (k: LP.sum_key handshake_sum)
   | New_session_ticket -> PPS.free_sum_case handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch New_session_ticket
       (PPB.free_leaf #(squash False)) (fun xl -> match xl with | Body_new_session_ticket_low v -> Some v | _ -> None) ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let free_handshake_sum : PPB.free_t (PPS.vmatch_sum handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch) =
   PPS.free_sum handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch free_handshake_cases (_ by (LP.dep_enum_destr_tac ()))
+#pop-options
 
 let handshake_free_vmatch_eq (xl: handshake_low) (m: handshake_mid)
   : Lemma (handshake_vmatch xl m == PPS.vmatch_sum handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch xl (handshake_gf m))
@@ -549,10 +553,12 @@ let write_handshake_cases (k: LP.sum_key handshake_sum)
   | New_session_ticket -> PPS.l2r_safe_writer_sum_case handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch handshake_conv_of_tag New_session_ticket
       (PPS.l2r_safe_writer_false (LPS.eq_as_slprop (squash False)) LP.serialize_false) (fun xl -> match xl with | Body_new_session_ticket_low v -> Some v | _ -> None) ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let write_handshake_sum
   : PPB.l2r_safe_writer (PPS.vmatch_sum handshake_sum handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch) (LP.serialize_sum handshake_sum handshakeType_repr_serializer serialize_handshake_cases) (PPS.sum_conv handshake_sum handshake_mid_of_tag handshake_conv_of_tag) =
   PPS.l2r_safe_writer_sum handshake_sum handshakeType_repr_serializer write_handshakeType_key 1sz parse_handshake_cases serialize_handshake_cases
     handshake_low handshake_tag_of_low handshake_mid_of_tag handshake_casevmatch handshake_conv_of_tag write_handshake_cases (_ by (LP.dep_enum_destr_tac ())) ()
+#pop-options
 
 let handshake_write_conv_eq (m: handshake_mid)
   : Lemma (handshake_conv m == PPS.sum_conv handshake_sum handshake_mid_of_tag handshake_conv_of_tag (handshake_gf m))
