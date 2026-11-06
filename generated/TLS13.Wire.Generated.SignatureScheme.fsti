@@ -74,6 +74,8 @@ let string_of_signatureScheme = function
   ]))
   in e
 
+noextract inline_for_extraction val signatureScheme_enum_repr_of_key : LP.enum_repr_of_key'_t signatureScheme_enum
+
 inline_for_extraction noextract let signatureScheme_parser_kind = LP.strong_parser_kind 2 2 (Some LP.ParserKindMetadataTotal)
 
 noextract val signatureScheme_parser: LP.parser signatureScheme_parser_kind signatureScheme

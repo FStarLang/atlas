@@ -34,6 +34,9 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 #reset-options "--using_facts_from '* -FStar.Tactics -FStar.Reflection -Pulse -PulseCore' --z3rlimit 16 --z3cliopt smt.arith.nl=false --max_fuel 2 --max_ifuel 2"
 
+noextract inline_for_extraction let contentType_enum_repr_of_key : LP.enum_repr_of_key'_t contentType_enum =
+  _ by (LP.enum_repr_of_key_tac contentType_enum)
+
 noextract let contentType_repr_parser = LPI.parse_u8
 
 noextract let contentType_repr_serializer = LPI.serialize_u8
@@ -94,7 +97,7 @@ let contentType_reader =
  PPB.leaf_reader_of_reader (PPC.read_synth' (PPB.reader_of_leaf_reader read_contentType_key) synth_contentType synth_contentType_inv)
 
 inline_for_extraction let write_contentType_key : LPS.l2r_leaf_writer (serialize_contentType_key) =
-  LPPS.l2r_leaf_write_enum_key contentType_repr_writer contentType_enum (_ by (LP.enum_repr_of_key_tac contentType_enum))
+  LPPS.l2r_leaf_write_enum_key contentType_repr_writer contentType_enum contentType_enum_repr_of_key
 
 let contentType_writer =
   [@inline_let] let _ = lemma_synth_contentType_inj (); lemma_synth_contentType_inv () in

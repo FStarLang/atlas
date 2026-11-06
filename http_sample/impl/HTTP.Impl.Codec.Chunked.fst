@@ -142,6 +142,10 @@ let emit_chunk_serialize (p:chunk_payload) (s:Seq.seq U8.t)
   let szb = W.enc_hex4 n in
   let pb  = (p <: Seq.seq U8.t) in
   (* the four regions of s equal the four serialization components *)
+  lemma_enc_hex4_index n 0;
+  lemma_enc_hex4_index n 1;
+  lemma_enc_hex4_index n 2;
+  lemma_enc_hex4_index n 3;
   Seq.lemma_eq_intro (Seq.slice s 0 4) szb;
   Seq.lemma_eq_intro (Seq.slice s 4 6) W.crlf;
   Seq.lemma_eq_intro (Seq.slice s 6 (6 + n)) pb;

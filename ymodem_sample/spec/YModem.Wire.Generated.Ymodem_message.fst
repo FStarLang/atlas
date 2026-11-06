@@ -255,11 +255,13 @@ let copyful_ymodem_message_cases (k: LP.sum_key ymodem_message_sum)
   | Crc_c -> PPS.copyful_parse_sum_case ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch ymodem_message_conv_of_tag Crc_c
       read_ymodem_empty Body_crc_c_low () ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let read_ymodem_message_sum
   : PPB.copyful_parse (PPS.vmatch_sum ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch) ymodem_message_parser (PPS.sum_conv ymodem_message_sum ymodem_message_mid_of_tag ymodem_message_conv_of_tag) =
   assert_norm (LP.parse_sum_kind (LP.get_parser_kind ymodem_tag_repr_parser) ymodem_message_sum parse_ymodem_message_cases == ymodem_message_parser_kind);
   PPS.copyful_parse_sum ymodem_message_sum ymodem_tag_repr_reader ymodem_tag_repr_jumper parse_ymodem_message_cases
     ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch ymodem_message_conv_of_tag copyful_ymodem_message_cases (_ by (LP.dep_enum_destr_tac ())) (_ by (LP.dep_maybe_enum_destr_t_tac ())) () ()
+#pop-options
 
 let ymodem_message_coerce_vmatch_eq (xl: ymodem_message_low) (m1: PPS.sum_mid ymodem_message_sum ymodem_message_mid_of_tag)
   : Lemma (PPS.vmatch_sum ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch xl m1 == ymodem_message_vmatch xl (ymodem_message_fg m1))
@@ -359,8 +361,10 @@ let free_ymodem_message_cases (k: LP.sum_key ymodem_message_sum)
   | Crc_c -> PPS.free_sum_case ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch Crc_c
       free_ymodem_empty (fun xl -> match xl with | Body_crc_c_low v -> Some v | _ -> None) ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let free_ymodem_message_sum : PPB.free_t (PPS.vmatch_sum ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch) =
   PPS.free_sum ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch free_ymodem_message_cases (_ by (LP.dep_enum_destr_tac ()))
+#pop-options
 
 let ymodem_message_free_vmatch_eq (xl: ymodem_message_low) (m: ymodem_message_mid)
   : Lemma (ymodem_message_vmatch xl m == PPS.vmatch_sum ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch xl (ymodem_message_gf m))
@@ -434,10 +438,12 @@ let write_ymodem_message_cases (k: LP.sum_key ymodem_message_sum)
   | Crc_c -> PPS.l2r_safe_writer_sum_case ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch ymodem_message_conv_of_tag Crc_c
       write_ymodem_empty (fun xl -> match xl with | Body_crc_c_low v -> Some v | _ -> None) ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let write_ymodem_message_sum
   : PPB.l2r_safe_writer (PPS.vmatch_sum ymodem_message_sum ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch) (LP.serialize_sum ymodem_message_sum ymodem_tag_repr_serializer serialize_ymodem_message_cases) (PPS.sum_conv ymodem_message_sum ymodem_message_mid_of_tag ymodem_message_conv_of_tag) =
   PPS.l2r_safe_writer_sum ymodem_message_sum ymodem_tag_repr_serializer write_ymodem_tag_key 1sz parse_ymodem_message_cases serialize_ymodem_message_cases
     ymodem_message_low ymodem_message_tag_of_low ymodem_message_mid_of_tag ymodem_message_casevmatch ymodem_message_conv_of_tag write_ymodem_message_cases (_ by (LP.dep_enum_destr_tac ())) ()
+#pop-options
 
 let ymodem_message_write_conv_eq (m: ymodem_message_mid)
   : Lemma (ymodem_message_conv m == PPS.sum_conv ymodem_message_sum ymodem_message_mid_of_tag ymodem_message_conv_of_tag (ymodem_message_gf m))

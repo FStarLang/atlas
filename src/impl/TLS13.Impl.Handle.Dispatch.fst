@@ -24,6 +24,21 @@ module SZ = FStar.SizeT
 module T = TLS13.Types
 module U8 = FStar.UInt8
 module WS = TLS13.Wire.Spec
+module CS = TLS13.Spec.StateMachine
+
+(* A change_cipher_spec record, and the unexpected-message failure it may
+   cause, deliver no application data, so the response leaves app_out
+   empty. *)
+let lemma_change_cipher_spec_no_app_out
+  (st0 st1:CS.connection_state)
+  (resp:CT.client_response)
+  (raw_received network_out app_out:B.bytes)
+  : Lemma
+    (requires CT.legal_handled_tls_response
+      st0 st1 resp M.TlsChangeCipherSpec raw_received network_out app_out)
+    (ensures resp.CT.app_out_len == 0sz)
+  = Seq.lemma_len_slice app_out 0 (SZ.v resp.CT.app_out_len)
+
 
 #push-options "--z3rlimit 200"
 fn dispatch_network_event
@@ -203,6 +218,14 @@ fn dispatch_network_event
               network_out_len
               app_out
               app_out_len;
+          with st1. assert (CR.connection_exactly c st1);
+          lemma_change_cipher_spec_no_app_out
+            'st0
+            st1
+            resp
+            (Ghost.reveal 'raw_bytes)
+            'old_network_out
+            'old_app_out;
           resp
         }
         L.LTlsKeyUpdate lreq -> {

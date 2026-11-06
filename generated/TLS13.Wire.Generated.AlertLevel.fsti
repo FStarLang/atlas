@@ -58,6 +58,8 @@ let string_of_alertLevel = function
   ]))
   in e
 
+noextract inline_for_extraction val alertLevel_enum_repr_of_key : LP.enum_repr_of_key'_t alertLevel_enum
+
 inline_for_extraction noextract let alertLevel_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val alertLevel_parser: LP.parser alertLevel_parser_kind alertLevel

@@ -34,6 +34,9 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 #reset-options "--using_facts_from '* -FStar.Tactics -FStar.Reflection -Pulse -PulseCore' --z3rlimit 16 --z3cliopt smt.arith.nl=false --max_fuel 2 --max_ifuel 2"
 
+noextract inline_for_extraction let alertLevel_enum_repr_of_key : LP.enum_repr_of_key'_t alertLevel_enum =
+  _ by (LP.enum_repr_of_key_tac alertLevel_enum)
+
 noextract let alertLevel_repr_parser = LPI.parse_u8
 
 noextract let alertLevel_repr_serializer = LPI.serialize_u8
@@ -94,7 +97,7 @@ let alertLevel_reader =
  PPB.leaf_reader_of_reader (PPC.read_synth' (PPB.reader_of_leaf_reader read_alertLevel_key) synth_alertLevel synth_alertLevel_inv)
 
 inline_for_extraction let write_alertLevel_key : LPS.l2r_leaf_writer (serialize_alertLevel_key) =
-  LPPS.l2r_leaf_write_enum_key alertLevel_repr_writer alertLevel_enum (_ by (LP.enum_repr_of_key_tac alertLevel_enum))
+  LPPS.l2r_leaf_write_enum_key alertLevel_repr_writer alertLevel_enum alertLevel_enum_repr_of_key
 
 let alertLevel_writer =
   [@inline_let] let _ = lemma_synth_alertLevel_inj (); lemma_synth_alertLevel_inv () in

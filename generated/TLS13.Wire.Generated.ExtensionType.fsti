@@ -84,6 +84,8 @@ let string_of_extensionType = function
   ]))
   in e
 
+noextract inline_for_extraction val extensionType_enum_repr_of_key : LP.enum_repr_of_key'_t extensionType_enum
+
 inline_for_extraction noextract let extensionType_parser_kind = LP.strong_parser_kind 2 2 (Some LP.ParserKindMetadataTotal)
 
 noextract val extensionType_parser: LP.parser extensionType_parser_kind extensionType

@@ -1157,9 +1157,11 @@ let lemma_synth_client_hello_none_of_ok_flags
         FStar.List.Tot.length sig_schemes <= M.client_hello_max_signature_schemes &&
         (match server_name with
          | Some hostname -> B.length hostname <= M.client_hello_server_name_max_len
-         | None -> true)))
-   | _ -> assert (ext_ok == false));
-  assert (WS.clientHello_representable c == false)
+         | None -> true)));
+     assert (WS.clientHello_representable c == false)
+   | _ ->
+     assert (ext_ok == false);
+     assert (WS.clientHello_representable c == false))
 
 ghost
 fn elim_vmatch_serverName_host

@@ -111,6 +111,30 @@ let lemma_serialize_error_bytes b =
   assert (Seq.index b 3 == 0uy);
   assert (Seq.index b 4 == 0uy)
 
+let n_to_be_be_to_n (s:bytes{Seq.length s == 4})
+  : Lemma (n_to_be (be_to_n s) `Seq.equal` s)
+  = let open FStar.Math.Lemmas in
+    let b0 = U8.v (Seq.index s 0) in
+    let b1 = U8.v (Seq.index s 1) in
+    let b2 = U8.v (Seq.index s 2) in
+    let b3 = U8.v (Seq.index s 3) in
+    let x = be_to_n s in
+    let q2 = b1 + b0 * 256 in
+    let q1 = b2 + q2 * 256 in
+    assert (x == b3 + q1 * 256);
+    lemma_mod_plus b3 q1 256;
+    lemma_div_plus b3 q1 256;
+    lemma_mod_plus b2 q2 256;
+    lemma_div_plus b2 q2 256;
+    lemma_mod_plus b1 b0 256;
+    lemma_div_plus b1 b0 256;
+    division_multiplication_lemma x 256 256;
+    division_multiplication_lemma x 65536 256;
+    assert (x % 256 == b3);
+    assert ((x / 256) % 256 == b2);
+    assert ((x / 65536) % 256 == b1);
+    assert ((x / 16777216) % 256 == b0)
+
 val lemma_serialize_result_bytes
   (x: int)
   (b: bytes{Seq.length b == 5 /\ Seq.index b 0 == 1uy})
@@ -119,6 +143,7 @@ val lemma_serialize_result_bytes
 
 let lemma_serialize_result_bytes x b =
   let sr = serialize_response (Result x) in
+  n_to_be_be_to_n (Seq.slice b 1 5);
   assert (Seq.index sr 0 == 1uy);
   assert (Seq.slice sr 1 5 `Seq.equal` n_to_be x);
   assert (be_to_n (Seq.slice sr 1 5) == x);

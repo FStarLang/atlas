@@ -78,6 +78,8 @@ let string_of_ymodem_tag = function
   ]))
   in e
 
+noextract inline_for_extraction val ymodem_tag_enum_repr_of_key : LP.enum_repr_of_key'_t ymodem_tag_enum
+
 inline_for_extraction noextract let ymodem_tag_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val ymodem_tag_parser: LP.parser ymodem_tag_parser_kind ymodem_tag
