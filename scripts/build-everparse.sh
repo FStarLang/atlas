@@ -17,12 +17,12 @@ EVERPARSE_BRANCH="${EVERPARSE_BRANCH:-master}"
 # Pinned EverParse commit this project is verified against.  The branch above is
 # only used as a fetch hint; the build always checks out this exact commit so the
 # toolchain is reproducible regardless of where the branch tip has moved.
-EVERPARSE_COMMIT="${EVERPARSE_COMMIT:-cc5f99e84c0ecc9fe58b0f80fdd58d19d733c331}"
+EVERPARSE_COMMIT="${EVERPARSE_COMMIT:-a991f5826f9ea13a5da272c51086585869218f59}"
 # F* revision to build EverParse with, overriding the FStar_hash EverParse pins
 # in opt/hashes.Makefile.  This is the commit of the F* nightly that hacl-pulse
 # (scripts/build-hacl-pulse.sh) is verified against (its .fstar-nightly), so
 # both are built with the same F*.  KaRaMeL is F*'s karamel submodule.
-FSTAR_COMMIT="${FSTAR_COMMIT:-c935e4ca75b69ffad062df9bae7b49e42aed1e6a}"
+FSTAR_COMMIT="${FSTAR_COMMIT:-157c3114336cd616bd34a49a9f0d4fef1b64cd9b}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Default location: tools/everparse inside the atlas checkout (matches the
