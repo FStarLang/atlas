@@ -64,6 +64,8 @@ let string_of_cipherSuite = function
   ]))
   in e
 
+noextract inline_for_extraction val cipherSuite_enum_repr_of_key : LP.enum_repr_of_key'_t cipherSuite_enum
+
 inline_for_extraction noextract let cipherSuite_parser_kind = LP.strong_parser_kind 2 2 (Some LP.ParserKindMetadataTotal)
 
 noextract val cipherSuite_parser: LP.parser cipherSuite_parser_kind cipherSuite

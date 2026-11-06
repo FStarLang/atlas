@@ -58,6 +58,8 @@ let string_of_protocolVersion = function
   ]))
   in e
 
+noextract inline_for_extraction val protocolVersion_enum_repr_of_key : LP.enum_repr_of_key'_t protocolVersion_enum
+
 inline_for_extraction noextract let protocolVersion_parser_kind = LP.strong_parser_kind 2 2 None
 
 noextract val protocolVersion_parser: LP.parser protocolVersion_parser_kind protocolVersion

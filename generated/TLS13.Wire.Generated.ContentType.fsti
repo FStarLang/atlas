@@ -73,6 +73,8 @@ let string_of_contentType = function
   ]))
   in e
 
+noextract inline_for_extraction val contentType_enum_repr_of_key : LP.enum_repr_of_key'_t contentType_enum
+
 inline_for_extraction noextract let contentType_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val contentType_parser: LP.parser contentType_parser_kind contentType

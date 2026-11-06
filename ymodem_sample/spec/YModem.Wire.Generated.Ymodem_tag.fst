@@ -34,6 +34,9 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 #reset-options "--using_facts_from '* -FStar.Tactics -FStar.Reflection -Pulse -PulseCore' --z3rlimit 16 --z3cliopt smt.arith.nl=false --max_fuel 2 --max_ifuel 2"
 
+noextract inline_for_extraction let ymodem_tag_enum_repr_of_key : LP.enum_repr_of_key'_t ymodem_tag_enum =
+  _ by (LP.enum_repr_of_key_tac ymodem_tag_enum)
+
 noextract let ymodem_tag_repr_parser = LPI.parse_u8
 
 noextract let ymodem_tag_repr_serializer = LPI.serialize_u8
@@ -94,7 +97,7 @@ let ymodem_tag_reader =
  PPB.leaf_reader_of_reader (PPC.read_synth' (PPB.reader_of_leaf_reader read_ymodem_tag_key) synth_ymodem_tag synth_ymodem_tag_inv)
 
 inline_for_extraction let write_ymodem_tag_key : LPS.l2r_leaf_writer (serialize_ymodem_tag_key) =
-  LPPS.l2r_leaf_write_enum_key ymodem_tag_repr_writer ymodem_tag_enum (_ by (LP.enum_repr_of_key_tac ymodem_tag_enum))
+  LPPS.l2r_leaf_write_enum_key ymodem_tag_repr_writer ymodem_tag_enum ymodem_tag_enum_repr_of_key
 
 let ymodem_tag_writer =
   [@inline_let] let _ = lemma_synth_ymodem_tag_inj (); lemma_synth_ymodem_tag_inv () in

@@ -69,6 +69,8 @@ let string_of_namedGroup = function
   ]))
   in e
 
+noextract inline_for_extraction val namedGroup_enum_repr_of_key : LP.enum_repr_of_key'_t namedGroup_enum
+
 inline_for_extraction noextract let namedGroup_parser_kind = LP.strong_parser_kind 2 2 (Some LP.ParserKindMetadataTotal)
 
 noextract val namedGroup_parser: LP.parser namedGroup_parser_kind namedGroup

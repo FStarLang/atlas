@@ -98,6 +98,8 @@ let string_of_alertDescription = function
   ]))
   in e
 
+noextract inline_for_extraction val alertDescription_enum_repr_of_key : LP.enum_repr_of_key'_t alertDescription_enum
+
 inline_for_extraction noextract let alertDescription_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val alertDescription_parser: LP.parser alertDescription_parser_kind alertDescription

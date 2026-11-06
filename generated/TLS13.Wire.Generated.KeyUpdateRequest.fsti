@@ -58,6 +58,8 @@ let string_of_keyUpdateRequest = function
   ]))
   in e
 
+noextract inline_for_extraction val keyUpdateRequest_enum_repr_of_key : LP.enum_repr_of_key'_t keyUpdateRequest_enum
+
 inline_for_extraction noextract let keyUpdateRequest_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val keyUpdateRequest_parser: LP.parser keyUpdateRequest_parser_kind keyUpdateRequest

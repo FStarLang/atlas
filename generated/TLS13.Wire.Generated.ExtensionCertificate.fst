@@ -335,7 +335,7 @@ let read_extensionCertificate_sum
   : PPB.copyful_parse (PPS.vmatch_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch) extensionCertificate_parser (PPS.dsum_conv extensionCertificate_sum extensionCertificate_mid_of_tag extensionCertificate_conv_of_tag) =
   assert_norm (LP.parse_dsum_kind (LP.get_parser_kind extensionType_repr_parser) extensionCertificate_sum parse_extensionCertificate_cases (LP.get_parser_kind extensionCertificate_extension_data_default_parser) == extensionCertificate_parser_kind);
   PPS.copyful_parse_dsum extensionCertificate_sum read_maybe_extensionType_key extensionType_repr_jumper parse_extensionCertificate_cases
-    extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch extensionCertificate_conv_of_tag copyful_extensionCertificate_cases (_ by (LP.dep_maybe_enum_destr_t_tac ())) (_ by (LP.enum_repr_of_key_tac extensionType_enum)) ()
+    extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch extensionCertificate_conv_of_tag copyful_extensionCertificate_cases (_ by (LP.dep_maybe_enum_destr_t_tac ())) extensionType_enum_repr_of_key ()
 
 let extensionCertificate_coerce_vmatch_eq (xl: extensionCertificate_low) (m1: PPS.dsum_mid extensionCertificate_sum extensionCertificate_mid_of_tag)
   : Lemma (PPS.vmatch_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch xl m1 == extensionCertificate_vmatch xl (extensionCertificate_fg m1))
@@ -460,7 +460,7 @@ let free_extensionCertificate_cases (k: LP.dsum_key extensionCertificate_sum)
       free_extensionCertificate_extension_data_default (fun xl -> match xl with | Extension_data_Unknown_extensionType_low _ v -> Some v | _ -> None) ()
 
 let free_extensionCertificate_sum : PPB.free_t (PPS.vmatch_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch) =
-  PPS.free_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch free_extensionCertificate_cases (_ by (LP.dep_maybe_enum_destr_t_tac ())) (_ by (LP.enum_repr_of_key_tac extensionType_enum))
+  PPS.free_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch free_extensionCertificate_cases (_ by (LP.dep_maybe_enum_destr_t_tac ())) extensionType_enum_repr_of_key
 
 let extensionCertificate_free_vmatch_eq (xl: extensionCertificate_low) (m: extensionCertificate_mid)
   : Lemma (extensionCertificate_vmatch xl m == PPS.vmatch_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch xl (extensionCertificate_gf m))
@@ -556,7 +556,7 @@ let write_extensionCertificate_cases (k: LP.dsum_key extensionCertificate_sum)
 let write_extensionCertificate_sum
   : PPB.l2r_safe_writer (PPS.vmatch_dsum extensionCertificate_sum extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch) (LP.serialize_dsum extensionCertificate_sum extensionType_repr_serializer parse_extensionCertificate_cases serialize_extensionCertificate_cases extensionCertificate_extension_data_default_parser extensionCertificate_extension_data_default_serializer) (PPS.dsum_conv extensionCertificate_sum extensionCertificate_mid_of_tag extensionCertificate_conv_of_tag) =
   PPS.l2r_safe_writer_dsum extensionCertificate_sum extensionType_repr_serializer write_maybe_extensionType_key 2sz parse_extensionCertificate_cases serialize_extensionCertificate_cases extensionCertificate_extension_data_default_parser extensionCertificate_extension_data_default_serializer
-    extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch extensionCertificate_conv_of_tag write_extensionCertificate_cases (_ by (LP.dep_maybe_enum_destr_t_tac ())) (_ by (LP.enum_repr_of_key_tac extensionType_enum)) ()
+    extensionCertificate_low extensionCertificate_tag_of_low extensionCertificate_mid_of_tag extensionCertificate_casevmatch extensionCertificate_conv_of_tag write_extensionCertificate_cases (_ by (LP.dep_maybe_enum_destr_t_tac ())) extensionType_enum_repr_of_key ()
 
 let extensionCertificate_write_conv_eq (m: extensionCertificate_mid)
   : Lemma (extensionCertificate_conv m == PPS.dsum_conv extensionCertificate_sum extensionCertificate_mid_of_tag extensionCertificate_conv_of_tag (extensionCertificate_gf m))

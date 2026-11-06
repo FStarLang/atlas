@@ -34,6 +34,9 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 #reset-options "--using_facts_from '* -FStar.Tactics -FStar.Reflection -Pulse -PulseCore' --z3rlimit 16 --z3cliopt smt.arith.nl=false --max_fuel 2 --max_ifuel 2"
 
+noextract inline_for_extraction let namedGroup_enum_repr_of_key : LP.enum_repr_of_key'_t namedGroup_enum =
+  _ by (LP.enum_repr_of_key_tac namedGroup_enum)
+
 noextract let namedGroup_repr_parser = LPI.parse_u16
 
 noextract let namedGroup_repr_serializer = LPI.serialize_u16
@@ -109,7 +112,7 @@ let namedGroup_reader =
  PPB.leaf_reader_of_reader (PPC.read_synth' (PPB.reader_of_leaf_reader read_maybe_namedGroup_key) synth_namedGroup synth_namedGroup_inv)
 
 inline_for_extraction let write_maybe_namedGroup_key : LPS.l2r_leaf_writer (serialize_maybe_namedGroup_key) =
-  LPPS.l2r_leaf_write_maybe_enum_key namedGroup_repr_writer namedGroup_enum (_ by (LP.enum_repr_of_key_tac namedGroup_enum))
+  LPPS.l2r_leaf_write_maybe_enum_key namedGroup_repr_writer namedGroup_enum namedGroup_enum_repr_of_key
 
 let namedGroup_writer =
   [@inline_let] let _ = lemma_synth_namedGroup_inj (); lemma_synth_namedGroup_inv () in

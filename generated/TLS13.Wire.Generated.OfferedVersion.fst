@@ -34,6 +34,9 @@ module LPITE = LowParse.PulseParse.IfThenElse
 
 #reset-options "--using_facts_from '* -FStar.Tactics -FStar.Reflection -Pulse -PulseCore' --z3rlimit 16 --z3cliopt smt.arith.nl=false --max_fuel 2 --max_ifuel 2"
 
+noextract inline_for_extraction let offeredVersion_enum_repr_of_key : LP.enum_repr_of_key'_t offeredVersion_enum =
+  _ by (LP.enum_repr_of_key_tac offeredVersion_enum)
+
 noextract let offeredVersion_repr_parser = LPI.parse_u16
 
 noextract let offeredVersion_repr_serializer = LPI.serialize_u16
@@ -109,7 +112,7 @@ let offeredVersion_reader =
  PPB.leaf_reader_of_reader (PPC.read_synth' (PPB.reader_of_leaf_reader read_maybe_offeredVersion_key) synth_offeredVersion synth_offeredVersion_inv)
 
 inline_for_extraction let write_maybe_offeredVersion_key : LPS.l2r_leaf_writer (serialize_maybe_offeredVersion_key) =
-  LPPS.l2r_leaf_write_maybe_enum_key offeredVersion_repr_writer offeredVersion_enum (_ by (LP.enum_repr_of_key_tac offeredVersion_enum))
+  LPPS.l2r_leaf_write_maybe_enum_key offeredVersion_repr_writer offeredVersion_enum offeredVersion_enum_repr_of_key
 
 let offeredVersion_writer =
   [@inline_let] let _ = lemma_synth_offeredVersion_inj (); lemma_synth_offeredVersion_inv () in

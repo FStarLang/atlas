@@ -53,6 +53,8 @@ let string_of_nameType = function
   ]))
   in e
 
+noextract inline_for_extraction val nameType_enum_repr_of_key : LP.enum_repr_of_key'_t nameType_enum
+
 inline_for_extraction noextract let nameType_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val nameType_parser: LP.parser nameType_parser_kind nameType

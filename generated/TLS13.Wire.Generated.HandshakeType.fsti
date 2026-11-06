@@ -88,6 +88,8 @@ let string_of_handshakeType = function
   ]))
   in e
 
+noextract inline_for_extraction val handshakeType_enum_repr_of_key : LP.enum_repr_of_key'_t handshakeType_enum
+
 inline_for_extraction noextract let handshakeType_parser_kind = LP.strong_parser_kind 1 1 None
 
 noextract val handshakeType_parser: LP.parser handshakeType_parser_kind handshakeType

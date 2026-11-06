@@ -64,6 +64,8 @@ let string_of_offeredVersion = function
   ]))
   in e
 
+noextract inline_for_extraction val offeredVersion_enum_repr_of_key : LP.enum_repr_of_key'_t offeredVersion_enum
+
 inline_for_extraction noextract let offeredVersion_parser_kind = LP.strong_parser_kind 2 2 (Some LP.ParserKindMetadataTotal)
 
 noextract val offeredVersion_parser: LP.parser offeredVersion_parser_kind offeredVersion
