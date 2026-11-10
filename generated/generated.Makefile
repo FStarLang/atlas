@@ -55,22 +55,19 @@ KRML = $(KRML_EXE) \
 	 $(HEADERS) \
 	 -warn-error '$(KRML_WARN)'
 
-ALL_KRML_FILES := $(filter-out krml/prims.krml,$(ALL_KRML_FILES))
+# Custard (F*'s whole-program extractor) emits one KaRaMeL JSON file holding
+# every generated module; every top-level definition is an extraction root.
+CUSTARD_BACKEND := KrmlC
+CUSTARD_ENTRY_MODULES := $(basename $(wildcard TLS13.Wire.Generated.*.fst))
+CUSTARD_ROOTS := TLS13.Wire.Generated.Handshake.fst
 
-extract: $(ALL_KRML_FILES) # from .depend
+extract: $(CUSTARD_KRML)
 	-@mkdir out
-	$(KRML) -skip-compilation $^
-
-test.exe: $(ALL_KRML_FILES) krml/Test.krml
-	-@mkdir out
-	$(KRML) $(LOWPARSE_HOME)/LowParse_TestLib_Low_c.c -no-prefix Test $^ -o test.exe
-
-test: test.exe
-	./test.exe
+	$(KRML) -skip-compilation $<
 
 depend: $(FSTAR_DEP_FILE)
 
 clean-local:
 	-rm -rf out cache cache.lax .depend .depend.lax krml
 
-.PHONY: all depend extract test clean-local
+.PHONY: all depend extract clean-local

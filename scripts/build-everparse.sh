@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Clone and build EverParse (QuackyDucky + LowParse + the F*/KaRaMeL toolchain it
-# vendors under opt/FStar) from the fork/branch used by this project.
+# Clone and build EverParse (QuackyDucky + LowParse + the ASN.1 library + the
+# F*/KaRaMeL toolchain it vendors under opt/FStar) from the fork/branch used by
+# this project.
 #
-# `make quackyducky` in the EverParse tree builds everything we need:
+# `make quackyducky asn1` in the EverParse tree builds everything we need:
 #   - the F* binary           at opt/FStar/out/bin/fstar.exe (symlinked opt/FStar/bin/fstar.exe)
 #   - the KaRaMeL binary       at opt/FStar/karamel/out/bin/krml (F*'s karamel submodule)
 #   - the QuackyDucky compiler at bin/everparse-qd.exe
 #   - the verified LowParse + LowParse.Pulse .checked libraries under lib/everparse/lowparse
+#   - the everparse-asn1 compiler at bin/everparse-asn1.exe, and the verified
+#     ASN.1 DER spec + Pulse library .checked files under lib/everparse/asn1
 #
 # The atlas Makefile consumes this toolchain via EVERPARSE_HOME (no separate
 # F* install is required).
@@ -17,7 +20,7 @@ EVERPARSE_BRANCH="${EVERPARSE_BRANCH:-master}"
 # Pinned EverParse commit this project is verified against.  The branch above is
 # only used as a fetch hint; the build always checks out this exact commit so the
 # toolchain is reproducible regardless of where the branch tip has moved.
-EVERPARSE_COMMIT="${EVERPARSE_COMMIT:-a991f5826f9ea13a5da272c51086585869218f59}"
+EVERPARSE_COMMIT="${EVERPARSE_COMMIT:-72608ae1af92ab6ae9a84fb45c82a4b6397d5562}"
 # F* revision to build EverParse with, overriding the FStar_hash EverParse pins
 # in opt/hashes.Makefile.  This is the commit of the F* nightly that hacl-pulse
 # (scripts/build-hacl-pulse.sh) is verified against (its .fstar-nightly), so
@@ -34,6 +37,7 @@ jobs="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 fstar_exe="$EVERPARSE_HOME/opt/FStar/out/bin/fstar.exe"
 krml_exe="$EVERPARSE_HOME/opt/FStar/karamel/out/bin/krml"
 qd_exe="$EVERPARSE_HOME/bin/everparse-qd.exe"
+asn1_exe="$EVERPARSE_HOME/bin/everparse-asn1.exe"
 
 for cmd in git make opam; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -43,7 +47,7 @@ for cmd in git make opam; do
 done
 
 if [ -d "$EVERPARSE_HOME/.git" ] &&
-   [ -x "$fstar_exe" ] && [ -x "$krml_exe" ] && [ -x "$qd_exe" ] &&
+   [ -x "$fstar_exe" ] && [ -x "$krml_exe" ] && [ -x "$qd_exe" ] && [ -x "$asn1_exe" ] &&
    [ "$(git -C "$EVERPARSE_HOME" rev-parse HEAD)" = "$EVERPARSE_COMMIT" ] &&
    [ "$(git -C "$EVERPARSE_HOME/opt/FStar" rev-parse HEAD 2>/dev/null)" = "$FSTAR_COMMIT" ]; then
   echo "EverParse toolchain already built at $EVERPARSE_COMMIT (F* $FSTAR_COMMIT) in $EVERPARSE_HOME"
@@ -87,11 +91,11 @@ if [ -d "$fstar_dir/.git" ] &&
   rm -f "$EVERPARSE_HOME/opt/FStar.done" "$EVERPARSE_HOME/opt/karamel.done"
 fi
 
-echo "Building EverParse (make quackyducky -j$jobs) — this also builds F* and KaRaMeL ..."
+echo "Building EverParse (make quackyducky asn1 -j$jobs) — this also builds F* and KaRaMeL ..."
 make -C "$EVERPARSE_HOME" -j"$jobs" deps
-ADMIT=1 make -C "$EVERPARSE_HOME" -j"$jobs" quackyducky
+ADMIT=1 make -C "$EVERPARSE_HOME" -j"$jobs" quackyducky asn1
 
-for f in "$fstar_exe" "$krml_exe" "$qd_exe"; do
+for f in "$fstar_exe" "$krml_exe" "$qd_exe" "$asn1_exe"; do
   if [ ! -x "$f" ]; then
     echo "EverParse build did not produce $f" >&2
     exit 1
@@ -102,3 +106,4 @@ echo "EverParse toolchain ready in $EVERPARSE_HOME"
 echo "  F*:          $fstar_exe"
 echo "  KaRaMeL:     $krml_exe"
 echo "  QuackyDucky: $qd_exe"
+echo "  ASN.1:       $asn1_exe"
