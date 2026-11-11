@@ -1,7 +1,7 @@
 module TLS13.Impl.X509.Names
 
 (** Verified server-name matching against a certificate's subjectAltName,
-    as a transcription of [TLS13.X509.Spec.subject_alt_name_ok]. *)
+    as a transcription of [TLS13.X509.Chain.subject_alt_name_ok]. *)
 
 #lang-pulse
 
@@ -17,7 +17,7 @@ module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U16 = FStar.UInt16
 module U8 = FStar.UInt8
-module X = TLS13.X509.Spec
+module X = TLS13.X509.Chain
 
 inline_for_extraction noextract unfold let ( +^ ) = SZ.add
 inline_for_extraction noextract unfold let ( -^ ) = SZ.sub
@@ -291,91 +291,17 @@ fn ipv4_address
 #pop-options
 
 fn ip_is
-  (c:array U8.t) (len:SZ.t) (s e:SZ.t) (ip:ip_v)
-  requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v s <= SZ.v e /\ SZ.v e <= SZ.v len)
+  (c:array U8.t) (len:SZ.t) (ip:ip_v)
+  requires pts_to c 'b ** pure (ok_len 'b len)
   returns r:bool
-  ensures pts_to c 'b ** pure (r == X.ip_is (cb 'b len) (SZ.v s) (SZ.v e) (to_ipv4 ip))
+  ensures pts_to c 'b ** pure (r == X.ip_is (cb 'b len) (to_ipv4 ip))
 {
-  if (e -^ s = 4sz) {
-    let b0 = byte_is c len s ip.a0;
-    let b1 = byte_is c len (s +^ 1sz) ip.a1;
-    let b2 = byte_is c len (s +^ 2sz) ip.a2;
-    let b3 = byte_is c len (s +^ 3sz) ip.a3;
+  if (len = 4sz) {
+    let b0 = byte_is c len 0sz ip.a0;
+    let b1 = byte_is c len 1sz ip.a1;
+    let b2 = byte_is c len 2sz ip.a2;
+    let b3 = byte_is c len 3sz ip.a3;
     (b0 && b1 && b2 && b3)
-  } else {
-    false
-  }
-}
-
-(** [X.general_names_match c pos limit h ip false = Some true]. *)
-#push-options "--z3rlimit 80"
-fn general_names_match
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  (h:array U8.t) (hlen:SZ.t) (ip:ip_v)
-  requires pts_to c 'b ** pts_to h 'hb ** pure (ok_len 'b len /\ ok_len 'hb hlen)
-  returns r:bool
-  ensures pts_to c 'b ** pts_to h 'hb **
-          pure (r == (X.general_names_match (cb 'b len) (SZ.v pos) (SZ.v limit)
-                        (cb 'hb hlen) (to_ip ip) false = Some true))
-{
-  if (SZ.gt pos limit) {
-    false
-  } else {
-    let mut p = pos;
-    let mut found = false;
-    let mut fail = false;
-    while (let vp = !p; SZ.lt vp limit)
-    invariant exists* (vp:SZ.t) (vfound:bool) (vfail:bool).
-      pts_to p vp ** pts_to found vfound ** pts_to fail vfail ** pts_to c 'b ** pts_to h 'hb **
-      pure (SZ.v vp <= SZ.v limit /\ (vfail ==> vp == limit) /\
-            X.general_names_match (cb 'b len) (SZ.v pos) (SZ.v limit) (cb 'hb hlen) (to_ip ip) false ==
-            (if vfail then None
-             else X.general_names_match (cb 'b len) (SZ.v vp) (SZ.v limit) (cb 'hb hlen)
-                    (to_ip ip) vfound))
-    decreases (SZ.v limit - SZ.v (!p))
-    {
-      let vp = !p;
-      let g = der_any c len vp limit;
-      if (g.ok) {
-        let tag = c.(vp);
-        let this =
-          if (ip.ip_ok) {
-            if (tag = 0x87uy) { ip_is c len g.lo g.hi ip } else { false }
-          } else {
-            if (tag = 0x82uy) { dns_matches c len g.lo g.hi h hlen } else { false }
-          };
-        let vf = !found;
-        found := (vf || this);
-        p := g.hi;
-      } else {
-        fail := true;
-        p := limit;
-      }
-    };
-    let vfail = !fail;
-    let vfound = !found;
-    (not vfail && vfound)
-  }
-}
-#pop-options
-
-fn subject_alt_name_ok
-  (c:array U8.t) (len:SZ.t) (xs xe:SZ.t)
-  (h:array U8.t) (hlen:SZ.t)
-  requires pts_to c 'b ** pts_to h 'hb ** pure (ok_len 'b len /\ ok_len 'hb hlen)
-  returns r:bool
-  ensures pts_to c 'b ** pts_to h 'hb **
-          pure (r == X.subject_alt_name_ok (cb 'b len) (SZ.v xs) (SZ.v xe) (cb 'hb hlen))
-{
-  let f = find_extension c len xs xe X.oid_subject_alt_name;
-  if (f.ok) {
-    let s = PK.der_tlv_impl c len 0x30uy f.lo f.hi;
-    if (s.ok && s.hi = f.hi && SZ.gt hlen 0sz) {
-      let ip = ipv4_address h hlen;
-      general_names_match c len s.lo s.hi h hlen ip
-    } else {
-      false
-    }
   } else {
     false
   }
