@@ -59,7 +59,7 @@ The network theorem currently exposes:
 The local theorem currently exposes:
 
 - readiness through `next_local_action_sound`;
-- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.PublicKey` against the DER spec `TLS13.Crypto.Spec.certificate_raw_public_key`), and the client driver's certificate-chain validation is verified Pulse code (`TLS13.Impl.X509.Validate`) proved sound against the transparent RFC 5280/6125 profile `TLS13.X509.Spec.validate_chain` over DER trust anchors;
+- explicit certificate-validation TCB assumptions; the CertificateVerify signature check is fully verified, including extraction of the leaf certificate's public key (`TLS13.Impl.X509.Key` against `TLS13.Crypto.Spec.certificate_raw_public_key`), and the client driver's certificate-chain validation is verified Pulse code (`TLS13.Impl.X509.Validate`) proved sound against the transparent RFC 5280/6125 profile `TLS13.X509.Spec.validate_chain` over DER trust anchors; certificates are parsed by the verified DER parser everparse-asn1 generates from the RFC 5280 profile `src/asn1/X509.asn`, over whose ASN.1 values both specifications are stated;
 - local app-send supported-profile projection: successful local app sends are bounded to one protected record;
 - outgoing record parse facts and protected seal/write-key projections for ClientFinished, app data, close_notify, and KeyUpdate.
 

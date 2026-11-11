@@ -165,11 +165,13 @@ let copyful_serverName_cases (k: LP.sum_key serverName_sum)
   | Host_name -> PPS.copyful_parse_sum_case serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch serverName_conv_of_tag Host_name
       read_hostName Name_host_name_low () ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let read_serverName_sum
   : PPB.copyful_parse (PPS.vmatch_sum serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch) serverName_parser (PPS.sum_conv serverName_sum serverName_mid_of_tag serverName_conv_of_tag) =
   assert_norm (LP.parse_sum_kind (LP.get_parser_kind nameType_repr_parser) serverName_sum parse_serverName_cases == serverName_parser_kind);
   PPS.copyful_parse_sum serverName_sum nameType_repr_reader nameType_repr_jumper parse_serverName_cases
     serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch serverName_conv_of_tag copyful_serverName_cases (_ by (LP.dep_enum_destr_tac ())) (_ by (LP.dep_maybe_enum_destr_t_tac ())) () ()
+#pop-options
 
 let serverName_coerce_vmatch_eq (xl: serverName_low) (m1: PPS.sum_mid serverName_sum serverName_mid_of_tag)
   : Lemma (PPS.vmatch_sum serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch xl m1 == serverName_vmatch xl (serverName_fg m1))
@@ -209,8 +211,10 @@ let free_serverName_cases (k: LP.sum_key serverName_sum)
   | Host_name -> PPS.free_sum_case serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch Host_name
       free_hostName (fun xl -> match xl with | Name_host_name_low v -> Some v | _ -> None) ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let free_serverName_sum : PPB.free_t (PPS.vmatch_sum serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch) =
   PPS.free_sum serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch free_serverName_cases (_ by (LP.dep_enum_destr_tac ()))
+#pop-options
 
 let serverName_free_vmatch_eq (xl: serverName_low) (m: serverName_mid)
   : Lemma (serverName_vmatch xl m == PPS.vmatch_sum serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch xl (serverName_gf m))
@@ -229,10 +233,12 @@ let write_serverName_cases (k: LP.sum_key serverName_sum)
   | Host_name -> PPS.l2r_safe_writer_sum_case serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch serverName_conv_of_tag Host_name
       write_hostName (fun xl -> match xl with | Name_host_name_low v -> Some v | _ -> None) ()
 
+#push-options "--max_fuel 8 --max_ifuel 8"
 let write_serverName_sum
   : PPB.l2r_safe_writer (PPS.vmatch_sum serverName_sum serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch) (LP.serialize_sum serverName_sum nameType_repr_serializer serialize_serverName_cases) (PPS.sum_conv serverName_sum serverName_mid_of_tag serverName_conv_of_tag) =
   PPS.l2r_safe_writer_sum serverName_sum nameType_repr_serializer write_nameType_key 1sz parse_serverName_cases serialize_serverName_cases
     serverName_low serverName_tag_of_low serverName_mid_of_tag serverName_casevmatch serverName_conv_of_tag write_serverName_cases (_ by (LP.dep_enum_destr_tac ())) ()
+#pop-options
 
 let serverName_write_conv_eq (m: serverName_mid)
   : Lemma (serverName_conv m == PPS.sum_conv serverName_sum serverName_mid_of_tag serverName_conv_of_tag (serverName_gf m))

@@ -1547,7 +1547,7 @@ noextract
 let server_connection_config
   (certificate_chain:B.bytes)
   (credential_identity:B.bytes)
-  : CS.connection_config =
+  : GTot CS.connection_config =
   {
     CS.config_role = CS.ServerEndpoint;
     CS.config_server_name = B.empty;
@@ -1580,7 +1580,7 @@ noextract
 let server_initial_state
   (certificate_chain:B.bytes)
   (credential_identity:B.bytes)
-  : CS.connection_state =
+  : GTot CS.connection_state =
   CS.initial (server_connection_config certificate_chain credential_identity)
 
 (** IMPLEMENTATION-level validity of a server configuration: the protocol-level

@@ -23,6 +23,10 @@ open Pulse.Lib.Array.PtsTo
 
 friend TLS13.Crypto.Spec
 
+(* The friend brings in the ASN.1 specifications of
+   [C.certificate_raw_public_key]; no proof here needs them. *)
+#set-options "--using_facts_from '* -ASN1 -LowParse -TLS13.X509 -TLS13.Wire.Generated.X509'"
+
 module A = Pulse.Lib.Array
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec

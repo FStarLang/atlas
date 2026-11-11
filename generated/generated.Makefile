@@ -13,8 +13,10 @@ LAX_EXT=
 LAX_OPT=
 endif
 
-INCLUDE_PATHS += $(LOWPARSE_HOME) ..
-ALREADY_CACHED := C,Spec.Loops,LowParse,
+ASN1_HOME ?= $(EVERPARSE_LIB_PATH)/asn1
+
+INCLUDE_PATHS += $(LOWPARSE_HOME) $(ASN1_HOME)/spec $(ASN1_HOME)/pulse ..
+ALREADY_CACHED := C,Spec.Loops,LowParse,ASN1,
 CACHE_DIRECTORY := cache$(LAX_EXT)
 OUTPUT_DIRECTORY := krml
 FSTAR_DEP_FILE := .depend$(LAX_EXT)
@@ -55,22 +57,22 @@ KRML = $(KRML_EXE) \
 	 $(HEADERS) \
 	 -warn-error '$(KRML_WARN)'
 
-ALL_KRML_FILES := $(filter-out krml/prims.krml,$(ALL_KRML_FILES))
+# Custard (F*'s whole-program extractor) emits one KaRaMeL JSON file holding
+# every generated wire module; every top-level definition is an extraction root.
+# The X.509 modules are left out: atlas extracts by reachability, and their
+# writers, which atlas never calls, are most of their code.
+CUSTARD_BACKEND := KrmlC
+CUSTARD_ENTRY_MODULES := $(filter-out TLS13.Wire.Generated.X509%,\
+  $(basename $(wildcard TLS13.Wire.Generated.*.fst)))
+CUSTARD_ROOTS := TLS13.Wire.Generated.Handshake.fst
 
-extract: $(ALL_KRML_FILES) # from .depend
+extract: $(CUSTARD_KRML)
 	-@mkdir out
-	$(KRML) -skip-compilation $^
-
-test.exe: $(ALL_KRML_FILES) krml/Test.krml
-	-@mkdir out
-	$(KRML) $(LOWPARSE_HOME)/LowParse_TestLib_Low_c.c -no-prefix Test $^ -o test.exe
-
-test: test.exe
-	./test.exe
+	$(KRML) -skip-compilation $<
 
 depend: $(FSTAR_DEP_FILE)
 
 clean-local:
 	-rm -rf out cache cache.lax .depend .depend.lax krml
 
-.PHONY: all depend extract test clean-local
+.PHONY: all depend extract clean-local

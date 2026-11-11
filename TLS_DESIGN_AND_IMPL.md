@@ -328,11 +328,20 @@ The public client API is buffer/event oriented:
   zero to the current time before entering verified code. Which roots are
   trusted is therefore configuration, not something the proofs constrain.
 - `TLS13.Impl.X509.Validate` implements `validate_chain` in Pulse and is proved
-  sound against it (`ok ==> accepted ...`): `Fields` (DER fields, times,
-  extensions), `Names` (dNSName/iPAddress matching), `Cert` (certificate
-  parsing and the per-certificate checks), and `Validate` (signatures via
-  hacl-pulse's RSA PKCS#1 v1.5 and P-256 ECDSA, anchor search, and
-  path building through the peer's intermediates).  The client driver
+  sound against it (`ok ==> accepted ...`). The specification
+  (`TLS13.X509.Chain`, with `validate_chain` stated by `TLS13.X509.Spec.Def`)
+  is written over the ASN.1 values of the RFC 5280 profile `src/asn1/X509.asn`,
+  and certificates are validated and parsed by the verified DER parser that
+  EverParse's everparse-asn1 generates from it
+  (`generated/TLS13.Wire.Generated.X509.Impl`). On top of it: `ASN1`, `Iter`
+  and `Rels` (relating the parsed values to their ASN.1 specifications),
+  `Exts` (extension lookup), `Values` (basicConstraints, keyUsage,
+  extKeyUsage, subjectAltName), `Fields` (times), `Names` (dNSName/iPAddress
+  matching), `Key` (SubjectPublicKeyInfo), `Check` (the per-certificate
+  checks, issuer-name matching and signatures via hacl-pulse's RSA PKCS#1 v1.5
+  and P-256/P-384 ECDSA over the certificate's DER `TBSCertificate`), and
+  `Validate` (anchor search and path building through the peer's
+  intermediates).  The client driver
   (`Driver.Core.driver_validate_certificate`) copies the received chain and
   the configured server name, trust anchors and validation time out of the
   connection state and discharges `local_input_wf` for

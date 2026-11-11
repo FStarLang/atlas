@@ -1,29 +1,34 @@
 module TLS13.Impl.X509.Validate
 
 (** Verified X.509 path validation: [validate] accepts only chains that
-    [TLS13.X509.Spec.validate_chain] accepts. *)
+    [TLS13.X509.Spec.validate_chain] accepts. Certificates are parsed by the
+    everparse-asn1 parser generated from [src/asn1/X509.asn] and checked by
+    [TLS13.Impl.X509.Check]. *)
 
 #lang-pulse
 
 open Pulse.Lib.Pervasives
 open Pulse.Lib.Array.PtsTo
 open TLS13.Impl.X509.Fields
-open TLS13.Impl.X509.Cert
 
 module A = Pulse.Lib.Array
 module B = TLS13.Bytes
 module C = TLS13.Crypto.Spec
 module CL = TLS13.ConnectionLog
-module Cr = TLS13.Crypto
+module Ck = TLS13.Impl.X509.Check
 module IM = TLS13.Impl.Messages
 module L = FStar.List.Tot
 module PK = TLS13.Impl.X509.PublicKey
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
+module U32 = FStar.UInt32
 module U64 = FStar.UInt64
 module U8 = FStar.UInt8
 module V = Pulse.Lib.Vec
-module X = TLS13.X509.Spec
+module X = TLS13.X509.Chain
+module XD = TLS13.X509.Spec.Def
+module XP = TLS13.X509.Profile
+module XS = TLS13.X509.Spec
 
 inline_for_extraction noextract unfold let ( +^ ) = SZ.add
 inline_for_extraction noextract unfold let ( -^ ) = SZ.sub
@@ -32,8 +37,7 @@ inline_for_extraction noextract unfold let ( -^ ) = SZ.sub
 
 let slice_cb (b:B.bytes) (len:SZ.t) (s e:nat)
   : Lemma (requires s <= e /\ e <= SZ.v len /\ SZ.v len <= B.length b)
-          (ensures X.sub (cb b len) s e == CL.raw_slice b s e /\
-                   Seq.slice (cb b len) s e == CL.raw_slice b s e)
+          (ensures Seq.slice (cb b len) s e == CL.raw_slice b s e)
   = Seq.lemma_eq_intro (Seq.slice (cb b len) s e) (CL.raw_slice b s e)
 
 let copied_cb (d s:B.bytes) (lo n:nat) (dlen:SZ.t)
@@ -48,211 +52,6 @@ let copied_slice (d s:B.bytes) (slen:SZ.t) (lo e:nat) (dlen:SZ.t)
                     SZ.v dlen <= B.length d)
           (ensures cb d dlen == Seq.slice (cb s slen) lo e)
   = slice_cb s slen lo e
-
-(** {2 Signatures} *)
-
-fn sha_with_rsa
-  (c:array U8.t) (len:SZ.t) (s e:SZ.t) (last:U8.t)
-  requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v s <= SZ.v e /\ SZ.v e <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.sha_with_rsa (cb 'b len) (SZ.v s) (SZ.v e) last)
-{
-  if (e -^ s = 13sz) {
-    let b0 = byte_is c len s 0x06uy;
-    let b1 = byte_is c len (s +^ 1sz) 0x09uy;
-    let b2 = byte_is c len (s +^ 2sz) 0x2Auy;
-    let b3 = byte_is c len (s +^ 3sz) 0x86uy;
-    let b4 = byte_is c len (s +^ 4sz) 0x48uy;
-    let b5 = byte_is c len (s +^ 5sz) 0x86uy;
-    let b6 = byte_is c len (s +^ 6sz) 0xF7uy;
-    let b7 = byte_is c len (s +^ 7sz) 0x0Duy;
-    let b8 = byte_is c len (s +^ 8sz) 0x01uy;
-    let b9 = byte_is c len (s +^ 9sz) 0x01uy;
-    let b10 = byte_is c len (s +^ 10sz) last;
-    let b11 = byte_is c len (s +^ 11sz) 0x05uy;
-    let b12 = byte_is c len (s +^ 12sz) 0x00uy;
-    (b0 && b1 && b2 && b3 && b4 && b5 && b6 && b7 && b8 && b9 && b10 && b11 && b12)
-  } else {
-    false
-  }
-}
-
-fn ecdsa_with_sha
-  (c:array U8.t) (len:SZ.t) (s e:SZ.t) (last:U8.t)
-  requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v s <= SZ.v e /\ SZ.v e <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.ecdsa_with_sha (cb 'b len) (SZ.v s) (SZ.v e) last)
-{
-  if (e -^ s = 10sz) {
-    let b0 = byte_is c len s 0x06uy;
-    let b1 = byte_is c len (s +^ 1sz) 0x08uy;
-    let b2 = byte_is c len (s +^ 2sz) 0x2Auy;
-    let b3 = byte_is c len (s +^ 3sz) 0x86uy;
-    let b4 = byte_is c len (s +^ 4sz) 0x48uy;
-    let b5 = byte_is c len (s +^ 5sz) 0xCEuy;
-    let b6 = byte_is c len (s +^ 6sz) 0x3Duy;
-    let b7 = byte_is c len (s +^ 7sz) 0x04uy;
-    let b8 = byte_is c len (s +^ 8sz) 0x03uy;
-    let b9 = byte_is c len (s +^ 9sz) last;
-    (b0 && b1 && b2 && b3 && b4 && b5 && b6 && b7 && b8 && b9)
-  } else {
-    false
-  }
-}
-
-inline_for_extraction noextract
-let key_cap : SZ.t = 1024sz
-
-(** What [signed_by] needs to conclude from the key and the verifier. *)
-let signed_by_rsa (child:B.bytes) (pc:X.parsed_certificate) (issuer n e:B.bytes)
-  (h:C.pkcs1_hash) (last:U8.t)
-  : Lemma (requires C.certificate_raw_public_key issuer == Some (C.RawRsa n e) /\
-                    X.sha_with_rsa child pc.X.sig_alg_s pc.X.sig_alg_e last /\
-                    ((last == 0x0Buy /\ h == C.Pkcs1Sha256) \/
-                     (last == 0x0Cuy /\ h == C.Pkcs1Sha384 /\
-                      not (X.sha_with_rsa child pc.X.sig_alg_s pc.X.sig_alg_e 0x0Buy)) \/
-                     (last == 0x0Duy /\ h == C.Pkcs1Sha512 /\
-                      not (X.sha_with_rsa child pc.X.sig_alg_s pc.X.sig_alg_e 0x0Buy) /\
-                      not (X.sha_with_rsa child pc.X.sig_alg_s pc.X.sig_alg_e 0x0Cuy))) /\
-                    C.rsa_pkcs1_verify h n e (X.sub child pc.X.tbs_s pc.X.tbs_e)
-                      (X.sub child pc.X.sig_s pc.X.sig_e))
-          (ensures X.signed_by child pc issuer)
-  = ()
-
-let signed_by_p256 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes)
-  (h384:bool)
-  : Lemma (requires C.certificate_raw_public_key issuer == Some (C.RawP256 q) /\
-                    (if h384
-                     then not (X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
-                          X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x03uy
-                     else X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
-                    Cr.p256_verify h384 q (X.sub child pc.X.tbs_s pc.X.tbs_e)
-                      (X.sub child pc.X.sig_s pc.X.sig_e))
-          (ensures X.signed_by child pc issuer)
-  = ()
-
-let signed_by_p384 (child:B.bytes) (pc:X.parsed_certificate) (issuer q:B.bytes) (h384:bool)
-  : Lemma (requires C.certificate_raw_public_key issuer == Some (C.RawP384 q) /\
-                    (if h384
-                     then not (X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
-                          X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x03uy
-                     else X.ecdsa_with_sha child pc.X.sig_alg_s pc.X.sig_alg_e 0x02uy) /\
-                    Cr.p384_verify h384 q (X.sub child pc.X.tbs_s pc.X.tbs_e)
-                      (X.sub child pc.X.sig_s pc.X.sig_e))
-          (ensures X.signed_by child pc issuer)
-  = ()
-
-#push-options "--z3rlimit 120"
-fn signed_by
-  (child:array U8.t) (clen:SZ.t) (r:pcert)
-  (issuer:array U8.t) (ilen:SZ.t)
-  requires pts_to child 'b ** pts_to issuer 'ib **
-           pure (ok_len 'b clen /\ pc_ok r (cb 'b clen) /\ ok_len 'ib ilen)
-  returns ok:bool
-  ensures pts_to child 'b ** pts_to issuer 'ib **
-          pure (ok ==> X.signed_by (cb 'b clen) (to_pc r) (cb 'ib ilen))
-{
-  A.pts_to_len child;
-  let tbs_n = r.tbs_e -^ r.tbs_s;
-  let sig_n = r.sig_e -^ r.sig_s;
-  slice_cb 'b clen (SZ.v r.tbs_s) (SZ.v r.tbs_e);
-  slice_cb 'b clen (SZ.v r.sig_s) (SZ.v r.sig_e);
-  let tv = V.alloc 0uy PK.max_certificate_len;
-  let sv = V.alloc 0uy PK.max_certificate_len;
-  let kv = V.alloc 0uy key_cap;
-  let ev = V.alloc 0uy key_cap;
-  let lv = V.alloc 0sz 2sz;
-  V.to_array_pts_to tv;
-  V.to_array_pts_to sv;
-  V.to_array_pts_to kv;
-  V.to_array_pts_to ev;
-  V.to_array_pts_to lv;
-  PK.copy_range child r.tbs_s tbs_n (V.vec_to_array tv) PK.max_certificate_len;
-  PK.copy_range child r.sig_s sig_n (V.vec_to_array sv) PK.max_certificate_len;
-  with tb. assert (pts_to (V.vec_to_array tv) tb);
-  with sb. assert (pts_to (V.vec_to_array sv) sb);
-  let kind =
-    PK.certificate_raw_public_key issuer ilen
-      (V.vec_to_array kv) key_cap (V.vec_to_array ev) key_cap (V.vec_to_array lv);
-  with kb eb ls.
-    assert (pts_to (V.vec_to_array kv) kb ** pts_to (V.vec_to_array ev) eb **
-            pts_to (V.vec_to_array lv) ls);
-  let kl = (V.vec_to_array lv).(0sz);
-  let el = (V.vec_to_array lv).(1sz);
-  let ok =
-    if (kind = 1uy) {
-      let a11 = sha_with_rsa child clen r.sig_alg_s r.sig_alg_e 0x0Buy;
-      let a12 = sha_with_rsa child clen r.sig_alg_s r.sig_alg_e 0x0Cuy;
-      let a13 = sha_with_rsa child clen r.sig_alg_s r.sig_alg_e 0x0Duy;
-      if (a11 || a12 || a13) {
-        let h = (if a11 then C.Pkcs1Sha256 else if a12 then C.Pkcs1Sha384 else C.Pkcs1Sha512);
-        let v =
-          Cr.verify_rsa_pkcs1 h
-            (V.vec_to_array kv) kl (V.vec_to_array ev) el
-            (V.vec_to_array tv) tbs_n (V.vec_to_array sv) sig_n;
-        if (v) {
-          signed_by_rsa (cb 'b clen) (to_pc r) (cb 'ib ilen)
-            (CL.raw_slice kb 0 (SZ.v kl)) (CL.raw_slice eb 0 (SZ.v el)) h
-            (if a11 then 0x0Buy else if a12 then 0x0Cuy else 0x0Duy);
-          true
-        } else {
-          false
-        }
-      } else {
-        false
-      }
-    } else if (kind = 2uy) {
-      let e256 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x02uy;
-      let e384 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x03uy;
-      if (e256 || e384) {
-        let h384 = not e256;
-        let v =
-          Cr.verify_ecdsa_secp256r1 h384
-            (V.vec_to_array kv) kl (V.vec_to_array tv) tbs_n (V.vec_to_array sv) sig_n;
-        if (v) {
-          signed_by_p256 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl))
-            h384;
-          true
-        } else {
-          false
-        }
-      } else {
-        false
-      }
-    } else if (kind = 3uy) {
-      let e256 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x02uy;
-      let e384 = ecdsa_with_sha child clen r.sig_alg_s r.sig_alg_e 0x03uy;
-      if (e256 || e384) {
-        let h384 = not e256;
-        let v =
-          Cr.verify_ecdsa_secp384r1 h384
-            (V.vec_to_array kv) kl (V.vec_to_array tv) tbs_n (V.vec_to_array sv) sig_n;
-        if (v) {
-          signed_by_p384 (cb 'b clen) (to_pc r) (cb 'ib ilen) (CL.raw_slice kb 0 (SZ.v kl))
-            h384;
-          true
-        } else {
-          false
-        }
-      } else {
-        false
-      }
-    } else {
-      false
-    };
-  V.to_vec_pts_to tv;
-  V.to_vec_pts_to sv;
-  V.to_vec_pts_to kv;
-  V.to_vec_pts_to ev;
-  V.to_vec_pts_to lv;
-  V.free tv;
-  V.free sv;
-  V.free kv;
-  V.free ev;
-  V.free lv;
-  ok
-}
-#pop-options
 
 (** {2 Trust anchors} *)
 
@@ -326,23 +125,26 @@ fn is_anchor
 }
 #pop-options
 
-let anchored_step (a:B.bytes) (pos:nat) (child:B.bytes) (pc:X.parsed_certificate)
-  (e:nat) (anc:B.bytes)
+(** [X.anchored] of the certificate [o], if it parses. *)
+let anchored_opt (a:B.bytes) (pos:nat) (o:option XP.certificate) : GTot bool =
+  match o with
+  | Some v -> X.anchored a pos v
+  | None -> false
+
+let anchored_step (a:B.bytes) (pos:nat) (o:option XP.certificate) (e:nat) (anc:B.bytes)
   : Lemma (requires pos < B.length a /\
                     (match C.der_tlv a 0x30uy pos (B.length a) with
                      | Some (_, e') -> e' == e
                      | None -> False) /\
                     anc == Seq.slice a pos e)
-          (ensures (X.anchor_issues anc child pc ==> X.anchored a pos child pc) /\
-                   (X.anchored a e child pc ==> X.anchored a pos child pc))
+          (ensures ((match o with Some v -> X.anchor_issues anc v | None -> false) ==>
+                    anchored_opt a pos o) /\
+                   (anchored_opt a e o ==> anchored_opt a pos o))
   = ()
 
-let anchor_issues_intro (anc child:B.bytes) (pc:X.parsed_certificate) (pa:X.parsed_certificate)
-  : Lemma (requires X.parse_certificate anc == Some pa /\
-                    X.range_eq anc pa.X.fields.X.subject_s pa.X.fields.X.subject_e
-                      child pc.X.fields.X.issuer_s pc.X.fields.X.issuer_e /\
-                    X.signed_by child pc anc)
-          (ensures X.anchor_issues anc child pc)
+let anchor_issues_intro (anc:B.bytes) (o:option XP.certificate) (d:B.bytes) (n:SZ.t)
+  : Lemma (requires Ck.names_spec o (Ck.cert_at d n) /\ Ck.signed_spec o (cb d n) /\ cb d n == anc)
+          (ensures (match o with Some v -> X.anchor_issues anc v | None -> false))
   = ()
 
 let tlv_bounds (r:PK.der_range) (c:B.bytes) (tag:U8.t) (pos limit:nat)
@@ -361,12 +163,12 @@ let sz_sub_add (a b:SZ.t)
 #push-options "--z3rlimit 100"
 fn anchored
   (a:array U8.t) (alen:SZ.t)
-  (c:array U8.t) (len:SZ.t) (r:pcert)
+  (c:array U8.t) (len:SZ.t)
   requires pts_to a 'ab ** pts_to c 'b **
-           pure (a_ok 'ab alen /\ ok_len 'b len /\ pc_ok r (cb 'b len))
+           pure (a_ok 'ab alen /\ ok_len 'b len)
   returns ok:bool
   ensures pts_to a 'ab ** pts_to c 'b **
-          pure (ok ==> X.anchored (cb 'ab alen) 0 (cb 'b len) (to_pc r))
+          pure (ok ==> anchored_opt (cb 'ab alen) 0 (Ck.cert_at 'b len))
 {
   A.pts_to_len a;
   let av = V.alloc 0uy PK.max_certificate_len;
@@ -378,9 +180,9 @@ fn anchored
     pts_to p vp ** pts_to found vfound ** pts_to a 'ab ** pts_to c 'b **
     pts_to (V.vec_to_array av) d **
     pure (SZ.v vp <= SZ.v alen /\ B.length d == SZ.v PK.max_certificate_len /\
-          (vfound ==> X.anchored (cb 'ab alen) 0 (cb 'b len) (to_pc r)) /\
-          (X.anchored (cb 'ab alen) (SZ.v vp) (cb 'b len) (to_pc r) ==>
-           X.anchored (cb 'ab alen) 0 (cb 'b len) (to_pc r)))
+          (vfound ==> anchored_opt (cb 'ab alen) 0 (Ck.cert_at 'b len)) /\
+          (anchored_opt (cb 'ab alen) (SZ.v vp) (Ck.cert_at 'b len) ==>
+           anchored_opt (cb 'ab alen) 0 (Ck.cert_at 'b len)))
   decreases (SZ.v alen - SZ.v (!p))
   {
     let vp = !p;
@@ -390,21 +192,19 @@ fn anchored
       let n = t.hi -^ vp;
       sz_sub_add vp t.hi;
       if (SZ.gt n PK.max_certificate_len) {
-        anchored_step (cb 'ab alen) (SZ.v vp) (cb 'b len) (to_pc r) (SZ.v t.hi)
+        anchored_step (cb 'ab alen) (SZ.v vp) (Ck.cert_at 'b len) (SZ.v t.hi)
           (Seq.slice (cb 'ab alen) (SZ.v vp) (SZ.v t.hi));
         p := t.hi;
       } else {
-      PK.copy_range a vp n (V.vec_to_array av) PK.max_certificate_len;
-      with d. assert (pts_to (V.vec_to_array av) d);
-      copied_slice d 'ab alen (SZ.v vp) (SZ.v t.hi) n;
-      anchored_step (cb 'ab alen) (SZ.v vp) (cb 'b len) (to_pc r) (SZ.v t.hi) (cb d n);
-      let pa = parse_certificate (V.vec_to_array av) n;
-      if (pa.pc_ok) {
-        let nm = range_eq2 (V.vec_to_array av) n pa.subject_s pa.subject_e c len r.issuer_s r.issuer_e;
+        PK.copy_range a vp n (V.vec_to_array av) PK.max_certificate_len;
+        with d. assert (pts_to (V.vec_to_array av) d);
+        copied_slice d 'ab alen (SZ.v vp) (SZ.v t.hi) n;
+        anchored_step (cb 'ab alen) (SZ.v vp) (Ck.cert_at 'b len) (SZ.v t.hi) (cb d n);
+        let nm = Ck.names_check c len (V.vec_to_array av) n;
         if (nm) {
-          let sg = signed_by c len r (V.vec_to_array av) n;
+          let sg = Ck.signed_check c len (V.vec_to_array av) n;
           if (sg) {
-            anchor_issues_intro (cb d n) (cb 'b len) (to_pc r) (to_pc pa);
+            anchor_issues_intro (cb d n) (Ck.cert_at 'b len) d n;
             found := true;
             p := alen;
           } else {
@@ -413,9 +213,6 @@ fn anchored
         } else {
           p := t.hi;
         }
-      } else {
-        p := t.hi;
-      }
       }
     } else {
       p := alen;
@@ -467,38 +264,47 @@ let rec chain_index (sb:B.bytes) (sl:nat) (ofs ls:Seq.seq SZ.t) (count:nat) (cha
       chain_index sb sl (Seq.slice ofs 1 (Seq.length ofs)) (Seq.slice ls 1 (Seq.length ls))
         (count - 1) rest (i - 1)
 
-let chains_anchored (a:B.bytes) (t:nat) (child:B.bytes) (depth:nat) (rest:X.cert_chain)
-  (pc:X.parsed_certificate)
-  : Lemma (requires X.parse_certificate child == Some pc /\ X.anchored a 0 child pc)
-          (ensures X.chains a t child depth rest)
+(** [X.chains] of the certificate [c], if it parses. *)
+let chains_opt (a:B.bytes) (t:nat) (c:B.bytes) (depth:nat) (rest:list B.bytes) : GTot bool =
+  match X.parse_certificate c with
+  | Some v -> X.chains a t v depth rest
+  | None -> false
+
+let chains_anchored (a:B.bytes) (t:nat) (d:B.bytes) (l:SZ.t) (depth:nat) (rest:list B.bytes)
+  : Lemma (requires anchored_opt a 0 (Ck.cert_at d l))
+          (ensures chains_opt a t (cb d l) depth rest)
   = ()
 
-let chains_step (a:B.bytes) (t:nat) (child:B.bytes) (depth:nat) (next:B.bytes)
-  (rest:X.cert_chain) (pc pn:X.parsed_certificate)
-  : Lemma (requires X.parse_certificate child == Some pc /\ X.parse_certificate next == Some pn /\
-                    X.path_certificate_ok next pn t /\ X.issuer_ok next pn depth /\
-                    X.range_eq child pc.X.fields.X.issuer_s pc.X.fields.X.issuer_e
-                      next pn.X.fields.X.subject_s pn.X.fields.X.subject_e /\
-                    X.signed_by child pc next)
-          (ensures X.chains a t next (depth + 1) rest ==> X.chains a t child depth (next :: rest))
+let chains_step (a:B.bytes) (t:nat) (dc:B.bytes) (l:SZ.t) (depth:nat) (dn:B.bytes) (l2:SZ.t)
+  (rest:list B.bytes) (hb:B.bytes)
+  : Lemma (requires Ck.cert_ok_spec (Ck.cert_at dn l2) t false hb true depth /\
+                    Ck.names_spec (Ck.cert_at dc l) (Ck.cert_at dn l2) /\
+                    Ck.signed_spec (Ck.cert_at dc l) (cb dn l2))
+          (ensures chains_opt a t (cb dn l2) (depth + 1) rest ==>
+                   chains_opt a t (cb dc l) depth (cb dn l2 :: rest))
   = ()
+
+let below_eq (vk:SZ.t)
+  : Lemma (requires SZ.v vk < 0xFFFF) (ensures U32.v (SZ.sizet_to_uint32 vk) == SZ.v vk)
+  = assert_norm (pow2 32 == 0x100000000);
+    FStar.Math.Lemmas.small_mod (SZ.v vk) (pow2 32)
 
 let chain_ok (sb:B.bytes) (sl:nat) (ofs ls:Seq.seq SZ.t) (count:nat) (chain:list B.bytes) : prop =
   IM.certificate_chain_matches sb sl ofs ls count chain /\
   0 < count /\ sl <= SZ.v PK.max_certificate_len
 
 let goal (a:B.bytes) (t:nat) (chain:list B.bytes{Cons? chain}) : GTot bool =
-  X.chains a t (L.hd chain) 0 (L.tl chain)
+  chains_opt a t (L.hd chain) 0 (L.tl chain)
 
 #push-options "--z3rlimit 200 --fuel 1 --ifuel 1"
 fn chains_from_leaf
   (st:array U8.t) (st_len:SZ.t) (offsets lens:array SZ.t) (count:SZ.t)
-  (a:array U8.t) (alen:SZ.t) (t:U64.t)
+  (a:array U8.t) (alen:SZ.t) (h:array U8.t) (hlen:SZ.t) (t:U64.t)
   (#chain:erased (list B.bytes))
-  requires pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab **
-           pure (chain_ok 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain /\ a_ok 'ab alen)
+  requires pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab ** pts_to h 'hb **
+           pure (chain_ok 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain /\ a_ok 'ab alen /\ ok_len 'hb hlen)
   returns ok:bool
-  ensures pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab **
+  ensures pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab ** pts_to h 'hb **
           pure (Cons? chain /\ (ok ==> goal (cb 'ab alen) (U64.v t) chain))
 {
   chain_length 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain;
@@ -513,13 +319,13 @@ fn chains_from_leaf
   invariant exists* (vk:SZ.t) (vsucc:bool) (dc dn:B.bytes).
     pts_to k vk ** pts_to succ vsucc **
     pts_to (V.vec_to_array cv) dc ** pts_to (V.vec_to_array nv) dn **
-    pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab **
+    pts_to st 'sb ** pts_to offsets 'ofs ** pts_to lens 'ls ** pts_to a 'ab ** pts_to h 'hb **
     pure (SZ.v vk <= SZ.v count /\
           B.length dc == SZ.v PK.max_certificate_len /\
           B.length dn == SZ.v PK.max_certificate_len /\
           (vsucc ==> goal (cb 'ab alen) (U64.v t) chain) /\
           (SZ.v vk < SZ.v count ==>
-            X.chains (cb 'ab alen) (U64.v t) (L.index chain (SZ.v vk)) (SZ.v vk)
+            chains_opt (cb 'ab alen) (U64.v t) (L.index chain (SZ.v vk)) (SZ.v vk)
               (skip (SZ.v vk + 1) chain) ==>
             goal (cb 'ab alen) (U64.v t) chain))
   decreases (SZ.v count - SZ.v (!k))
@@ -531,40 +337,28 @@ fn chains_from_leaf
     PK.copy_range st o l (V.vec_to_array cv) PK.max_certificate_len;
     with dc. assert (pts_to (V.vec_to_array cv) dc);
     copied_cb dc 'sb (SZ.v o) (SZ.v l) l;
-    let pc = parse_certificate (V.vec_to_array cv) l;
-    if (pc.pc_ok) {
-      let an = anchored a alen (V.vec_to_array cv) l pc;
-      if (an) {
-        chains_anchored (cb 'ab alen) (U64.v t) (cb dc l) (SZ.v vk) (skip (SZ.v vk + 1) chain)
-          (to_pc pc);
-        succ := true;
-        k := count;
-      } else if (SZ.lt (vk +^ 1sz) count) {
-        chain_index 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain (SZ.v vk + 1);
-        skip_cons (SZ.v vk + 1) chain;
-        let o2 = offsets.(vk +^ 1sz);
-        let l2 = lens.(vk +^ 1sz);
-        PK.copy_range st o2 l2 (V.vec_to_array nv) PK.max_certificate_len;
-        with dn. assert (pts_to (V.vec_to_array nv) dn);
-        copied_cb dn 'sb (SZ.v o2) (SZ.v l2) l2;
-        let pn = parse_certificate (V.vec_to_array nv) l2;
-        if (pn.pc_ok) {
-          let p = path_certificate_ok (V.vec_to_array nv) l2 pn t;
-          let io = issuer_ok (V.vec_to_array nv) l2 pn vk;
-          let nm =
-            range_eq2 (V.vec_to_array cv) l pc.issuer_s pc.issuer_e
-              (V.vec_to_array nv) l2 pn.subject_s pn.subject_e;
-          let sg = signed_by (V.vec_to_array cv) l pc (V.vec_to_array nv) l2;
-          if (p && io && nm && sg) {
-            chains_step (cb 'ab alen) (U64.v t) (cb dc l) (SZ.v vk) (cb dn l2)
-              (skip (SZ.v vk + 2) chain) (to_pc pc) (to_pc pn);
-            k := vk +^ 1sz;
-          } else {
-            k := count;
-          }
-        } else {
-          k := count;
-        }
+    let an = anchored a alen (V.vec_to_array cv) l;
+    if (an) {
+      chains_anchored (cb 'ab alen) (U64.v t) dc l (SZ.v vk) (skip (SZ.v vk + 1) chain);
+      succ := true;
+      k := count;
+    } else if (SZ.lt (vk +^ 1sz) count && SZ.lt vk 0xFFFFsz) {
+      chain_index 'sb (SZ.v st_len) 'ofs 'ls (SZ.v count) chain (SZ.v vk + 1);
+      skip_cons (SZ.v vk + 1) chain;
+      let o2 = offsets.(vk +^ 1sz);
+      let l2 = lens.(vk +^ 1sz);
+      PK.copy_range st o2 l2 (V.vec_to_array nv) PK.max_certificate_len;
+      with dn. assert (pts_to (V.vec_to_array nv) dn);
+      copied_cb dn 'sb (SZ.v o2) (SZ.v l2) l2;
+      let below = SZ.sizet_to_uint32 vk;
+      below_eq vk;
+      let p = Ck.cert_check (V.vec_to_array nv) l2 t false h hlen true below;
+      let nm = Ck.names_check (V.vec_to_array cv) l (V.vec_to_array nv) l2;
+      let sg = Ck.signed_check (V.vec_to_array cv) l (V.vec_to_array nv) l2;
+      if (p && nm && sg) {
+        chains_step (cb 'ab alen) (U64.v t) dc l (SZ.v vk) dn l2
+          (skip (SZ.v vk + 2) chain) (cb 'hb hlen);
+        k := vk +^ 1sz;
       } else {
         k := count;
       }
@@ -584,21 +378,18 @@ fn chains_from_leaf
 
 let accepted (hostname:B.bytes) (t:nat) (anchors:B.bytes) (chain:list B.bytes) : prop =
   Cons? chain /\
-  X.validate_chain hostname ({ X.seconds_since_epoch = t }) ({ X.anchors = anchors }) chain ==
-  Some ({ X.validated_hostname = hostname;
-          X.leaf_public_key = L.hd chain;
-          X.permitted_signature_schemes = [] })
+  XS.validate_chain hostname ({ XS.seconds_since_epoch = t }) ({ XS.anchors = anchors }) chain ==
+  Some ({ XS.validated_hostname = hostname;
+          XS.leaf_public_key = L.hd chain;
+          XS.permitted_signature_schemes = [] })
 
 let validate_chain_intro (hostname:B.bytes) (t:nat) (a:B.bytes) (chain:list B.bytes)
-  (pl:X.parsed_certificate)
-  : Lemma (requires Cons? chain /\ X.anchors_wf a 0 /\
-                    X.parse_certificate (L.hd chain) == Some pl /\
-                    X.path_certificate_ok (L.hd chain) pl t /\
-                    X.leaf_ok (L.hd chain) pl hostname /\
-                    (X.is_anchor (L.hd chain) a 0 || X.chains a t (L.hd chain) 0 (L.tl chain)))
+  (d:B.bytes) (l:SZ.t)
+  : Lemma (requires Cons? chain /\ X.anchors_wf a 0 /\ cb d l == L.hd chain /\
+                    Ck.cert_ok_spec (Ck.cert_at d l) t true hostname false 0 /\
+                    (X.is_anchor (L.hd chain) a 0 || goal a t chain))
           (ensures accepted hostname t a chain)
-  = reveal_opaque (`%X.validate_chain)
-      (X.validate_chain hostname ({ X.seconds_since_epoch = t }) ({ X.anchors = a }) chain)
+  = XD.validate_chain_def hostname ({ XS.seconds_since_epoch = t }) ({ XS.anchors = a }) chain
 
 #push-options "--z3rlimit 120"
 fn validate
@@ -633,27 +424,21 @@ fn validate
       PK.copy_range st o l (V.vec_to_array lv) PK.max_certificate_len;
       with d. assert (pts_to (V.vec_to_array lv) d);
       copied_cb d 'sb (SZ.v o) (SZ.v l) l;
-      let pl = parse_certificate (V.vec_to_array lv) l;
+      let pl = Ck.cert_check (V.vec_to_array lv) l t true h hlen false 0ul;
       let ok =
-        if (pl.pc_ok) {
-          let p = path_certificate_ok (V.vec_to_array lv) l pl t;
-          let lf = leaf_ok (V.vec_to_array lv) l pl h hlen;
-          if (p && lf) {
-            let ia = is_anchor (V.vec_to_array lv) l a alen;
-            if (ia) {
-              validate_chain_intro (cb 'hb hlen) (U64.v t) (cb 'ab alen) chain (to_pc pl);
+        if (pl) {
+          let ia = is_anchor (V.vec_to_array lv) l a alen;
+          if (ia) {
+            validate_chain_intro (cb 'hb hlen) (U64.v t) (cb 'ab alen) chain d l;
+            true
+          } else {
+            let ch = chains_from_leaf st st_len offsets lens count a alen h hlen t #chain;
+            if (ch) {
+              validate_chain_intro (cb 'hb hlen) (U64.v t) (cb 'ab alen) chain d l;
               true
             } else {
-              let ch = chains_from_leaf st st_len offsets lens count a alen t #chain;
-              if (ch) {
-                validate_chain_intro (cb 'hb hlen) (U64.v t) (cb 'ab alen) chain (to_pc pl);
-                true
-              } else {
-                false
-              }
+              false
             }
-          } else {
-            false
           }
         } else {
           false

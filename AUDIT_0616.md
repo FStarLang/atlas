@@ -421,7 +421,10 @@ Sign-off questions:
 
 ## Certificate and signature TCB audit
 
-Pure spec file: `src/spec/assumptions/TLS13.X509.Spec.fsti`.
+Pure spec file: `src/spec/assumptions/TLS13.X509.Spec.fsti`, defined (via
+`TLS13.X509.Spec.Def`) by `src/spec/assumptions/TLS13.X509.Chain.fst` over the
+ASN.1 values of the RFC 5280 profile `src/asn1/X509.asn`
+(`TLS13.X509.Profile`).
 
 Pulse/OpenSSL boundary: `src/impl/extern/TLS13.OpenSSL.fsti`.
 

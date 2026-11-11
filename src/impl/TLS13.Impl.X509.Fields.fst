@@ -1,9 +1,8 @@
 module TLS13.Impl.X509.Fields
 
-(** Verified parsing of the certificate fields path validation reads, as a
-    transcription of [TLS13.X509.Spec]: every function returns exactly what
-    its namesake there does on [cb 'b len], the first [len] bytes of its
-    buffer. *)
+(** Byte-level helpers for path validation, as transcriptions of
+    [TLS13.X509.Chain]: every function returns exactly what its namesake
+    there does on [cb 'b len], the first [len] bytes of its buffer. *)
 
 #lang-pulse
 
@@ -20,7 +19,7 @@ module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U64 = FStar.UInt64
 module U8 = FStar.UInt8
-module X = TLS13.X509.Spec
+module X = TLS13.X509.Chain
 
 inline_for_extraction noextract unfold let ( +^ ) = SZ.add
 inline_for_extraction noextract unfold let ( -^ ) = SZ.sub
@@ -138,25 +137,6 @@ fn range_eq2
   }
 }
 
-let der_any_matches (r:PK.der_range) (c:B.bytes) (pos limit:nat) : prop =
-  match X.der_any c pos limit with
-  | Some (lo, hi) -> r.ok == true /\ SZ.v r.lo == lo /\ SZ.v r.hi == hi
-  | None -> r.ok == false
-
-fn der_any
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:PK.der_range
-  ensures pts_to c 'b ** pure (der_any_matches r (cb 'b len) (SZ.v pos) (SZ.v limit))
-{
-  if (SZ.lt pos limit && SZ.lte limit len) {
-    let tag = c.(pos);
-    PK.der_tlv_impl c len tag pos limit
-  } else {
-    PK.no_range
-  }
-}
-
 (** {2 Time} *)
 
 fn all_digits
@@ -268,537 +248,64 @@ let instant64 (y m dd h mi s:U64.t)
     else { t_ok = false; t_val = 0UL }
 #pop-options
 
-type time_range = {
-  tr_ok: bool;
-  tr_val: U64.t;
-  tr_end: SZ.t;
-}
 
-let time_matches (r:time_range) (c:B.bytes) (pos limit:nat) : prop =
-  match X.parse_time c pos limit with
-  | Some (t, e) -> r.tr_ok == true /\ U64.v r.tr_val == t /\ SZ.v r.tr_end == e
-  | None -> r.tr_ok == false
-
-inline_for_extraction noextract
-let no_time : time_range = { tr_ok = false; tr_val = 0UL; tr_end = 0sz }
-
-#push-options "--z3rlimit 80"
-fn parse_time
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:time_range
-  ensures pts_to c 'b ** pure (time_matches r (cb 'b len) (SZ.v pos) (SZ.v limit))
-{
-  let u = PK.der_tlv_impl c len 0x17uy pos limit;
-  if (u.ok) {
-    let s = u.lo;
-    let e = u.hi;
-    if (e = s +^ 13sz) {
-      let d = all_digits c len s (s +^ 12sz);
-      let z = byte_is c len (s +^ 12sz) 0x5Auy;
-      if (d && z) {
-        let yy = dec2 c len s;
-        let y = if U64.lt yy 50UL then U64.add 2000UL yy else U64.add 1900UL yy;
-        let mo = dec2 c len (s +^ 2sz);
-        let dd = dec2 c len (s +^ 4sz);
-        let h = dec2 c len (s +^ 6sz);
-        let mi = dec2 c len (s +^ 8sz);
-        let sec = dec2 c len (s +^ 10sz);
-        let t = instant64 y mo dd h mi sec;
-        if (t.t_ok) {
-          ({ tr_ok = true; tr_val = t.t_val; tr_end = e })
-        } else {
-          no_time
-        }
-      } else {
-        no_time
-      }
-    } else {
-      no_time
-    }
-  } else {
-    let g = PK.der_tlv_impl c len 0x18uy pos limit;
-    if (g.ok) {
-      let s = g.lo;
-      let e = g.hi;
-      if (e = s +^ 15sz) {
-        let d = all_digits c len s (s +^ 14sz);
-        let z = byte_is c len (s +^ 14sz) 0x5Auy;
-        if (d && z) {
-          let y1 = dec2 c len s;
-          let y2 = dec2 c len (s +^ 2sz);
-          let y = U64.add (U64.mul 100UL y1) y2;
-          let mo = dec2 c len (s +^ 4sz);
-          let dd = dec2 c len (s +^ 6sz);
-          let h = dec2 c len (s +^ 8sz);
-          let mi = dec2 c len (s +^ 10sz);
-          let sec = dec2 c len (s +^ 12sz);
-          let t = instant64 y mo dd h mi sec;
-          if (t.t_ok) {
-            ({ tr_ok = true; tr_val = t.t_val; tr_end = e })
-          } else {
-            no_time
-          }
-        } else {
-          no_time
-        }
-      } else {
-        no_time
-      }
-    } else {
-      no_time
-    }
-  }
-}
-#pop-options
-
-(** {2 Extensions} *)
-
-type ext_v = {
-  x_ok: bool;
-  x_oid_s: SZ.t;
-  x_oid_e: SZ.t;
-  x_crit: bool;
-  x_val_s: SZ.t;
-  x_val_e: SZ.t;
-  x_end: SZ.t;
-}
-
-let to_ext (r:ext_v) : X.extension =
-  { X.oid_s = SZ.v r.x_oid_s; X.oid_e = SZ.v r.x_oid_e; X.critical = r.x_crit;
-    X.value_s = SZ.v r.x_val_s; X.value_e = SZ.v r.x_val_e; X.ext_end = SZ.v r.x_end }
-
-let ext_matches (r:ext_v) (c:B.bytes) (pos limit:nat) : prop =
-  match X.ext_at c pos limit with
-  | Some x ->
-    r.x_ok == true /\ to_ext r == x /\
-    SZ.v r.x_oid_s <= SZ.v r.x_oid_e /\ SZ.v r.x_oid_e <= SZ.v r.x_end /\
-    SZ.v r.x_val_s <= SZ.v r.x_val_e /\ SZ.v r.x_val_e <= SZ.v r.x_end /\
-    SZ.v r.x_end <= limit /\ limit <= B.length c
-  | None -> r.x_ok == false
-
-inline_for_extraction noextract
-let no_ext : ext_v =
-  { x_ok = false; x_oid_s = 0sz; x_oid_e = 0sz; x_crit = false;
-    x_val_s = 0sz; x_val_e = 0sz; x_end = 0sz }
-
-#push-options "--z3rlimit 80"
-fn ext_at
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:ext_v
-  ensures pts_to c 'b ** pure (ext_matches r (cb 'b len) (SZ.v pos) (SZ.v limit))
-{
-  let s = PK.der_tlv_impl c len 0x30uy pos limit;
-  if (s.ok) {
-    let o = PK.der_tlv_impl c len 0x06uy s.lo s.hi;
-    if (o.ok) {
-      let bo = PK.der_tlv_impl c len 0x01uy o.hi s.hi;
-      if (bo.ok) {
-        let ff = byte_is c len bo.lo 0xFFuy;
-        if (bo.hi = bo.lo +^ 1sz && ff) {
-          let v = PK.der_tlv_impl c len 0x04uy bo.hi s.hi;
-          if (v.ok && v.hi = s.hi) {
-            ({ x_ok = true; x_oid_s = o.lo; x_oid_e = o.hi; x_crit = true;
-               x_val_s = v.lo; x_val_e = v.hi; x_end = s.hi })
-          } else {
-            no_ext
-          }
-        } else {
-          no_ext
-        }
-      } else {
-        let v = PK.der_tlv_impl c len 0x04uy o.hi s.hi;
-        if (v.ok && v.hi = s.hi) {
-          ({ x_ok = true; x_oid_s = o.lo; x_oid_e = o.hi; x_crit = false;
-             x_val_s = v.lo; x_val_e = v.hi; x_end = s.hi })
-        } else {
-          no_ext
-        }
-      }
-    } else {
-      no_ext
-    }
-  } else {
-    no_ext
-  }
-}
-#pop-options
-
-fn ext_oid_is
-  (c:array U8.t) (len:SZ.t) (x:ext_v) (k:U8.t)
-  requires pts_to c 'b **
-           pure (ok_len 'b len /\ SZ.v x.x_oid_s <= SZ.v x.x_oid_e /\ SZ.v x.x_oid_e <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.ext_oid_is (cb 'b len) (to_ext x) k)
-{
-  if (x.x_oid_e -^ x.x_oid_s = 3sz) {
-    let a = byte_is c len x.x_oid_s 0x55uy;
-    let b = byte_is c len (x.x_oid_s +^ 1sz) 0x1Duy;
-    let d = byte_is c len (x.x_oid_s +^ 2sz) k;
-    (a && b && d)
-  } else {
-    false
-  }
-}
-
-fn extensions_wf
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.extensions_wf (cb 'b len) (SZ.v pos) (SZ.v limit))
-{
-  if (SZ.gte pos limit) {
-    (pos = limit)
-  } else {
-    let mut p = pos;
-    let mut ok = true;
-    while (let vp = !p; SZ.lt vp limit)
-    invariant exists* (vp:SZ.t) (vok:bool).
-      pts_to p vp ** pts_to ok vok ** pts_to c 'b **
-      pure (SZ.v vp <= SZ.v limit /\
-            X.extensions_wf (cb 'b len) (SZ.v pos) (SZ.v limit) ==
-            (vok && X.extensions_wf (cb 'b len) (SZ.v vp) (SZ.v limit)))
-    decreases (SZ.v limit - SZ.v (!p))
-    {
-      let vp = !p;
-      let x = ext_at c len vp limit;
-      if (x.x_ok) {
-        p := x.x_end;
-      } else {
-        ok := false;
-        p := limit;
-      }
-    };
-    !ok
-  }
-}
-
-let opt_range_matches (r:PK.der_range) (o:option (nat & nat)) : prop =
+let time_matches (r:time_value) (o:option nat) : prop =
   match o with
-  | Some (lo, hi) -> r.ok == true /\ SZ.v r.lo == lo /\ SZ.v r.hi == hi
-  | None -> r.ok == false
+  | Some t -> r.t_ok == true /\ U64.v r.t_val == t
+  | None -> r.t_ok == false
 
-let find_extension_hit (c:B.bytes) (pos limit:nat) (k:U8.t) (r:ext_v)
-  : Lemma (requires pos < limit /\ ext_matches r c pos limit /\ r.x_ok /\
-                    X.ext_oid_is c (to_ext r) k)
-          (ensures X.find_extension c pos limit k == Some (SZ.v r.x_val_s, SZ.v r.x_val_e))
-  = ()
+inline_for_extraction noextract
+let no_time : time_value = { t_ok = false; t_val = 0UL }
 
-let find_extension_miss (c:B.bytes) (pos limit:nat) (k:U8.t) (r:ext_v)
-  : Lemma (requires pos < limit /\ ext_matches r c pos limit /\ r.x_ok /\
-                    not (X.ext_oid_is c (to_ext r) k))
-          (ensures X.find_extension c pos limit k == X.find_extension c (SZ.v r.x_end) limit k)
-  = ()
-
-#push-options "--z3rlimit 40"
-fn find_extension
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t) (k:U8.t)
+(** A UTCTime ([gen = false]) or GeneralizedTime ([gen = true]) filling
+    [c[0, len)]. *)
+#push-options "--z3rlimit 80"
+fn time_of
+  (c:array U8.t) (len:SZ.t) (gen:bool)
   requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:PK.der_range
+  returns r:time_value
   ensures pts_to c 'b **
-          pure (opt_range_matches r (X.find_extension (cb 'b len) (SZ.v pos) (SZ.v limit) k) /\
-                (r.ok ==> SZ.v r.lo <= SZ.v r.hi /\ SZ.v r.hi <= SZ.v len))
+          pure (time_matches r (if gen then X.generalized_time (cb 'b len) else X.utc_time (cb 'b len)))
 {
-  if (SZ.gte pos limit) {
-    PK.no_range
-  } else {
-    let mut p = pos;
-    let mut res = PK.no_range;
-    let mut stop = false;
-    while (let vp = !p; SZ.lt vp limit)
-    invariant exists* (vp:SZ.t) (vres:PK.der_range) (vstop:bool).
-      pts_to p vp ** pts_to res vres ** pts_to stop vstop ** pts_to c 'b **
-      pure (SZ.v vp <= SZ.v limit /\ (vstop ==> vp == limit) /\
-            (vres.ok ==> SZ.v vres.lo <= SZ.v vres.hi /\ SZ.v vres.hi <= SZ.v len) /\
-            (vstop ==> opt_range_matches vres (X.find_extension (cb 'b len) (SZ.v pos) (SZ.v limit) k)) /\
-            (not vstop ==> vres.ok == false /\
-               X.find_extension (cb 'b len) (SZ.v pos) (SZ.v limit) k ==
-               X.find_extension (cb 'b len) (SZ.v vp) (SZ.v limit) k))
-    decreases (SZ.v limit - SZ.v (!p))
-    {
-      let vp = !p;
-      let x = ext_at c len vp limit;
-      if (x.x_ok) {
-        let hit = ext_oid_is c len x k;
-        if (hit) {
-          find_extension_hit (cb 'b len) (SZ.v vp) (SZ.v limit) k x;
-          res := ({ PK.ok = true; PK.lo = x.x_val_s; PK.hi = x.x_val_e });
-          stop := true;
-          p := limit;
-        } else {
-          find_extension_miss (cb 'b len) (SZ.v vp) (SZ.v limit) k x;
-          p := x.x_end;
-        }
+  if (not gen) {
+    if (len = 13sz) {
+      let d = all_digits c len 0sz 12sz;
+      let z = byte_is c len 12sz 0x5Auy;
+      if (d && z) {
+        let yy = dec2 c len 0sz;
+        let y = if U64.lt yy 50UL then U64.add 2000UL yy else U64.add 1900UL yy;
+        let mo = dec2 c len 2sz;
+        let dd = dec2 c len 4sz;
+        let h = dec2 c len 6sz;
+        let mi = dec2 c len 8sz;
+        let sec = dec2 c len 10sz;
+        instant64 y mo dd h mi sec
       } else {
-        stop := true;
-        p := limit;
+        no_time
       }
-    };
-    !res
-  }
-}
-
-fn oid_in
-  (c:array U8.t) (len:SZ.t) (os oe:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v oe <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.oid_in (cb 'b len) (SZ.v os) (SZ.v oe) (SZ.v pos) (SZ.v limit))
-{
-  if (SZ.gte pos limit) {
-    false
+    } else {
+      no_time
+    }
   } else {
-    let mut p = pos;
-    let mut res = false;
-    let mut stop = false;
-    while (let vp = !p; SZ.lt vp limit)
-    invariant exists* (vp:SZ.t) (vres:bool) (vstop:bool).
-      pts_to p vp ** pts_to res vres ** pts_to stop vstop ** pts_to c 'b **
-      pure (SZ.v vp <= SZ.v limit /\ (vstop ==> vp == limit) /\
-            (vstop ==> vres == X.oid_in (cb 'b len) (SZ.v os) (SZ.v oe) (SZ.v pos) (SZ.v limit)) /\
-            (not vstop ==> vres == false /\
-               X.oid_in (cb 'b len) (SZ.v os) (SZ.v oe) (SZ.v pos) (SZ.v limit) ==
-               X.oid_in (cb 'b len) (SZ.v os) (SZ.v oe) (SZ.v vp) (SZ.v limit)))
-    decreases (SZ.v limit - SZ.v (!p))
-    {
-      let vp = !p;
-      let x = ext_at c len vp limit;
-      if (x.x_ok) {
-        let eq = range_eq_self c len os oe x.x_oid_s x.x_oid_e;
-        if (eq) {
-          res := true;
-          stop := true;
-          p := limit;
-        } else {
-          p := x.x_end;
-        }
+    if (len = 15sz) {
+      let d = all_digits c len 0sz 14sz;
+      let z = byte_is c len 14sz 0x5Auy;
+      if (d && z) {
+        let y1 = dec2 c len 0sz;
+        let y2 = dec2 c len 2sz;
+        let y = U64.add (U64.mul 100UL y1) y2;
+        let mo = dec2 c len 4sz;
+        let dd = dec2 c len 6sz;
+        let h = dec2 c len 8sz;
+        let mi = dec2 c len 10sz;
+        let sec = dec2 c len 12sz;
+        instant64 y mo dd h mi sec
       } else {
-        stop := true;
-        p := limit;
+        no_time
       }
-    };
-    !res
+    } else {
+      no_time
+    }
   }
 }
 #pop-options
-
-fn understood
-  (c:array U8.t) (len:SZ.t) (x:ext_v)
-  requires pts_to c 'b **
-           pure (ok_len 'b len /\ SZ.v x.x_oid_s <= SZ.v x.x_oid_e /\ SZ.v x.x_oid_e <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.understood (cb 'b len) (to_ext x))
-{
-  let a = ext_oid_is c len x X.oid_basic_constraints;
-  let b = ext_oid_is c len x X.oid_key_usage;
-  let d = ext_oid_is c len x X.oid_subject_alt_name;
-  let e = ext_oid_is c len x X.oid_ext_key_usage;
-  (a || b || d || e)
-}
-
-#push-options "--z3rlimit 60"
-fn extensions_ok
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.extensions_ok (cb 'b len) (SZ.v pos) (SZ.v limit))
-{
-  if (SZ.gte pos limit) {
-    true
-  } else {
-    let mut p = pos;
-    let mut ok = true;
-    while (let vp = !p; SZ.lt vp limit)
-    invariant exists* (vp:SZ.t) (vok:bool).
-      pts_to p vp ** pts_to ok vok ** pts_to c 'b **
-      pure (SZ.v vp <= SZ.v limit /\
-            X.extensions_ok (cb 'b len) (SZ.v pos) (SZ.v limit) ==
-            (vok && X.extensions_ok (cb 'b len) (SZ.v vp) (SZ.v limit)))
-    decreases (SZ.v limit - SZ.v (!p))
-    {
-      let vp = !p;
-      let x = ext_at c len vp limit;
-      if (x.x_ok) {
-        let dup = oid_in c len x.x_oid_s x.x_oid_e x.x_end limit;
-        let u = understood c len x;
-        let nc = ext_oid_is c len x X.oid_name_constraints;
-        if (not dup && (not x.x_crit || u) && not nc) {
-          p := x.x_end;
-        } else {
-          ok := false;
-          p := limit;
-        }
-      } else {
-        ok := false;
-        p := limit;
-      }
-    };
-    !ok
-  }
-}
-#pop-options
-
-#push-options "--z3rlimit 60"
-fn ca_allows
-  (c:array U8.t) (len:SZ.t) (vs ve below:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.ca_allows (cb 'b len) (SZ.v vs) (SZ.v ve) (SZ.v below))
-{
-  let s = PK.der_tlv_impl c len 0x30uy vs ve;
-  if (s.ok && s.hi = ve) {
-    let bo = PK.der_tlv_impl c len 0x01uy s.lo s.hi;
-    if (bo.ok) {
-      let ff = byte_is c len bo.lo 0xFFuy;
-      if (bo.hi = bo.lo +^ 1sz && ff) {
-        if (bo.hi = s.hi) {
-          true
-        } else {
-          let i = PK.der_tlv_impl c len 0x02uy bo.hi s.hi;
-          if (i.ok && i.hi = s.hi && i.hi = i.lo +^ 1sz) {
-            let n = c.(i.lo);
-            if (U8.lt n 0x80uy) {
-              SZ.lte below (PK.u8_to_sz n)
-            } else {
-              false
-            }
-          } else {
-            false
-          }
-        }
-      } else {
-        false
-      }
-    } else {
-      false
-    }
-  } else {
-    false
-  }
-}
-
-fn key_usage_allows
-  (c:array U8.t) (len:SZ.t) (xs xe:SZ.t) (mask:U8.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.key_usage_allows (cb 'b len) (SZ.v xs) (SZ.v xe) mask)
-{
-  let f = find_extension c len xs xe X.oid_key_usage;
-  if (f.ok) {
-    let s = PK.der_tlv_impl c len 0x03uy f.lo f.hi;
-    if (s.ok && s.hi = f.hi && SZ.lt s.lo s.hi) {
-      let u = c.(s.lo);
-      if (U8.gt u 7uy) {
-        false
-      } else if (s.lo +^ 1sz = s.hi) {
-        X.has_bit 0uy mask
-      } else {
-        let v = c.(s.lo +^ 1sz);
-        X.has_bit v mask
-      }
-    } else {
-      false
-    }
-  } else {
-    true
-  }
-}
-#pop-options
-
-fn is_server_auth
-  (c:array U8.t) (len:SZ.t) (s e:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v s <= SZ.v e /\ SZ.v e <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.is_server_auth (cb 'b len) (SZ.v s) (SZ.v e))
-{
-  if (e -^ s = 8sz) {
-    let b0 = byte_is c len s 0x2Buy;
-    let b1 = byte_is c len (s +^ 1sz) 0x06uy;
-    let b2 = byte_is c len (s +^ 2sz) 0x01uy;
-    let b3 = byte_is c len (s +^ 3sz) 0x05uy;
-    let b4 = byte_is c len (s +^ 4sz) 0x05uy;
-    let b5 = byte_is c len (s +^ 5sz) 0x07uy;
-    let b6 = byte_is c len (s +^ 6sz) 0x03uy;
-    let b7 = byte_is c len (s +^ 7sz) 0x01uy;
-    (b0 && b1 && b2 && b3 && b4 && b5 && b6 && b7)
-  } else {
-    false
-  }
-}
-
-fn is_any_eku
-  (c:array U8.t) (len:SZ.t) (s e:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len /\ SZ.v s <= SZ.v e /\ SZ.v e <= SZ.v len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.is_any_eku (cb 'b len) (SZ.v s) (SZ.v e))
-{
-  if (e -^ s = 4sz) {
-    let b0 = byte_is c len s 0x55uy;
-    let b1 = byte_is c len (s +^ 1sz) 0x1Duy;
-    let b2 = byte_is c len (s +^ 2sz) 0x25uy;
-    let b3 = byte_is c len (s +^ 3sz) 0x00uy;
-    (b0 && b1 && b2 && b3)
-  } else {
-    false
-  }
-}
-
-(** [X.eku_server_auth c pos limit false = Some true]. *)
-fn eku_server_auth
-  (c:array U8.t) (len:SZ.t) (pos limit:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:bool
-  ensures pts_to c 'b **
-          pure (r == (X.eku_server_auth (cb 'b len) (SZ.v pos) (SZ.v limit) false = Some true))
-{
-  if (SZ.gt pos limit) {
-    false
-  } else {
-    let mut p = pos;
-    let mut found = false;
-    let mut fail = false;
-    while (let vp = !p; SZ.lt vp limit)
-    invariant exists* (vp:SZ.t) (vfound:bool) (vfail:bool).
-      pts_to p vp ** pts_to found vfound ** pts_to fail vfail ** pts_to c 'b **
-      pure (SZ.v vp <= SZ.v limit /\ (vfail ==> vp == limit) /\
-            X.eku_server_auth (cb 'b len) (SZ.v pos) (SZ.v limit) false ==
-            (if vfail then None else X.eku_server_auth (cb 'b len) (SZ.v vp) (SZ.v limit) vfound))
-    decreases (SZ.v limit - SZ.v (!p))
-    {
-      let vp = !p;
-      let o = PK.der_tlv_impl c len 0x06uy vp limit;
-      if (o.ok) {
-        let sa = is_server_auth c len o.lo o.hi;
-        let an = is_any_eku c len o.lo o.hi;
-        let vf = !found;
-        found := (vf || sa || an);
-        p := o.hi;
-      } else {
-        fail := true;
-        p := limit;
-      }
-    };
-    let vfail = !fail;
-    let vfound = !found;
-    (not vfail && vfound)
-  }
-}
-
-fn ext_key_usage_ok
-  (c:array U8.t) (len:SZ.t) (xs xe:SZ.t)
-  requires pts_to c 'b ** pure (ok_len 'b len)
-  returns r:bool
-  ensures pts_to c 'b ** pure (r == X.ext_key_usage_ok (cb 'b len) (SZ.v xs) (SZ.v xe))
-{
-  let f = find_extension c len xs xe X.oid_ext_key_usage;
-  if (f.ok) {
-    let s = PK.der_tlv_impl c len 0x30uy f.lo f.hi;
-    if (s.ok && s.hi = f.hi) {
-      eku_server_auth c len s.lo s.hi
-    } else {
-      false
-    }
-  } else {
-    true
-  }
-}
