@@ -24,6 +24,11 @@ KRML_EXE   ?= $(KRML_HOME)/out/bin/krml
 QD_EXE         ?= $(EVERPARSE_HOME)/bin/everparse-qd.exe
 LOWPARSE_HOME  ?= $(EVERPARSE_HOME)/lib/everparse/lowparse
 
+# everparse-asn1: compiler from an ASN.1 schema to verified DER validators and
+# parsers (used for X.509 certificates), plus its spec and Pulse libraries.
+ASN1_EXE       ?= $(EVERPARSE_HOME)/bin/everparse-asn1.exe
+ASN1_LIB_DIRS  ?= $(addprefix $(EVERPARSE_HOME)/lib/everparse/asn1/,spec pulse)
+
 # The exact EverParse commit this project is verified against, read from the
 # build script so there is a single source of truth.  `check-toolchain` asserts
 # that $(EVERPARSE_HOME) is actually at this commit, because nothing else does:
@@ -45,6 +50,10 @@ export PATH := $(Z3_DIR):$(PATH)
 
 GENERATED_DIR   = generated
 QD_RFC          = tls.qd.rfc
+ASN1_SCHEMA     = src/asn1/X509.asn
+# The schema types with C entry points: the certificate, the extension values
+# atlas reads, and the elements of the SEQUENCE OFs it walks.
+ASN1_ROOTS      = Certificate,BasicConstraints,KeyUsage,ExtKeyUsageSyntax,GeneralNames,RSAPublicKey,Extension,GeneralName,KeyPurposeId
 FSTAR_PREFIX    = $(patsubst %/bin/fstar.exe,%,$(realpath $(FSTAR_EXE)))
 FSTAR_SOURCE_ROOT ?= $(FSTAR_HOME)
 FSTAR_ULIB      = $(FSTAR_SOURCE_ROOT)/ulib
@@ -72,7 +81,7 @@ HACL_PULSE_CUI = $(HACL_PULSE_HOME)/obj/build/Hacl.cui
 EXTERN_DIR  = src/impl/extern
 SPEC_DIRS   = $(sort $(shell find src/spec -type d -print))
 SOURCE_DIRS = common $(SPEC_DIRS) src/impl $(EXTERN_DIR) $(GENERATED_DIR) \
-  $(LOWPARSE_HOME)
+  $(LOWPARSE_HOME) $(ASN1_LIB_DIRS)
 
 # ── F* Flags ───────────────────────────────────────────────────────
 INCLUDES = \
@@ -82,6 +91,7 @@ INCLUDES = \
   --include $(EXTERN_DIR) \
   --include $(GENERATED_DIR) \
   --include $(LOWPARSE_HOME) \
+  $(addprefix --include ,$(ASN1_LIB_DIRS)) \
   $(addprefix --include ,$(HACL_PULSE_SRC_DIRS) $(HACL_PULSE_CACHE_DIR))
 
 FSTAR_DEP_OPTIONS :=
@@ -103,7 +113,7 @@ FSTAR_FLAGS = \
   --odir $(OUTPUT_DIR) \
   --warn_error -321 \
   --report_assumes warn \
-  --already_cached 'Prims,FStar,Pulse,PulseCore,C,Spec,Hacl,LowParse -TLS13 +TLS13.Wire.Generated' \
+  --already_cached 'Prims,FStar,Pulse,PulseCore,C,Spec,Hacl,LowParse,ASN1 -TLS13 +TLS13.Wire.Generated' \
   --ext optimize_let_vc \
   $(INCLUDES)
 
@@ -116,7 +126,7 @@ FSTAR_EXTRACT_FLAGS = \
   --odir $(OUTPUT_DIR) \
   --warn_error -321 \
   --report_assumes warn \
-  --already_cached 'Prims,FStar,Pulse,PulseCore,C,Spec,Hacl,LowParse -TLS13 +TLS13.Wire.Generated' \
+  --already_cached 'Prims,FStar,Pulse,PulseCore,C,Spec,Hacl,LowParse,ASN1 -TLS13 +TLS13.Wire.Generated' \
   --ext optimize_let_vc \
   $(INCLUDES)
 
@@ -168,6 +178,7 @@ ROOT_FILES = \
 # (generated/generated.Makefile), driven by the same toolchain.
 #
 #   make regen-generated    QuackyDucky:  $(QD_RFC) -> generated/TLS13.Wire.Generated.*
+#                           everparse-asn1: $(ASN1_SCHEMA) -> generated/TLS13.Wire.Generated.X509{,.Impl}
 #   make verify-generated    F* verify:    refresh generated/*.checked
 #   make extract-generated   KaRaMeL:      generated/out/*.c (parsers + serializers)
 #   make parsers             run all three in order
@@ -204,7 +215,23 @@ STALE_CACHE_CHECK := $(shell $(CURDIR)/scripts/invalidate-stale-cache.sh \
 regen-generated: | check-toolchain
 	rm -f $(GENERATED_DIR)/TLS13.Wire.Generated.*.fst $(GENERATED_DIR)/TLS13.Wire.Generated.*.fsti
 	$(QD_EXE) -pulse -prefix "TLS13.Wire.Generated." -odir $(GENERATED_DIR) $(QD_RFC)
+	$(MAKE) regen-asn1
 	@echo "Regenerated TLS13.Wire.Generated.* — now run 'make verify-generated' to refresh .checked files."
+
+# everparse-asn1 derives the file names from --mname with dots replaced by
+# underscores; rename them (and their references) to TLS13.Wire.Generated.X509*
+# so that they are verified, cached and extracted with the other generated modules.
+.PHONY: regen-asn1
+regen-asn1: | check-toolchain
+	rm -rf $(GENERATED_DIR)/asn1.tmp
+	mkdir -p $(GENERATED_DIR)/asn1.tmp
+	$(ASN1_EXE) --fstar_only --lax_size_of --odir $(GENERATED_DIR)/asn1.tmp \
+	  --mname TLS13.Wire.Generated.X509 --root $(ASN1_ROOTS) $(ASN1_SCHEMA)
+	for f in $(GENERATED_DIR)/asn1.tmp/TLS13_Wire_Generated_X509*.fst; do \
+	  sed 's/TLS13_Wire_Generated_X509/TLS13.Wire.Generated.X509/g' $$f \
+	    > $(GENERATED_DIR)/$$(basename $$f | sed 's/TLS13_Wire_Generated_X509/TLS13.Wire.Generated.X509/'); \
+	done
+	rm -rf $(GENERATED_DIR)/asn1.tmp
 
 # Verify the generated modules in isolation using the EverParse harness flags,
 # producing their (gitignored) .checked files.  Driven through a stamp so the

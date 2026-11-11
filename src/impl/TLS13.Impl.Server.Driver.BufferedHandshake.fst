@@ -1739,7 +1739,7 @@ let hybrid_selection_of
   (rnd:B.bytes_of_len 32)
   (hsk:B.bytes_of_len 64)
   (share:B.bytes_of_len 1120)
-  : CS.server_handshake_selection
+  : GTot CS.server_handshake_selection
   = let cfg = Some?.v st0.CS.cs_model.CS.model_config.CS.config_server in
     {
       CS.server_selected_client_hello =

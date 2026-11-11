@@ -18,6 +18,7 @@ module Cr = TLS13.Crypto
 module IM = TLS13.Impl.Messages
 module L = FStar.List.Tot
 module PK = TLS13.Impl.X509.PublicKey
+module K = TLS13.Impl.X509.Key
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module U64 = FStar.UInt64
@@ -172,7 +173,7 @@ fn signed_by
   with tb. assert (pts_to (V.vec_to_array tv) tb);
   with sb. assert (pts_to (V.vec_to_array sv) sb);
   let kind =
-    PK.certificate_raw_public_key issuer ilen
+    K.certificate_raw_public_key issuer ilen
       (V.vec_to_array kv) key_cap (V.vec_to_array ev) key_cap (V.vec_to_array lv);
   with kb eb ls.
     assert (pts_to (V.vec_to_array kv) kb ** pts_to (V.vec_to_array ev) eb **

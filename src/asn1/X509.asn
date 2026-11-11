@@ -1,0 +1,121 @@
+-- The subset of RFC 5280 (Appendix A) that TLS13.X509.Spec validates,
+-- compiled by everparse-asn1 (`make regen-asn1`) into the verified DER
+-- validators and parsers of TLS13.Wire.Generated.X509{,.Impl}.
+--
+-- Departures from the RFC 5280 module, none of which changes the set of
+-- DER encodings accepted for the fields atlas reads:
+--   * Name is RDNSequence directly (its only CHOICE alternative), so that
+--     it can keep its bytes; directoryName therefore tags it EXPLICIT.
+--   * ORAddress and EDIPartyName, which atlas never reads, are any
+--     SEQUENCE of DER values.
+--   * Extension values are OCTET STRINGs here; the ones atlas reads are
+--     parsed with the separate roots BasicConstraints, KeyUsage,
+--     ExtKeyUsageSyntax and GeneralNames.
+--   * RSAPublicKey (RFC 8017 A.1.1) is parsed separately from the
+--     subjectPublicKey BIT STRING; TLS13.Crypto.Spec requires both INTEGERs
+--     to be positive.
+TLS13X509 DEFINITIONS EXPLICIT TAGS ::= BEGIN
+
+--#KEEP-BYTES TBSCertificate
+--#KEEP-BYTES Name
+
+Certificate ::= SEQUENCE {
+  tbsCertificate       TBSCertificate,
+  signatureAlgorithm   AlgorithmIdentifier,
+  signatureValue       BIT STRING
+}
+
+TBSCertificate ::= SEQUENCE {
+  version              [0] Version DEFAULT v1,
+  serialNumber         CertificateSerialNumber,
+  signature            AlgorithmIdentifier,
+  issuer               Name,
+  validity             Validity,
+  subject              Name,
+  subjectPublicKeyInfo SubjectPublicKeyInfo,
+  issuerUniqueID       [1] IMPLICIT UniqueIdentifier OPTIONAL,
+  subjectUniqueID      [2] IMPLICIT UniqueIdentifier OPTIONAL,
+  extensions           [3] Extensions OPTIONAL
+}
+
+Version ::= INTEGER { v1(0), v2(1), v3(2) }
+
+CertificateSerialNumber ::= INTEGER
+
+UniqueIdentifier ::= BIT STRING
+
+AlgorithmIdentifier ::= SEQUENCE {
+  algorithm            OBJECT IDENTIFIER,
+  parameters           ANY OPTIONAL
+}
+
+Name ::= RDNSequence
+
+RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
+
+RelativeDistinguishedName ::= SET SIZE (1..MAX) OF AttributeTypeAndValue
+
+AttributeTypeAndValue ::= SEQUENCE {
+  type                 OBJECT IDENTIFIER,
+  value                ANY
+}
+
+Validity ::= SEQUENCE {
+  notBefore            Time,
+  notAfter             Time
+}
+
+Time ::= CHOICE {
+  utcTime              UTCTime,
+  generalTime          GeneralizedTime
+}
+
+SubjectPublicKeyInfo ::= SEQUENCE {
+  algorithm            AlgorithmIdentifier,
+  subjectPublicKey     BIT STRING
+}
+
+Extensions ::= SEQUENCE SIZE (1..MAX) OF Extension
+
+Extension ::= SEQUENCE {
+  extnID               OBJECT IDENTIFIER,
+  critical             BOOLEAN DEFAULT FALSE,
+  extnValue            OCTET STRING
+}
+
+BasicConstraints ::= SEQUENCE {
+  cA                   BOOLEAN DEFAULT FALSE,
+  pathLenConstraint    INTEGER (0..MAX) OPTIONAL
+}
+
+KeyUsage ::= BIT STRING
+
+ExtKeyUsageSyntax ::= SEQUENCE SIZE (1..MAX) OF KeyPurposeId
+
+KeyPurposeId ::= OBJECT IDENTIFIER
+
+GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
+
+GeneralName ::= CHOICE {
+  otherName                 [0] IMPLICIT AnotherName,
+  rfc822Name                [1] IMPLICIT IA5String,
+  dNSName                   [2] IMPLICIT IA5String,
+  x400Address               [3] IMPLICIT SEQUENCE OF ANY,
+  directoryName             [4] EXPLICIT Name,
+  ediPartyName              [5] IMPLICIT SEQUENCE OF ANY,
+  uniformResourceIdentifier [6] IMPLICIT IA5String,
+  iPAddress                 [7] IMPLICIT OCTET STRING,
+  registeredID              [8] IMPLICIT OBJECT IDENTIFIER
+}
+
+AnotherName ::= SEQUENCE {
+  type-id              OBJECT IDENTIFIER,
+  value                [0] EXPLICIT ANY
+}
+
+RSAPublicKey ::= SEQUENCE {
+  modulus              INTEGER,
+  publicExponent       INTEGER
+}
+
+END

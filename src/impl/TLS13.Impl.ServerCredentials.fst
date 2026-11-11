@@ -14,6 +14,7 @@ module CS = TLS13.Spec.StateMachine
 module CV = TLS13.Impl.Client.CertificateVerify
 module Cast = FStar.Int.Cast
 module PK = TLS13.Impl.X509.PublicKey
+module K = TLS13.Impl.X509.Key
 module Seq = FStar.Seq
 module SZ = FStar.SizeT
 module T = TLS13.Types
@@ -40,12 +41,18 @@ type server_credentials = {
 }
 
 (* [kind] is the certificate key's algorithm, as numbered by
-   [PK.certificate_raw_public_key]: 1 for RSA, 2 for P-256. *)
+   [K.certificate_raw_public_key]: 1 for RSA, 2 for P-256. *)
 let kind_ok (kind:U8.t) (chain:B.bytes) : prop =
   match C.certificate_raw_public_key chain with
   | Some (C.RawRsa _ _) -> kind == 1uy
   | Some (C.RawP256 _) -> kind == 2uy
   | _ -> False
+
+let kind_scheme (kind:U8.t) (chain:B.bytes)
+  : Lemma (requires kind_ok kind chain)
+          (ensures (kind == 1uy /\ C.credential_signature_scheme chain == T.Rsa_pss_rsae_sha256) \/
+                   (kind == 2uy /\ C.credential_signature_scheme chain == T.Ecdsa_secp256r1_sha256))
+  = C.lemma_credential_signature_scheme_def chain
 
 let creds_ok (c:server_credentials) (chain sb:B.bytes) : prop =
   V.is_full_vec c.chain /\
@@ -216,7 +223,7 @@ fn server_credentials_new
   let mut exponent = [| 0uy; raw_key_capacity |];
   let mut lens = [| 0sz; 2sz |];
   let kind =
-    PK.certificate_raw_public_key
+    K.certificate_raw_public_key
       certificate_chain certificate_chain_len
       pk raw_key_capacity exponent raw_key_capacity lens;
   if ((kind = 1uy || kind = 2uy) &&
@@ -446,7 +453,7 @@ fn sign_rsa
   let mut lens = [| 0sz; 2sz |];
   let mut salt = [| 0uy; 32sz |];
   let k =
-    PK.certificate_raw_public_key
+    K.certificate_raw_public_key
       chain chain_len pk raw_key_capacity exponent raw_key_capacity lens;
   let modulus_len = lens.(0sz);
   if (k = 1uy && SZ.lte modulus_len signature_capacity) {
@@ -631,7 +638,7 @@ fn server_credential_signature_scheme (creds:server_credentials)
                    T.Ecdsa_secp256r1_sha256))
 {
   unfold (is_server_credentials creds 'certificate_chain 'credential_identity);
-  C.lemma_credential_signature_scheme_def 'credential_identity;
+  kind_scheme creds.kind 'credential_identity;
   fold (is_server_credentials creds 'certificate_chain 'credential_identity);
   if (creds.kind = 1uy) { 0x0804us } else { 0x0403us }
 }

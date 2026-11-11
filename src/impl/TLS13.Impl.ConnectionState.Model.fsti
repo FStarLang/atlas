@@ -268,14 +268,14 @@ val lemma_signature_schemes_match_exists_rsa_offer
 /// back out of the stored ClientHello instead of threading it through the
 /// driver.
 noextract
-let server_credential_scheme (cfg:CS.server_config) : T.signature_scheme =
+let server_credential_scheme (cfg:CS.server_config) : GTot T.signature_scheme =
   CryptoSpec.credential_signature_scheme cfg.CS.server_credential_identity
 
 /// State-level form of [server_credential_scheme].  Defaults to
 /// rsa_pss_rsae_sha256 on a client state, which has no server config; every
 /// server-side use is guarded by [CS.server_config_present].
 noextract
-let server_selected_scheme (st:CS.connection_state) : T.signature_scheme =
+let server_selected_scheme (st:CS.connection_state) : GTot T.signature_scheme =
   match st.CS.cs_model.CS.model_config.CS.config_server with
   | Some cfg -> server_credential_scheme cfg
   | None -> T.Rsa_pss_rsae_sha256

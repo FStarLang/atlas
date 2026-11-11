@@ -23,6 +23,8 @@ module TLS13.Crypto.Spec
   anything TLS uses.
 **)
 
+open TLS13.Crypto.RawKey
+
 module B = TLS13.Bytes
 module T = TLS13.Types
 module Seq = FStar.Seq
@@ -404,6 +406,9 @@ let lemma_aead_open_seal alg key nonce aad plaintext =
    | AEAD_AES128_GCM -> gcm_open_seal key nonce aad plaintext);
   some_eq (aead_open alg key nonce aad (aead_seal alg key nonce aad plaintext)) plaintext
 
+let certificate_raw_public_key certificate =
+  TLS13.X509.KeySpec.certificate_key certificate
+
 (** {2 Signatures}
 
     Signature verification is hacl-pulse's, by the public key the interface
@@ -434,6 +439,9 @@ let rsa_mod_bits_arith (l b:nat)
     FStar.Math.Lemmas.lemma_div_plus (b + 6) (l - 1) 8
 #pop-options
 
+(* The ASN.1 specifications behind [certificate_raw_public_key] are irrelevant
+   here and slow the solver down. *)
+#push-options "--using_facts_from '* -ASN1 -LowParse -TLS13.X509 -TLS13.Wire.Generated.X509'"
 let rsa_pss_args_facts (n e message signature:B.bytes)
   : Lemma (requires rsa_pss_args_ok n e message signature)
           (ensures (let mb = rsa_mod_bits n in
@@ -447,6 +455,7 @@ let rsa_pss_args_facts (n e message signature:B.bytes)
     let b = byte_bit_length (Seq.index n 0) in
     assert (rsa_mod_bits n == 8 * (l - 1) + b);
     rsa_mod_bits_arith l b
+#pop-options
 
 noextract
 let rsa_pss_rsae_sha256_valid (n e message signature:B.bytes) : GTot prop =
