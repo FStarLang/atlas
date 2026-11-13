@@ -141,12 +141,12 @@ let bc_eq (pm: perm) (x: t_BasicConstraints) (y: asn1_t X.k_BasicConstraints)
       | BasicConstraints_cA_absent, BasicConstraints_pathLenConstraint_present b ->
         assert (arel true d_BasicConstraints pm (Mkt_BasicConstraints BasicConstraints_cA_absent (BasicConstraints_pathLenConstraint_present b)) y ==
                 bc_m pm (Mkt_BasicConstraints BasicConstraints_cA_absent (BasicConstraints_pathLenConstraint_present b)) y)
-          by (rtac [`%d_BasicConstraints; `%cd_BasicConstraints; `%view_BasicConstraints; `%bc_m;
+          by (rtac' true [`%d_BasicConstraints; `%cd_BasicConstraints; `%view_BasicConstraints; `%bc_m;
                     `%oview_BasicConstraints_cA; `%oview_BasicConstraints_pathLenConstraint; `%asn1_int_rel])
       | BasicConstraints_cA_present a, BasicConstraints_pathLenConstraint_present b ->
         assert (arel true d_BasicConstraints pm (Mkt_BasicConstraints (BasicConstraints_cA_present a) (BasicConstraints_pathLenConstraint_present b)) y ==
                 bc_m pm (Mkt_BasicConstraints (BasicConstraints_cA_present a) (BasicConstraints_pathLenConstraint_present b)) y)
-          by (rtac [`%d_BasicConstraints; `%cd_BasicConstraints; `%view_BasicConstraints; `%bc_m;
+          by (rtac' true [`%d_BasicConstraints; `%cd_BasicConstraints; `%view_BasicConstraints; `%bc_m;
                     `%oview_BasicConstraints_cA; `%oview_BasicConstraints_pathLenConstraint; `%asn1_int_rel])
   in
   bc_case x.cA x.pathLenConstraint
